@@ -1,25 +1,18 @@
-import "dotenv/config";
-import { shell, app, desktopCapturer, dialog, screen, globalShortcut, ipcMain, BrowserWindow } from "electron";
-import { uIOhook, UiohookKey } from "uiohook-napi";
-import { join, dirname } from "path";
-import { electronApp, optimizer, is } from "@electron-toolkit/utils";
-import pkg from "node-mac-permissions";
-import OpenAI from "openai";
-import Anthropic from "@anthropic-ai/sdk";
-import { mkdir, writeFile, unlink } from "fs/promises";
-import { tmpdir, homedir } from "os";
-import { spawn } from "child_process";
-import fetch from "node-fetch";
-import { mkdirSync, writeFileSync, existsSync, readFileSync } from "fs";
-import { mouse, straightTo, Button, keyboard, Point } from "@nut-tree/nut-js";
-import { randomUUID } from "crypto";
-import __cjs_url__ from "node:url";
-import __cjs_path__ from "node:path";
-import __cjs_mod__ from "node:module";
-const __filename = __cjs_url__.fileURLToPath(import.meta.url);
-const __dirname = __cjs_path__.dirname(__filename);
-const require2 = __cjs_mod__.createRequire(import.meta.url);
-const icon = join(__dirname, "../../resources/icon.png");
+"use strict";
+require("dotenv/config");
+const electron = require("electron");
+const path = require("path");
+const utils = require("@electron-toolkit/utils");
+const uiohookNapi = require("uiohook-napi");
+const pkg = require("node-mac-permissions");
+const nutJs = require("@nut-tree-fork/nut-js");
+const Anthropic = require("@anthropic-ai/sdk");
+const child_process = require("child_process");
+const promises = require("fs/promises");
+const os = require("os");
+const OpenAI = require("openai");
+const fs = require("fs");
+const crypto = require("crypto");
 const { getAuthStatus, askForAccessibilityAccess } = pkg;
 const ACCESSIBILITY_SETTINGS_URL = "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility";
 function sleep$2(ms) {
@@ -27,7 +20,7 @@ function sleep$2(ms) {
 }
 async function triggerScreenRecordingPrompt() {
   try {
-    await desktopCapturer.getSources({
+    await electron.desktopCapturer.getSources({
       types: ["screen"],
       thumbnailSize: { width: 1, height: 1 }
     });
@@ -42,7 +35,7 @@ function showPermissionDialog(missing) {
 ` + screenLine + accessibilityLine + `
 For Screen Recording: if the system prompt did not appear, open System Settings → Privacy & Security → Screen Recording and enable Specter, then click Retry.
 For Accessibility: grant access in System Settings, then click Retry.`;
-  const result = dialog.showMessageBoxSync({
+  const result = electron.dialog.showMessageBoxSync({
     type: "warning",
     buttons: ["Retry", "Quit"],
     defaultId: 0,
@@ -75,21 +68,16 @@ async function checkPermissions() {
       return true;
     }
     if (missing.includes("accessibility")) {
-      shell.openExternal(ACCESSIBILITY_SETTINGS_URL);
+      electron.shell.openExternal(ACCESSIBILITY_SETTINGS_URL);
     }
     const action = showPermissionDialog(missing);
     if (action === "quit") {
-      app.quit();
+      electron.app.quit();
       return false;
     }
   }
 }
-const PERMISSION_ERROR_PATTERNS = [
-  /permission/i,
-  /access denied/i,
-  /not authorized/i,
-  /screen recording/i
-];
+const PERMISSION_ERROR_PATTERNS = [/permission/i, /access denied/i, /not authorized/i, /screen recording/i];
 function isPermissionError(err) {
   if (err instanceof Error) {
     return PERMISSION_ERROR_PATTERNS.some((re) => re.test(err.message));
@@ -97,52 +85,130 @@ function isPermissionError(err) {
   return false;
 }
 async function captureScreenBase64() {
-  const primaryDisplay = screen.getPrimaryDisplay();
+  const primaryDisplay = electron.screen.getPrimaryDisplay();
   const { width, height } = primaryDisplay.size;
   let sources;
   try {
-    sources = await desktopCapturer.getSources({
+    sources = await electron.desktopCapturer.getSources({
       types: ["screen"],
       thumbnailSize: { width, height }
     });
   } catch (err) {
-    const wrapped = new Error(
-      "Screen Recording permission denied. Grant access in System Settings, then retry."
-    );
+    const wrapped = new Error("Screen Recording permission denied. Grant access in System Settings, then retry.");
     wrapped.code = "SCREEN_PERMISSION_DENIED";
     wrapped.cause = err;
     throw wrapped;
   }
   const source = sources.find((s) => s.display_id === String(primaryDisplay.id)) ?? sources[0];
   if (!source || source.thumbnail.isEmpty()) {
-    const err = new Error(
-      "Screen Recording permission denied. Grant access in System Settings, then retry."
-    );
+    const err = new Error("Screen Recording permission denied. Grant access in System Settings, then retry.");
     err.code = "SCREEN_PERMISSION_DENIED";
     throw err;
   }
   return source.thumbnail.toPNG().toString("base64");
 }
-const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
-async function transcribe(audioBuffer) {
-  console.log("[WHISPER] transcribe called, buffer size:", audioBuffer?.length);
-  if (!OPENAI_API_KEY) {
-    console.error("OPENAI_API_KEY not set in environment");
-    return "";
-  }
+const DEFAULT_MOVE_DURATION_MS = 650;
+function sleep$1(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+function clampPercent(value) {
+  return Math.min(100, Math.max(0, value));
+}
+function easeInOutCubic(progress) {
+  return progress < 0.5 ? 4 * progress ** 3 : 1 - Math.pow(-2 * progress + 2, 3) / 2;
+}
+function cursorPermissionError(error) {
+  const detail = error instanceof Error ? error.message : String(error);
+  return new Error(
+    `Specter could not control the macOS cursor. Grant Accessibility permission to this app in System Settings > Privacy & Security > Accessibility, then retry. Original error: ${detail}`
+  );
+}
+async function toScreenPoint(x, y) {
+  const primary = electron.screen.getPrimaryDisplay();
+  const { width: logicalW, height: logicalH } = primary.size;
+  const scale = primary.scaleFactor;
+  const pixelX = Math.round(clampPercent(x) / 100 * logicalW * scale);
+  const pixelY = Math.round(clampPercent(y) / 100 * logicalH * scale);
+  return new nutJs.Point(pixelX, pixelY);
+}
+async function getPhysicalMousePosition() {
   try {
-    console.log("[WHISPER] Calling OpenAI...");
-    const openai = new OpenAI({ apiKey: OPENAI_API_KEY });
-    const file = new File([new Uint8Array(audioBuffer)], "audio.webm", { type: "audio/webm" });
-    const response = await openai.audio.transcriptions.create({
-      file,
-      model: "whisper-1"
-    });
-    console.log("[WHISPER] Result:", response.text);
-    return response.text || "";
+    const pos = await nutJs.mouse.getPosition();
+    return { x: pos.x, y: pos.y };
   } catch (error) {
-    console.error("[WHISPER] Error:", error);
-    return "";
+    throw cursorPermissionError(error);
+  }
+}
+async function waitForMouseAtTarget(targetPercentX, targetPercentY, tolerancePx, timeoutMs) {
+  try {
+    const target = await toScreenPoint(targetPercentX, targetPercentY);
+    const start = Date.now();
+    while (Date.now() - start < timeoutMs) {
+      const pos = await nutJs.mouse.getPosition();
+      const dx = pos.x - target.x;
+      const dy = pos.y - target.y;
+      if (Math.abs(dx) <= tolerancePx && Math.abs(dy) <= tolerancePx) {
+        return "correct";
+      }
+      await sleep$1(100);
+    }
+    return "timeout";
+  } catch (error) {
+    throw cursorPermissionError(error);
+  }
+}
+async function ghostMove(x, y, durationMs = DEFAULT_MOVE_DURATION_MS) {
+  console.log("[CURSOR] ghostMove called:", x, y, durationMs);
+  try {
+    const target = await toScreenPoint(x, y);
+    console.log("[CURSOR] Physical pixels:", target.x, target.y);
+    const current = await nutJs.mouse.getPosition();
+    const distance = Math.max(1, Math.hypot(target.x - current.x, target.y - current.y));
+    const previousSpeed = nutJs.mouse.config.mouseSpeed;
+    const durationSeconds = Math.max(0.05, durationMs / 1e3);
+    nutJs.mouse.config.mouseSpeed = Math.max(200, distance / durationSeconds);
+    try {
+      await nutJs.mouse.move(nutJs.straightTo(target), easeInOutCubic);
+      console.log("[CURSOR] nut-js move complete");
+    } finally {
+      nutJs.mouse.config.mouseSpeed = previousSpeed;
+    }
+  } catch (error) {
+    console.error("[CURSOR] nut-js error:", error);
+    throw cursorPermissionError(error);
+  }
+}
+async function ghostClick(x, y) {
+  try {
+    await ghostMove(x, y);
+    await nutJs.mouse.click(nutJs.Button.LEFT);
+  } catch (error) {
+    throw cursorPermissionError(error);
+  }
+}
+async function executeSteps(steps) {
+  for (const step of steps) {
+    if (step.action !== "wait" && step.delayMs) {
+      await sleep$1(step.delayMs);
+    }
+    switch (step.action) {
+      case "click":
+        await ghostClick(step.x, step.y);
+        break;
+      case "type":
+        await ghostMove(step.x, step.y);
+        if (step.typeText) {
+          await nutJs.keyboard.type(step.typeText);
+        }
+        break;
+      case "scroll":
+        await ghostMove(step.x, step.y);
+        await nutJs.mouse.scrollDown(3);
+        break;
+      case "wait":
+        await sleep$1(step.delayMs || 500);
+        break;
+    }
   }
 }
 function anthropicClient$1() {
@@ -333,8 +399,6 @@ async function planSteps(userIntent, screenState, sessionHistory, mode) {
   const client = anthropicClient();
   if (!client) {
     console.warn("[Specter] ANTHROPIC_API_KEY missing; using planner fallback.");
-    console.log("[PLANNER] Using fallback?", true);
-    console.log("[PLANNER] Steps:", JSON.stringify(fallback.steps));
     return fallback;
   }
   try {
@@ -378,14 +442,9 @@ async function planSteps(userIntent, screenState, sessionHistory, mode) {
     const rawText = message.content.filter((part) => part.type === "text").map((part) => part.text).join("\n");
     console.log("[PLANNER] Raw response:", rawText);
     const steps = normalizeSequence(extractJson(rawText), fallback);
-    const usingFallback = steps === fallback;
-    console.log("[PLANNER] Using fallback?", usingFallback);
-    console.log("[PLANNER] Steps:", JSON.stringify(steps.steps));
     return steps;
   } catch (error) {
     console.error("[Specter] Failed to plan steps:", error);
-    console.log("[PLANNER] Using fallback?", true);
-    console.log("[PLANNER] Steps:", JSON.stringify(fallback.steps));
     return fallback;
   }
 }
@@ -395,9 +454,9 @@ async function converse(userMessage, screenState, conversationHistory) {
     return "I can help with that once the Claude API key is configured. For now, keep following the cursor.";
   }
   try {
-    const history = conversationHistory.slice(-8).map((message2) => ({
-      role: message2.role,
-      content: message2.content
+    const history = conversationHistory.slice(-8).map((msg) => ({
+      role: msg.role,
+      content: msg.content
     }));
     const message = await client.messages.create({
       model: CLAUDE_MODEL,
@@ -439,7 +498,7 @@ function waitForProcess(child) {
 }
 async function playAudioFile(filePath) {
   if (process.platform === "darwin") {
-    activePlayback = spawn("afplay", [filePath], { stdio: "ignore" });
+    activePlayback = child_process.spawn("afplay", [filePath], { stdio: "ignore" });
     const child = activePlayback;
     try {
       await waitForProcess(child);
@@ -447,11 +506,11 @@ async function playAudioFile(filePath) {
       if (activePlayback === child) {
         activePlayback = null;
       }
-      unlink(filePath).catch(() => void 0);
+      promises.unlink(filePath).catch(() => void 0);
     }
     return;
   }
-  await shell.openPath(filePath);
+  await electron.shell.openPath(filePath);
 }
 async function stopSpeaking() {
   speechRunId += 1;
@@ -466,10 +525,8 @@ async function stopSpeaking() {
 }
 async function speakFallback(text) {
   await stopSpeaking();
-  if (!text.trim()) {
-    return;
-  }
-  activePlayback = spawn("say", ["-v", "Samantha", text], { stdio: "ignore" });
+  if (!text.trim()) return;
+  activePlayback = child_process.spawn("say", ["-v", "Samantha", text], { stdio: "ignore" });
   const child = activePlayback;
   try {
     await waitForProcess(child);
@@ -482,9 +539,7 @@ async function speakFallback(text) {
 async function speak(text) {
   console.log("[TTS] speak() called with:", text?.slice(0, 50));
   await stopSpeaking();
-  if (!text.trim()) {
-    return;
-  }
+  if (!text.trim()) return;
   const runId = speechRunId;
   const apiKey = process.env.ELEVENLABS_API_KEY;
   if (!apiKey) {
@@ -519,24 +574,20 @@ async function speak(text) {
     if (activeRequest === request) {
       activeRequest = null;
     }
-    if (runId !== speechRunId) {
-      return;
-    }
+    if (runId !== speechRunId) return;
     if (!response.ok) {
       const errorText = await response.text();
       throw new Error(`ElevenLabs returned ${response.status}: ${errorText}`);
     }
     const arrayBuffer = await response.arrayBuffer();
-    if (runId !== speechRunId) {
-      return;
-    }
+    if (runId !== speechRunId) return;
     const audio = Buffer.from(arrayBuffer);
-    const outputDir = join(tmpdir(), "specter-tts");
-    const outputPath = join(outputDir, `speech-${Date.now()}.mp3`);
-    await mkdir(outputDir, { recursive: true });
-    await writeFile(outputPath, audio);
+    const outputDir = path.join(os.tmpdir(), "specter-tts");
+    const outputPath = path.join(outputDir, `speech-${Date.now()}.mp3`);
+    await promises.mkdir(outputDir, { recursive: true });
+    await promises.writeFile(outputPath, audio);
     if (runId !== speechRunId) {
-      unlink(outputPath).catch(() => void 0);
+      promises.unlink(outputPath).catch(() => void 0);
       return;
     }
     console.log("[TTS] Audio received, playing...");
@@ -545,15 +596,82 @@ async function speak(text) {
     if (activeRequest === request) {
       activeRequest = null;
     }
-    if (runId !== speechRunId) {
-      return;
-    }
+    if (runId !== speechRunId) return;
     console.error("[TTS] Error:", error);
     await speakFallback(text);
   }
 }
-const DEFAULT_APP_NAME = "Specter";
-const STEP_ACTIONS = ["click", "type", "scroll", "wait"];
+const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
+async function transcribe(audioBuffer) {
+  console.log("[WHISPER] transcribe called, buffer size:", audioBuffer?.length);
+  if (!OPENAI_API_KEY) {
+    console.error("OPENAI_API_KEY not set in environment");
+    return "";
+  }
+  try {
+    console.log("[WHISPER] Calling OpenAI...");
+    const openai = new OpenAI({ apiKey: OPENAI_API_KEY });
+    const file = new File([new Uint8Array(audioBuffer)], "audio.webm", { type: "audio/webm" });
+    const response = await openai.audio.transcriptions.create({
+      file,
+      model: "whisper-1"
+    });
+    console.log("[WHISPER] Result:", response.text);
+    return response.text || "";
+  } catch (error) {
+    console.error("[WHISPER] Error:", error);
+    return "";
+  }
+}
+const ARM_A = "show_once";
+const ARM_B = "show_twice";
+const ARM_C = "micro_steps";
+const ARM_STYLE = {
+  A: ARM_A,
+  B: ARM_B,
+  C: ARM_C
+};
+const ARMS = ["A", "B", "C"];
+function sampleNormal() {
+  let u = 0;
+  let v = 0;
+  while (u === 0) u = Math.random();
+  while (v === 0) v = Math.random();
+  return Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * v);
+}
+function sampleGamma(shape) {
+  if (shape < 1) {
+    const u = Math.random();
+    return sampleGamma(shape + 1) * Math.pow(u, 1 / shape);
+  }
+  const d = shape - 1 / 3;
+  const c = 1 / Math.sqrt(9 * d);
+  for (; ; ) {
+    const x = sampleNormal();
+    const value = 1 + c * x;
+    if (value <= 0) continue;
+    const v = value * value * value;
+    const u = Math.random();
+    if (u < 1 - 0.0331 * x ** 4 || Math.log(u) < 0.5 * x * x + d * (1 - v + Math.log(v))) {
+      return d * v;
+    }
+  }
+}
+function sampleBeta(alpha, beta) {
+  const x = sampleGamma(alpha);
+  const y = sampleGamma(beta);
+  const total = x + y;
+  return total > 0 ? x / total : 0;
+}
+function positiveNumber(value, fallback) {
+  return typeof value === "number" && Number.isFinite(value) && value > 0 ? value : fallback;
+}
+function normalizeBandtTuple(value, fallback) {
+  if (!Array.isArray(value)) {
+    return [...fallback];
+  }
+  return [positiveNumber(value[0], fallback[0]), positiveNumber(value[1], fallback[1])];
+}
 function createDefaultBandtState() {
   return {
     A: [1, 1],
@@ -561,7 +679,45 @@ function createDefaultBandtState() {
     C: [1, 1]
   };
 }
-function createDefaultGraph(appName = DEFAULT_APP_NAME) {
+function normalizeBandtState(bandtState) {
+  const defaults = createDefaultBandtState();
+  return {
+    A: normalizeBandtTuple(bandtState?.A, defaults.A),
+    B: normalizeBandtTuple(bandtState?.B, defaults.B),
+    C: normalizeBandtTuple(bandtState?.C, defaults.C)
+  };
+}
+function selectArm(bandtState) {
+  const normalized = normalizeBandtState(bandtState);
+  const samples = ARMS.map((arm) => {
+    const [alpha, beta] = normalized[arm];
+    return { arm, sample: sampleBeta(alpha, beta) };
+  });
+  samples.sort((left, right) => right.sample - left.sample);
+  return samples[0].arm;
+}
+function recordReward(bandtState, arm, reward) {
+  const normalized = normalizeBandtState(bandtState);
+  const [alpha, beta] = normalized[arm];
+  const updated = {
+    ...normalized,
+    [arm]: [alpha + reward, beta + (1 - reward)]
+  };
+  const winningStyle = getCurrentStyle(updated);
+  console.log("[Specter] Teaching style currently winning:", winningStyle);
+  return updated;
+}
+function getCurrentStyle(bandtState) {
+  const normalized = normalizeBandtState(bandtState);
+  const ranked = ARMS.map((arm) => {
+    const [alpha, beta] = normalized[arm];
+    return { arm, mean: alpha / (alpha + beta) };
+  }).sort((left, right) => right.mean - left.mean);
+  return ARM_STYLE[ranked[0].arm];
+}
+const DEFAULT_APP_NAME$1 = "Specter";
+const STEP_ACTIONS = ["click", "type", "scroll", "wait"];
+function createDefaultGraph(appName = DEFAULT_APP_NAME$1) {
   return {
     userId: process.env.SPECTER_USER_ID || "local-user",
     app: appName,
@@ -574,7 +730,7 @@ function createDefaultGraph(appName = DEFAULT_APP_NAME) {
 }
 function graphPath(appName) {
   const safeName = appName.replace(/[^a-z0-9._-]/gi, "_");
-  return join(homedir(), "Library", "Application Support", "Specter", `${safeName}.json`);
+  return path.join(os.homedir(), "Library", "Application Support", "Specter", `${safeName}.json`);
 }
 function isRecord(value) {
   return Boolean(value && typeof value === "object" && !Array.isArray(value));
@@ -585,10 +741,6 @@ function stringValue(value, fallback) {
 function nonNegativeNumber(value, fallback = 0) {
   return typeof value === "number" && Number.isFinite(value) ? Math.max(0, value) : fallback;
 }
-function positiveNumber$1(value, fallback = 1) {
-  const normalized = nonNegativeNumber(value, fallback);
-  return normalized > 0 ? normalized : fallback;
-}
 function percentNumber(value, fallback = 50) {
   return Math.min(100, nonNegativeNumber(value, fallback));
 }
@@ -597,17 +749,6 @@ function nonNegativeInteger(value, fallback = 0) {
 }
 function stringArray(value) {
   return Array.isArray(value) ? value.filter((item) => typeof item === "string") : [];
-}
-function bandtTuple(value) {
-  return Array.isArray(value) ? [positiveNumber$1(value[0], 1), positiveNumber$1(value[1], 1)] : [1, 1];
-}
-function normalizeBandtState$1(value) {
-  const bandtState = isRecord(value) ? value : {};
-  return {
-    A: bandtTuple(bandtState.A),
-    B: bandtTuple(bandtState.B),
-    C: bandtTuple(bandtState.C)
-  };
 }
 function normalizeAction(value) {
   return typeof value === "string" && STEP_ACTIONS.includes(value) ? value : "click";
@@ -668,12 +809,8 @@ function normalizeSession(sessionId, value) {
 }
 function normalizeGraph(graph, appName) {
   const fallback = createDefaultGraph(appName);
-  const nodes = isRecord(graph.nodes) ? Object.fromEntries(
-    Object.entries(graph.nodes).map(([id, node]) => [id, normalizeNode(id, node)])
-  ) : fallback.nodes;
-  const branches = isRecord(graph.branches) ? Object.fromEntries(
-    Object.entries(graph.branches).map(([id, branch]) => [id, normalizeBranch(id, branch)])
-  ) : fallback.branches;
+  const nodes = isRecord(graph.nodes) ? Object.fromEntries(Object.entries(graph.nodes).map(([id, node]) => [id, normalizeNode(id, node)])) : fallback.nodes;
+  const branches = isRecord(graph.branches) ? Object.fromEntries(Object.entries(graph.branches).map(([id, branch]) => [id, normalizeBranch(id, branch)])) : fallback.branches;
   const edges = Array.isArray(graph.edges) ? graph.edges.map(normalizeEdge).filter((edge) => Boolean(edge)) : fallback.edges;
   const sessions = Array.isArray(graph.sessions) ? graph.sessions.map((session, index) => normalizeSession(`session-${index + 1}`, session)) : fallback.sessions;
   return {
@@ -685,16 +822,16 @@ function normalizeGraph(graph, appName) {
     edges,
     branches,
     sessions,
-    bandtState: normalizeBandtState$1(graph.bandtState)
+    bandtState: normalizeBandtState(graph.bandtState)
   };
 }
-function loadGraph(appName = DEFAULT_APP_NAME) {
+function loadGraph(appName = DEFAULT_APP_NAME$1) {
   const filePath = graphPath(appName);
-  if (!existsSync(filePath)) {
+  if (!fs.existsSync(filePath)) {
     return createDefaultGraph(appName);
   }
   try {
-    const parsed = JSON.parse(readFileSync(filePath, "utf8"));
+    const parsed = JSON.parse(fs.readFileSync(filePath, "utf8"));
     return normalizeGraph(parsed, appName);
   } catch (error) {
     console.error("[Specter] Failed to load learning graph:", error);
@@ -702,228 +839,15 @@ function loadGraph(appName = DEFAULT_APP_NAME) {
   }
 }
 function saveGraph(graph) {
-  const filePath = graphPath(graph.app || DEFAULT_APP_NAME);
-  mkdirSync(dirname(filePath), { recursive: true });
-  writeFileSync(
-    filePath,
-    `${JSON.stringify(normalizeGraph(graph, graph.app), null, 2)}
-`,
-    "utf8"
-  );
-}
-function getResumePrompt(graph) {
-  const completed = Object.values(graph.nodes).filter((node) => node.completed);
-  const inProgress = Object.values(graph.nodes).find(
-    (node) => !node.completed && node.lastStepIndex > 0
-  );
-  const lastSession = graph.sessions.length > 0 ? graph.sessions[graph.sessions.length - 1] : null;
-  if (!lastSession && completed.length === 0) {
-    return "Welcome to Specter. Tell me what you want to learn first.";
-  }
-  if (inProgress) {
-    return `Welcome back. You completed ${completed.length} ${completed.length === 1 ? "skill" : "skills"}. Resume ${inProgress.title} at step ${inProgress.lastStepIndex + 1}.`;
-  }
-  return `Welcome back. You completed ${completed.length} ${completed.length === 1 ? "skill" : "skills"}. Pick a new level when you are ready.`;
-}
-const ARM_A = "show_once";
-const ARM_B = "show_twice";
-const ARM_C = "micro_steps";
-const ARM_STYLE = {
-  A: ARM_A,
-  B: ARM_B,
-  C: ARM_C
-};
-const ARMS = ["A", "B", "C"];
-function sampleNormal() {
-  let u = 0;
-  let v = 0;
-  while (u === 0) u = Math.random();
-  while (v === 0) v = Math.random();
-  return Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * v);
-}
-function sampleGamma(shape) {
-  if (shape < 1) {
-    const u = Math.random();
-    return sampleGamma(shape + 1) * Math.pow(u, 1 / shape);
-  }
-  const d = shape - 1 / 3;
-  const c = 1 / Math.sqrt(9 * d);
-  for (; ; ) {
-    const x = sampleNormal();
-    const value = 1 + c * x;
-    if (value <= 0) {
-      continue;
-    }
-    const v = value * value * value;
-    const u = Math.random();
-    if (u < 1 - 0.0331 * x ** 4 || Math.log(u) < 0.5 * x * x + d * (1 - v + Math.log(v))) {
-      return d * v;
-    }
-  }
-}
-function sampleBeta(alpha, beta) {
-  const x = sampleGamma(alpha);
-  const y = sampleGamma(beta);
-  const total = x + y;
-  return total > 0 ? x / total : 0;
-}
-function positiveNumber(value, fallback) {
-  return typeof value === "number" && Number.isFinite(value) && value > 0 ? value : fallback;
-}
-function normalizeBandtTuple(value, fallback) {
-  if (!Array.isArray(value)) {
-    return [...fallback];
-  }
-  return [positiveNumber(value[0], fallback[0]), positiveNumber(value[1], fallback[1])];
-}
-function normalizeBandtState(bandtState) {
-  const defaults = createDefaultBandtState();
-  return {
-    A: normalizeBandtTuple(bandtState?.A, defaults.A),
-    B: normalizeBandtTuple(bandtState?.B, defaults.B),
-    C: normalizeBandtTuple(bandtState?.C, defaults.C)
-  };
-}
-function selectArm(bandtState) {
-  const normalized = normalizeBandtState(bandtState);
-  const samples = ARMS.map((arm) => {
-    const [alpha, beta] = normalized[arm];
-    return { arm, sample: sampleBeta(alpha, beta) };
-  });
-  samples.sort((left, right) => right.sample - left.sample);
-  return samples[0].arm;
-}
-function recordReward(bandtState, arm, reward) {
-  const normalized = normalizeBandtState(bandtState);
-  const [alpha, beta] = normalized[arm];
-  const updated = {
-    ...normalized,
-    [arm]: [alpha + reward, beta + (1 - reward)]
-  };
-  const winningStyle = getCurrentStyle(updated);
-  console.log("[Specter] Teaching style currently winning:", winningStyle);
-  return updated;
-}
-function getCurrentStyle(bandtState) {
-  const normalized = normalizeBandtState(bandtState);
-  const ranked = ARMS.map((arm) => {
-    const [alpha, beta] = normalized[arm];
-    return { arm, mean: alpha / (alpha + beta) };
-  }).sort((left, right) => right.mean - left.mean);
-  return ARM_STYLE[ranked[0].arm];
-}
-const DEFAULT_MOVE_DURATION_MS = 650;
-function sleep$1(ms) {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
-function clampPercent(value) {
-  return Math.min(100, Math.max(0, value));
-}
-function easeInOutCubic(progress) {
-  return progress < 0.5 ? 4 * progress ** 3 : 1 - (-2 * progress + 2) ** 3 / 2;
-}
-function cursorPermissionError(error) {
-  const detail = error instanceof Error ? error.message : String(error);
-  return new Error(
-    `Specter could not control the macOS cursor. Grant Accessibility permission to this app in System Settings > Privacy & Security > Accessibility, then retry. Original error: ${detail}`
-  );
-}
-async function toScreenPoint(x, y) {
-  const primary = screen.getPrimaryDisplay();
-  const { width: logicalW, height: logicalH } = primary.size;
-  const scale = primary.scaleFactor;
-  const pixelX = Math.round(clampPercent(x) / 100 * logicalW * scale);
-  const pixelY = Math.round(clampPercent(y) / 100 * logicalH * scale);
-  return new Point(pixelX, pixelY);
-}
-async function getPhysicalMousePosition() {
-  try {
-    const pos = await mouse.getPosition();
-    return { x: pos.x, y: pos.y };
-  } catch (error) {
-    throw cursorPermissionError(error);
-  }
-}
-async function waitForMouseAtTarget(targetPercentX, targetPercentY, tolerancePx, timeoutMs) {
-  try {
-    const target = await toScreenPoint(targetPercentX, targetPercentY);
-    const start = Date.now();
-    while (Date.now() - start < timeoutMs) {
-      const pos = await mouse.getPosition();
-      const dx = pos.x - target.x;
-      const dy = pos.y - target.y;
-      if (Math.abs(dx) <= tolerancePx && Math.abs(dy) <= tolerancePx) {
-        return "correct";
-      }
-      await sleep$1(100);
-    }
-    return "timeout";
-  } catch (error) {
-    throw cursorPermissionError(error);
-  }
-}
-async function ghostMove(x, y, durationMs = DEFAULT_MOVE_DURATION_MS) {
-  console.log("[CURSOR] ghostMove called:", x, y, durationMs);
-  try {
-    const target = await toScreenPoint(x, y);
-    console.log("[CURSOR] Physical pixels:", target.x, target.y);
-    const current = await mouse.getPosition();
-    const distance = Math.max(1, Math.hypot(target.x - current.x, target.y - current.y));
-    const previousSpeed = mouse.config.mouseSpeed;
-    const durationSeconds = Math.max(0.05, durationMs / 1e3);
-    mouse.config.mouseSpeed = Math.max(200, distance / durationSeconds);
-    try {
-      await mouse.move(straightTo(target), easeInOutCubic);
-      console.log("[CURSOR] nut-js move complete");
-    } finally {
-      mouse.config.mouseSpeed = previousSpeed;
-    }
-  } catch (error) {
-    console.error("[CURSOR] nut-js error:", error);
-    throw cursorPermissionError(error);
-  }
-}
-async function ghostClick(x, y) {
-  try {
-    await ghostMove(x, y);
-    await mouse.click(Button.LEFT);
-  } catch (error) {
-    throw cursorPermissionError(error);
-  }
-}
-async function executeSteps(steps) {
-  for (const step of steps) {
-    if (step.action !== "wait" && step.delayMs) {
-      await sleep$1(step.delayMs);
-    }
-    switch (step.action) {
-      case "click":
-        await ghostClick(step.x, step.y);
-        break;
-      case "type":
-        await ghostMove(step.x, step.y);
-        if (step.typeText) {
-          await keyboard.type(step.typeText);
-        }
-        break;
-      case "scroll":
-        await ghostMove(step.x, step.y);
-        await mouse.scrollDown(3);
-        break;
-      case "wait":
-        await sleep$1(step.delayMs || 500);
-        break;
-    }
-  }
+  const filePath = graphPath(graph.app || DEFAULT_APP_NAME$1);
+  fs.mkdirSync(path.dirname(filePath), { recursive: true });
+  fs.writeFileSync(filePath, JSON.stringify(normalizeGraph(graph, graph.app), null, 2) + "\n", "utf8");
 }
 function cloneGraph$1(graph) {
   return {
     ...graph,
     nodes: Object.fromEntries(
-      Object.entries(graph.nodes).map(([id, node]) => [
-        id,
-        { ...node, prerequisites: [...node.prerequisites] }
-      ])
+      Object.entries(graph.nodes).map(([id, node]) => [id, { ...node, prerequisites: [...node.prerequisites] }])
     ),
     edges: graph.edges.map((edge) => ({ ...edge })),
     branches: Object.fromEntries(
@@ -977,7 +901,7 @@ function markNodeComplete(graph, nodeId) {
 }
 function createBranch(graph, fromNodeId, fromStep) {
   const next = cloneGraph$1(graph);
-  const branchId = randomUUID();
+  const branchId = crypto.randomUUID();
   const branch = {
     id: branchId,
     forkedFrom: { nodeId: fromNodeId, stepIndex: fromStep },
@@ -1001,15 +925,24 @@ function getNextRecommendedNode(graph) {
   });
   return candidates[0] || null;
 }
+function getResumePrompt(graph) {
+  const completed = Object.values(graph.nodes).filter((node) => node.completed);
+  const inProgress = Object.values(graph.nodes).find((node) => !node.completed && node.lastStepIndex > 0);
+  const lastSession = graph.sessions.length > 0 ? graph.sessions[graph.sessions.length - 1] : null;
+  if (!lastSession && completed.length === 0) {
+    return "Welcome to Specter. Tell me what you want to learn first.";
+  }
+  if (inProgress) {
+    return `Welcome back. You completed ${completed.length} ${completed.length === 1 ? "skill" : "skills"}. Resume ${inProgress.title} at step ${inProgress.lastStepIndex + 1}.`;
+  }
+  return `Welcome back. You completed ${completed.length} ${completed.length === 1 ? "skill" : "skills"}. Pick a new level when you are ready.`;
+}
 let activeRecording = null;
 function cloneGraph(graph) {
   return {
     ...graph,
     nodes: Object.fromEntries(
-      Object.entries(graph.nodes).map(([id, node]) => [
-        id,
-        { ...node, prerequisites: [...node.prerequisites] }
-      ])
+      Object.entries(graph.nodes).map(([id, node]) => [id, { ...node, prerequisites: [...node.prerequisites] }])
     ),
     edges: graph.edges.map((edge) => ({ ...edge })),
     branches: Object.fromEntries(
@@ -1047,11 +980,9 @@ function defaultNode(nodeId) {
   };
 }
 function averageStepTime(steps) {
-  const timings = steps.map((step) => step.delayMs).filter((delayMs) => delayMs > 0);
-  if (timings.length === 0) {
-    return 0;
-  }
-  return timings.reduce((total, delayMs) => total + delayMs, 0) / timings.length;
+  const timings = steps.map((s) => s.delayMs).filter((d) => typeof d === "number" && d > 0);
+  if (timings.length === 0) return 0;
+  return timings.reduce((a, b) => a + b, 0) / timings.length;
 }
 function normalizeRecordedStep(step) {
   return {
@@ -1065,9 +996,7 @@ function startRecording() {
   activeRecording = [];
 }
 function recordStep(step) {
-  if (!activeRecording) {
-    activeRecording = [];
-  }
+  if (!activeRecording) activeRecording = [];
   activeRecording.push(normalizeRecordedStep(step));
 }
 function stopRecording() {
@@ -1080,7 +1009,7 @@ function saveToNode(graph, nodeId, steps) {
   const currentNode = next.nodes[nodeId] || defaultNode(nodeId);
   const normalizedSteps = steps.map(normalizeRecordedStep);
   const avgStepTimeMs = averageStepTime(normalizedSteps);
-  const activeBranch = Object.values(next.branches).find((branch) => branch.status === "active");
+  const activeBranch = Object.values(next.branches).find((b) => b.status === "active");
   if (activeBranch && !activeBranch.nodesCovered.includes(nodeId)) {
     activeBranch.nodesCovered.push(nodeId);
   }
@@ -1091,7 +1020,7 @@ function saveToNode(graph, nodeId, steps) {
     lastStepIndex: Math.max(0, normalizedSteps.length - 1)
   };
   next.sessions.push({
-    id: randomUUID(),
+    id: crypto.randomUUID(),
     timestamp: (/* @__PURE__ */ new Date()).toISOString(),
     nodesVisited: [nodeId],
     branchId: activeBranch?.id,
@@ -1111,12 +1040,10 @@ function createReplayController() {
   return controller;
 }
 function cancelReplay(controller) {
-  if (controller.cancelled) {
-    return;
-  }
+  if (controller.cancelled) return;
   controller.cancelled = true;
-  for (const cancelHandler of controller.cancelHandlers) {
-    cancelHandler();
+  for (const handler of controller.cancelHandlers) {
+    handler();
   }
   controller.cancelHandlers.clear();
 }
@@ -1124,19 +1051,13 @@ function isActive(controller) {
   return activeReplay === controller && !controller.cancelled;
 }
 function sleep(ms, controller) {
-  if (controller.cancelled) {
-    return Promise.resolve(false);
-  }
-  if (ms <= 0) {
-    return Promise.resolve(true);
-  }
+  if (controller.cancelled) return Promise.resolve(false);
+  if (ms <= 0) return Promise.resolve(true);
   return new Promise((resolve) => {
     let settled = false;
     const timeout = setTimeout(() => settle(true), ms);
     const settle = (completed) => {
-      if (settled) {
-        return;
-      }
+      if (settled) return;
       settled = true;
       clearTimeout(timeout);
       controller.cancelHandlers.delete(cancel);
@@ -1148,31 +1069,20 @@ function sleep(ms, controller) {
 }
 function sendOverlay(channel, payload) {
   const overlayWindow2 = getOverlayWindow();
-  if (!overlayWindow2 || overlayWindow2.isDestroyed()) {
-    return;
-  }
+  if (!overlayWindow2 || overlayWindow2.isDestroyed()) return;
   overlayWindow2.webContents.send(channel, payload);
 }
 function setOverlayForReplay() {
   const overlayWindow2 = getOverlayWindow();
-  if (!overlayWindow2 || overlayWindow2.isDestroyed()) {
-    return;
-  }
-  if (!overlayWindow2.isVisible()) {
-    overlayWindow2.show();
-  }
+  if (!overlayWindow2 || overlayWindow2.isDestroyed()) return;
+  if (!overlayWindow2.isVisible()) overlayWindow2.show();
   overlayWindow2.setIgnoreMouseEvents(true, { forward: true });
 }
 function waitForUserAtTarget(step, controller, timeoutMs = 45e3) {
-  if (controller.cancelled) {
-    return Promise.resolve("cancelled");
-  }
+  if (controller.cancelled) return Promise.resolve("cancelled");
   return new Promise((resolve) => {
     let settled = false;
-    const timeout = setTimeout(
-      () => settle(controller.cancelled ? "cancelled" : "timeout"),
-      timeoutMs
-    );
+    const timeout = setTimeout(() => settle(controller.cancelled ? "cancelled" : "timeout"), timeoutMs);
     const settle = (result) => {
       if (settled) return;
       settled = true;
@@ -1187,9 +1097,9 @@ function waitForUserAtTarget(step, controller, timeoutMs = 45e3) {
     });
   });
 }
-function stepsForNode(nodeId, appName = DEFAULT_APP_NAME) {
+function stepsForNode(nodeId, appName) {
   const graph = loadGraph(appName);
-  const sessions = nodeId ? graph.sessions.filter((session) => session.nodesVisited.includes(nodeId)) : graph.sessions.filter((session) => session.steps.length > 0);
+  const sessions = nodeId ? graph.sessions.filter((s) => s.nodesVisited.includes(nodeId)) : graph.sessions.filter((s) => s.steps.length > 0);
   const latest = sessions.length > 0 ? sessions[sessions.length - 1] : null;
   return latest?.steps || [];
 }
@@ -1204,7 +1114,7 @@ async function replayWalkthrough(steps, onStep) {
   const controller = createReplayController();
   setOverlayForReplay();
   try {
-    for (let index = 0; index < steps.length; index += 1) {
+    for (let index = 0; index < steps.length; index++) {
       if (!isActive(controller)) break;
       const step = steps[index];
       let result = "timeout";
@@ -1212,41 +1122,35 @@ async function replayWalkthrough(steps, onStep) {
       while (result !== "correct" && isActive(controller)) {
         const channel = attempts === 0 ? "replay:step" : "replay:retry";
         sendOverlay(channel, { step, index, total: steps.length, reason: result });
-        if (attempts === 0) {
-          onStep(step, index);
-        }
+        if (attempts === 0) onStep(step, index);
         if (step.action !== "wait") {
           await ghostMove(step.x, step.y, 600);
         }
         result = await waitForUserAtTarget(step, controller);
-        if (result === "timeout") {
-          attempts += 1;
-        }
+        if (result === "timeout") attempts++;
       }
     }
     if (!controller.cancelled) {
       sendOverlay("replay:complete", {});
     }
   } finally {
-    if (activeReplay === controller) {
-      activeReplay = null;
-    }
+    if (activeReplay === controller) activeReplay = null;
   }
 }
 async function replayAutoExecute(steps) {
   const controller = createReplayController();
   setOverlayForReplay();
   try {
-    for (let index = 0; index < steps.length; index += 1) {
+    for (let index = 0; index < steps.length; index++) {
       if (!isActive(controller)) break;
       const step = steps[index];
       if (step.action === "click") {
-        if (!await sleep(step.delayMs, controller)) break;
+        if (!await sleep(step.delayMs || 0, controller)) break;
         await ghostClick(step.x, step.y);
       } else if (step.action === "wait") {
         if (!await sleep(step.delayMs || 500, controller)) break;
       } else {
-        if (!await sleep(step.delayMs, controller)) break;
+        if (!await sleep(step.delayMs || 0, controller)) break;
         await executeSteps([{ ...step, delayMs: 0 }]);
       }
       sendOverlay("replay:progress", { index, total: steps.length });
@@ -1255,25 +1159,26 @@ async function replayAutoExecute(steps) {
     if (!controller.cancelled) {
       sendOverlay("replay:complete", {});
     }
-    if (activeReplay === controller) {
-      activeReplay = null;
-    }
+    if (activeReplay === controller) activeReplay = null;
   }
 }
-function registerReplayIpc(ipcMain2, windowProvider, appName = DEFAULT_APP_NAME) {
+function registerReplayIpc(ipcMain, windowProvider, appName = "Specter") {
   getOverlayWindow = windowProvider;
-  ipcMain2.handle("replay:walkthrough", async (_event, nodeId) => {
+  ipcMain.handle("replay:walkthrough", async (_event, nodeId) => {
     const steps = stepsForNode(nodeId, appName);
-    await replayWalkthrough(steps, () => void 0);
+    await replayWalkthrough(steps, () => {
+    });
   });
-  ipcMain2.handle("replay:auto", async (_event, nodeId) => {
+  ipcMain.handle("replay:auto", async (_event, nodeId) => {
     const steps = stepsForNode(nodeId, appName);
     await replayAutoExecute(steps);
   });
-  ipcMain2.handle("replay:stop", async () => {
+  ipcMain.handle("replay:stop", async () => {
     stopReplay();
   });
 }
+const icon = path.join(__dirname, "../../resources/icon.png");
+const DEFAULT_APP_NAME = "Specter";
 let mainWindow = null;
 let overlayWindow = null;
 function isLearningGraph(value) {
@@ -1294,8 +1199,8 @@ function toggleOverlay() {
 }
 let lastShiftTime = 0;
 const DOUBLE_TAP_MS = 300;
-uIOhook.on("keydown", (e) => {
-  if (e.keycode === UiohookKey.Shift || e.keycode === UiohookKey.ShiftRight) {
+uiohookNapi.uIOhook.on("keydown", (e) => {
+  if (e.keycode === uiohookNapi.UiohookKey.Shift || e.keycode === uiohookNapi.UiohookKey.ShiftRight) {
     const now = Date.now();
     if (now - lastShiftTime < DOUBLE_TAP_MS) {
       toggleOverlay();
@@ -1306,14 +1211,14 @@ uIOhook.on("keydown", (e) => {
   }
 });
 function createWindow() {
-  mainWindow = new BrowserWindow({
+  mainWindow = new electron.BrowserWindow({
     width: 400,
     height: 600,
     show: false,
     autoHideMenuBar: true,
     ...process.platform === "linux" ? { icon } : {},
     webPreferences: {
-      preload: join(__dirname, "../preload/index.js"),
+      preload: path.join(__dirname, "../preload/index.js"),
       sandbox: false
     }
   });
@@ -1324,17 +1229,17 @@ function createWindow() {
     mainWindow = null;
   });
   mainWindow.webContents.setWindowOpenHandler((details) => {
-    shell.openExternal(details.url);
+    electron.shell.openExternal(details.url);
     return { action: "deny" };
   });
-  if (is.dev) {
-    mainWindow.loadURL("http://localhost:5173");
+  if (utils.is.dev && process.env["ELECTRON_RENDERER_URL"]) {
+    mainWindow.loadURL(process.env["ELECTRON_RENDERER_URL"]);
   } else {
-    mainWindow.loadFile(join(__dirname, "../renderer/index.html"));
+    mainWindow.loadFile(path.join(__dirname, "../renderer/index.html"));
   }
 }
 function createOverlayWindow() {
-  overlayWindow = new BrowserWindow({
+  overlayWindow = new electron.BrowserWindow({
     fullscreen: true,
     transparent: true,
     frame: false,
@@ -1343,7 +1248,7 @@ function createOverlayWindow() {
     skipTaskbar: true,
     show: false,
     webPreferences: {
-      preload: join(__dirname, "../preload/index.js"),
+      preload: path.join(__dirname, "../preload/index.js"),
       sandbox: false
     }
   });
@@ -1356,27 +1261,25 @@ function createOverlayWindow() {
   overlayWindow.on("closed", () => {
     overlayWindow = null;
   });
-  if (is.dev) {
-    overlayWindow.loadURL("http://localhost:5173/overlay.html");
+  if (utils.is.dev && process.env["ELECTRON_RENDERER_URL"]) {
+    overlayWindow.loadURL(`${process.env["ELECTRON_RENDERER_URL"]}/overlay.html`);
   } else {
-    overlayWindow.loadFile(join(__dirname, "../renderer/overlay.html"));
+    overlayWindow.loadFile(path.join(__dirname, "../renderer/overlay.html"));
   }
 }
-app.whenReady().then(async () => {
-  electronApp.setAppUserModelId("com.electron");
+electron.app.whenReady().then(async () => {
+  utils.electronApp.setAppUserModelId("com.electron");
   const granted = await checkPermissions();
-  if (!granted) {
-    return;
-  }
-  app.on("browser-window-created", (_, window) => {
-    optimizer.watchWindowShortcuts(window);
+  if (!granted) return;
+  electron.app.on("browser-window-created", (_, window) => {
+    utils.optimizer.watchWindowShortcuts(window);
   });
   createWindow();
   createOverlayWindow();
-  if (!app.isPackaged) {
+  if (!electron.app.isPackaged) {
     mainWindow?.webContents.openDevTools({ mode: "detach" });
     overlayWindow?.webContents.openDevTools({ mode: "detach" });
-    globalShortcut.register("CommandOrControl+Shift+D", () => {
+    electron.globalShortcut.register("CommandOrControl+Shift+D", () => {
       if (mainWindow?.webContents.isDevToolsOpened()) {
         mainWindow.webContents.closeDevTools();
       } else {
@@ -1384,31 +1287,28 @@ app.whenReady().then(async () => {
       }
     });
   }
-  uIOhook.start();
-  ipcMain.on("overlay:hide", () => {
+  uiohookNapi.uIOhook.start();
+  electron.ipcMain.on("overlay:hide", () => {
     if (!overlayWindow) return;
     overlayWindow.setIgnoreMouseEvents(true, { forward: true });
     overlayWindow.hide();
   });
-  ipcMain.handle("cursor:move", async (_event, x, y, durationMs) => {
+  electron.ipcMain.handle("cursor:move", async (_event, x, y, durationMs) => {
     console.log("[IPC] cursor:move", { x, y, durationMs });
     return ghostMove(x, y, durationMs);
   });
-  ipcMain.handle("cursor:click", async (_event, x, y) => ghostClick(x, y));
-  ipcMain.handle("cursor:replay", async (_event, steps) => executeSteps(steps));
-  ipcMain.handle("cursor:getPosition", async () => getPhysicalMousePosition());
-  ipcMain.handle(
-    "cursor:waitForTarget",
-    async (_event, x, y, tolerancePx = 50, timeoutMs = 45e3) => {
-      console.log("[IPC] cursor:waitForTarget", { x, y, tolerancePx, timeoutMs });
-      return waitForMouseAtTarget(x, y, tolerancePx, timeoutMs);
-    }
-  );
-  ipcMain.handle("overlay:setClickThrough", async (_event, clickThrough) => {
+  electron.ipcMain.handle("cursor:click", async (_event, x, y) => ghostClick(x, y));
+  electron.ipcMain.handle("cursor:replay", async (_event, steps) => executeSteps(steps));
+  electron.ipcMain.handle("cursor:getPosition", async () => getPhysicalMousePosition());
+  electron.ipcMain.handle("cursor:waitForTarget", async (_event, x, y, tolerancePx = 50, timeoutMs = 45e3) => {
+    console.log("[IPC] cursor:waitForTarget", { x, y, tolerancePx, timeoutMs });
+    return waitForMouseAtTarget(x, y, tolerancePx, timeoutMs);
+  });
+  electron.ipcMain.handle("overlay:setClickThrough", async (_event, clickThrough) => {
     if (!overlayWindow || overlayWindow.isDestroyed()) return;
     overlayWindow.setIgnoreMouseEvents(clickThrough, { forward: true });
   });
-  ipcMain.handle("screen:capture", async (event) => {
+  electron.ipcMain.handle("screen:capture", async (event) => {
     console.log("[IPC] screen:capture");
     try {
       return await captureScreenBase64();
@@ -1419,7 +1319,7 @@ app.whenReady().then(async () => {
       throw err;
     }
   });
-  ipcMain.handle("screen:analyze", async (event, base64PNG) => {
+  electron.ipcMain.handle("screen:analyze", async (event, base64PNG) => {
     console.log("[IPC] screen:analyze", { hasBase64: !!base64PNG });
     try {
       const screenshot = base64PNG || await captureScreenBase64();
@@ -1431,111 +1331,93 @@ app.whenReady().then(async () => {
       throw err;
     }
   });
-  ipcMain.handle(
-    "planner:plan",
-    async (_event, userIntent, screenState, sessionHistory, mode) => {
-      console.log("[IPC] planner:plan", { userIntent, mode });
-      return planSteps(userIntent, screenState, sessionHistory, mode);
-    }
-  );
-  ipcMain.handle(
+  electron.ipcMain.handle("planner:plan", async (_event, userIntent, screenState, sessionHistory, mode) => {
+    console.log("[IPC] planner:plan", { userIntent, mode });
+    return planSteps(userIntent, screenState, sessionHistory, mode);
+  });
+  electron.ipcMain.handle(
     "planner:converse",
     async (_event, userMessage, screenState, conversationHistory) => converse(userMessage, screenState, conversationHistory)
   );
-  ipcMain.handle("session:save", async (_event, graph) => {
+  electron.ipcMain.handle("session:save", async (_event, graph) => {
     if (isLearningGraph(graph)) {
       saveGraph(graph);
       return graph;
     }
     return loadGraph(DEFAULT_APP_NAME);
   });
-  ipcMain.handle(
-    "session:load",
-    async (_event, appName = DEFAULT_APP_NAME) => loadGraph(appName)
-  );
-  ipcMain.handle(
+  electron.ipcMain.handle("session:load", async (_event, appName = DEFAULT_APP_NAME) => loadGraph(appName));
+  electron.ipcMain.handle(
     "session:resume-prompt",
     async (_event, appName = DEFAULT_APP_NAME) => getResumePrompt(loadGraph(appName))
   );
-  ipcMain.handle("session:record-start", async () => startRecording());
-  ipcMain.handle("session:record-step", async (_event, step) => recordStep(step));
-  ipcMain.handle("session:record-stop", async () => stopRecording());
-  ipcMain.handle(
-    "session:save-node",
-    async (_event, nodeId, steps, appName = DEFAULT_APP_NAME) => {
-      const graph = saveToNode(loadGraph(appName), nodeId, steps);
-      saveGraph(graph);
-      return graph;
-    }
-  );
-  ipcMain.handle(
-    "session:mark-complete",
-    async (_event, nodeId, appName = DEFAULT_APP_NAME) => {
-      const graph = markNodeComplete(loadGraph(appName), nodeId);
-      saveGraph(graph);
-      return graph;
-    }
-  );
-  ipcMain.handle(
-    "session:create-branch",
-    async (_event, fromNodeId, fromStep, appName = DEFAULT_APP_NAME) => {
-      const result = createBranch(loadGraph(appName), fromNodeId, fromStep);
-      saveGraph(result.graph);
-      return result;
-    }
-  );
-  ipcMain.handle(
+  electron.ipcMain.handle("session:record-start", async () => startRecording());
+  electron.ipcMain.handle("session:record-step", async (_event, step) => recordStep(step));
+  electron.ipcMain.handle("session:record-stop", async () => stopRecording());
+  electron.ipcMain.handle("session:save-node", async (_event, nodeId, steps, appName = DEFAULT_APP_NAME) => {
+    const graph = saveToNode(loadGraph(appName), nodeId, steps);
+    saveGraph(graph);
+    return graph;
+  });
+  electron.ipcMain.handle("session:mark-complete", async (_event, nodeId, appName = DEFAULT_APP_NAME) => {
+    const graph = markNodeComplete(loadGraph(appName), nodeId);
+    saveGraph(graph);
+    return graph;
+  });
+  electron.ipcMain.handle("session:create-branch", async (_event, fromNodeId, fromStep, appName = DEFAULT_APP_NAME) => {
+    const result = createBranch(loadGraph(appName), fromNodeId, fromStep);
+    saveGraph(result.graph);
+    return result;
+  });
+  electron.ipcMain.handle(
     "session:next-node",
     async (_event, appName = DEFAULT_APP_NAME) => getNextRecommendedNode(loadGraph(appName))
   );
-  ipcMain.handle(
+  electron.ipcMain.handle(
     "session:available-nodes",
     async (_event, appName = DEFAULT_APP_NAME) => getAvailableNodes(loadGraph(appName))
   );
-  ipcMain.handle(
+  electron.ipcMain.handle(
     "bandit:select",
     async (_event, appName = DEFAULT_APP_NAME) => selectArm(loadGraph(appName).bandtState)
   );
-  ipcMain.handle(
-    "bandit:reward",
-    async (_event, arm, reward, appName = DEFAULT_APP_NAME) => {
-      const graph = loadGraph(appName);
-      graph.bandtState = recordReward(graph.bandtState, arm, reward);
-      saveGraph(graph);
-      return { bandtState: graph.bandtState, style: getCurrentStyle(graph.bandtState) };
-    }
-  );
-  ipcMain.handle(
+  electron.ipcMain.handle("bandit:reward", async (_event, arm, reward, appName = DEFAULT_APP_NAME) => {
+    const graph = loadGraph(appName);
+    graph.bandtState = recordReward(graph.bandtState, arm, reward);
+    saveGraph(graph);
+    return { bandtState: graph.bandtState, style: getCurrentStyle(graph.bandtState) };
+  });
+  electron.ipcMain.handle(
     "bandit:style",
     async (_event, appName = DEFAULT_APP_NAME) => getCurrentStyle(loadGraph(appName).bandtState)
   );
-  ipcMain.handle("tts:speak", async (_event, text) => {
+  electron.ipcMain.handle("tts:speak", async (_event, text) => {
     console.log("[IPC] tts:speak", { text: text?.slice(0, 50) });
     return speak(text);
   });
-  ipcMain.handle("tts:stop", async () => stopSpeaking());
-  ipcMain.handle("whisper:transcribe", async (_event, audioData) => {
+  electron.ipcMain.handle("tts:stop", async () => stopSpeaking());
+  electron.ipcMain.handle("whisper:transcribe", async (_event, audioData) => {
     console.log("[IPC] whisper:transcribe", { size: audioData?.byteLength });
     const buffer = Buffer.from(audioData);
     return transcribe(buffer);
   });
-  registerReplayIpc(ipcMain, () => overlayWindow);
-  app.on("activate", function() {
-    if (BrowserWindow.getAllWindows().length === 0) {
+  registerReplayIpc(electron.ipcMain, () => overlayWindow);
+  electron.app.on("activate", function() {
+    if (electron.BrowserWindow.getAllWindows().length === 0) {
       createWindow();
       createOverlayWindow();
-      if (!app.isPackaged) {
+      if (!electron.app.isPackaged) {
         mainWindow?.webContents.openDevTools({ mode: "detach" });
         overlayWindow?.webContents.openDevTools({ mode: "detach" });
       }
     }
   });
 });
-app.on("will-quit", () => {
-  uIOhook.stop();
+electron.app.on("will-quit", () => {
+  uiohookNapi.uIOhook.stop();
 });
-app.on("window-all-closed", () => {
+electron.app.on("window-all-closed", () => {
   if (process.platform !== "darwin") {
-    app.quit();
+    electron.app.quit();
   }
 });

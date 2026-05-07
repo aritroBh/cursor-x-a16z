@@ -1,0 +1,62 @@
+"use strict";
+const electron = require("electron");
+const preload = require("@electron-toolkit/preload");
+const api = {
+  // Cursor
+  moveCursor: (x, y, durationMs) => electron.ipcRenderer.invoke("cursor:move", x, y, durationMs),
+  clickCursor: (x, y) => electron.ipcRenderer.invoke("cursor:click", x, y),
+  replaySteps: (steps) => electron.ipcRenderer.invoke("cursor:replay", steps),
+  getCursorPosition: () => electron.ipcRenderer.invoke("cursor:getPosition"),
+  waitForCursorTarget: (x, y, tolerancePx, timeoutMs) => electron.ipcRenderer.invoke("cursor:waitForTarget", x, y, tolerancePx, timeoutMs),
+  // Overlay
+  hideOverlay: () => electron.ipcRenderer.send("overlay:hide"),
+  setOverlayClickThrough: (clickThrough) => electron.ipcRenderer.invoke("overlay:setClickThrough", clickThrough),
+  onOverlayToggle: (callback) => electron.ipcRenderer.on("overlay:toggle", () => callback()),
+  // Screen
+  captureScreen: () => electron.ipcRenderer.invoke("screen:capture"),
+  analyzeScreen: (base64PNG) => electron.ipcRenderer.invoke("screen:analyze", base64PNG),
+  onScreenPermissionDenied: (callback) => electron.ipcRenderer.on("permissions:screen-denied", () => callback()),
+  // Planner
+  planSteps: (userIntent, screenState, sessionHistory, mode) => electron.ipcRenderer.invoke("planner:plan", userIntent, screenState, sessionHistory, mode),
+  converse: (userMessage, screenState, conversationHistory) => electron.ipcRenderer.invoke("planner:converse", userMessage, screenState, conversationHistory),
+  // Session
+  saveSession: (graph) => electron.ipcRenderer.invoke("session:save", graph),
+  loadSession: (appName) => electron.ipcRenderer.invoke("session:load", appName),
+  getResumePrompt: (appName) => electron.ipcRenderer.invoke("session:resume-prompt", appName),
+  startRecording: () => electron.ipcRenderer.invoke("session:record-start"),
+  recordStep: (step) => electron.ipcRenderer.invoke("session:record-step", step),
+  stopRecording: () => electron.ipcRenderer.invoke("session:record-stop"),
+  saveNode: (nodeId, steps, appName) => electron.ipcRenderer.invoke("session:save-node", nodeId, steps, appName),
+  markNodeComplete: (nodeId, appName) => electron.ipcRenderer.invoke("session:mark-complete", nodeId, appName),
+  createBranch: (fromNodeId, fromStep, appName) => electron.ipcRenderer.invoke("session:create-branch", fromNodeId, fromStep, appName),
+  getNextNode: (appName) => electron.ipcRenderer.invoke("session:next-node", appName),
+  getAvailableNodes: (appName) => electron.ipcRenderer.invoke("session:available-nodes", appName),
+  // Bandit
+  selectStyle: (appName) => electron.ipcRenderer.invoke("bandit:select", appName),
+  recordReward: (arm, reward, appName) => electron.ipcRenderer.invoke("bandit:reward", arm, reward, appName),
+  getCurrentStyle: (appName) => electron.ipcRenderer.invoke("bandit:style", appName),
+  // TTS & Whisper
+  speak: (text) => electron.ipcRenderer.invoke("tts:speak", text),
+  stopSpeaking: () => electron.ipcRenderer.invoke("tts:stop"),
+  transcribe: (audioData) => electron.ipcRenderer.invoke("whisper:transcribe", audioData),
+  // Replay System
+  walkthrough: (nodeId) => electron.ipcRenderer.invoke("replay:walkthrough", nodeId),
+  autoExecute: (nodeId) => electron.ipcRenderer.invoke("replay:auto", nodeId),
+  stopReplay: () => electron.ipcRenderer.invoke("replay:stop"),
+  onReplayStep: (callback) => electron.ipcRenderer.on("replay:step", (_event, data) => callback(data)),
+  onReplayRetry: (callback) => electron.ipcRenderer.on("replay:retry", (_event, data) => callback(data)),
+  onReplayProgress: (callback) => electron.ipcRenderer.on("replay:progress", (_event, data) => callback(data)),
+  onReplayComplete: (callback) => electron.ipcRenderer.on("replay:complete", () => callback()),
+  onReplayStopped: (callback) => electron.ipcRenderer.on("replay:stopped", () => callback())
+};
+if (process.contextIsolated) {
+  try {
+    electron.contextBridge.exposeInMainWorld("electron", preload.electronAPI);
+    electron.contextBridge.exposeInMainWorld("api", api);
+  } catch (error) {
+    console.error(error);
+  }
+} else {
+  window.electron = preload.electronAPI;
+  window.api = api;
+}

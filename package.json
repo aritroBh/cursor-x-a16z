@@ -1,0 +1,51 @@
+{
+  "name": "specter",
+  "version": "1.0.0",
+  "description": "An AI-powered software tutor",
+  "main": "./out/main/index.js",
+  "author": "Specter Team",
+  "scripts": {
+    "format": "prettier --write .",
+    "lint": "eslint . --ext .js,.jsx,.cjs,.mjs,.ts,.tsx,.cts,.mts --fix",
+    "start": "electron-vite preview",
+    "dev": "electron-vite dev",
+    "build": "electron-vite build",
+    "postinstall": "electron-builder install-app-deps",
+    "build:unpack": "npm run build && electron-builder --dir",
+    "build:win": "npm run build && electron-builder --win",
+    "build:mac": "npm run build && electron-builder --mac",
+    "build:linux": "npm run build && electron-builder --linux"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "latest",
+    "@electron-toolkit/preload": "latest",
+    "@electron-toolkit/utils": "latest",
+    "@nut-tree-fork/nut-js": "latest",
+    "dotenv": "latest",
+    "node-mac-permissions": "latest",
+    "openai": "latest",
+    "uiohook-napi": "latest"
+  },
+  "devDependencies": {
+    "@electron-toolkit/eslint-config-prettier": "^2.0.0",
+    "@electron-toolkit/eslint-config-ts": "^2.0.0",
+    "@electron-toolkit/tsconfig": "^1.0.1",
+    "@types/node": "^20.11.24",
+    "@types/react": "^18.2.61",
+    "@types/react-dom": "^18.2.19",
+    "@vitejs/plugin-react": "^4.2.1",
+    "autoprefixer": "^10.5.0",
+    "electron": "^28.2.0",
+    "electron-builder": "^24.13.3",
+    "electron-vite": "^2.0.0",
+    "eslint": "^8.57.0",
+    "eslint-plugin-react": "^7.34.0",
+    "postcss": "^8.5.14",
+    "prettier": "^3.2.5",
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0",
+    "tailwindcss": "^4.2.4",
+    "typescript": "^5.3.3",
+    "vite": "^5.1.4"
+  }
+}

@@ -407,18 +407,74 @@ async function waitForUserClickAtTarget(targetPercentX, targetPercentY, toleranc
     throw userCursorPermissionError(error);
   }
 }
-const CLAUDE_VISION_MODEL = process.env.ANTHROPIC_VISION_MODEL || "claude-3-5-sonnet-20241022";
-function anthropicClient$1() {
-  const key = process.env.ANTHROPIC_API_KEY;
-  if (!key) {
+function getAnthropicApiKey() {
+  return process.env.ANTHROPIC_API_KEY;
+}
+function getAnthropicModel() {
+  return process.env.ANTHROPIC_MODEL || "claude-sonnet-4-5";
+}
+function getAnthropicVisionModel() {
+  return process.env.ANTHROPIC_VISION_MODEL || "claude-3-5-sonnet-20241022";
+}
+function getUseLocalModel() {
+  return process.env.USE_LOCAL_MODEL === "true";
+}
+function getLocalModelBaseUrl() {
+  return process.env.LOCAL_MODEL_BASE_URL || process.env.ANTHROPIC_BASE_URL;
+}
+function isLocalhostUrl(url) {
+  try {
+    const parsed = new URL(url);
+    const hostname = parsed.hostname;
+    return hostname === "localhost" || hostname === "127.0.0.1" || hostname === "::1" || hostname === "[::1]";
+  } catch {
+    return false;
+  }
+}
+function createAnthropicClient() {
+  const apiKey = getAnthropicApiKey();
+  if (!apiKey) {
     return null;
   }
-  return new Anthropic({ apiKey: key });
+  const useLocal = getUseLocalModel();
+  const localBaseUrl = getLocalModelBaseUrl();
+  if (!useLocal && localBaseUrl && isLocalhostUrl(localBaseUrl)) {
+    console.warn(
+      "[AI_BACKEND] Refusing localhost Anthropic route because USE_LOCAL_MODEL is not true. Check ANTHROPIC_BASE_URL / proxy env."
+    );
+    return new Anthropic({ apiKey });
+  }
+  if (useLocal && localBaseUrl) {
+    console.log("[AI_BACKEND] Using local model endpoint:", localBaseUrl);
+    return new Anthropic({ apiKey, baseURL: localBaseUrl });
+  }
+  return new Anthropic({ apiKey });
 }
-function fallbackScreenState() {
+function safeLog(...args) {
+  try {
+    console.log(...args);
+  } catch {
+  }
+}
+function safeWarn(...args) {
+  try {
+    console.warn(...args);
+  } catch {
+  }
+}
+function safeError(...args) {
+  try {
+    console.error(...args);
+  } catch {
+  }
+}
+const CLAUDE_VISION_MODEL = getAnthropicVisionModel();
+function fallbackScreenState(error) {
   return {
     app: "Unknown",
-    coordinates: []
+    coordinates: [],
+    error,
+    fallbackAvailable: true
   };
 }
 function percent(value, fallback = 50) {
@@ -488,7 +544,7 @@ function normalizeScreenTargets(value, prompt) {
     capturedAt: (/* @__PURE__ */ new Date()).toISOString()
   };
 }
-function fallbackScreenTargets(prompt = "") {
+function fallbackScreenTargets(prompt = "", error) {
   return {
     app: "Unknown",
     prompt,
@@ -496,26 +552,28 @@ function fallbackScreenTargets(prompt = "") {
     targets: [],
     needsConfirmation: true,
     reason: "No visible targets were detected.",
-    capturedAt: (/* @__PURE__ */ new Date()).toISOString()
+    capturedAt: (/* @__PURE__ */ new Date()).toISOString(),
+    error,
+    fallbackAvailable: true
   };
 }
 async function detectScreenTargets(base64PNG, prompt = "") {
-  const anthropic = anthropicClient$1();
+  const anthropic = createAnthropicClient();
   const normalizedPrompt = typeof prompt === "string" && prompt.trim() ? prompt.trim() : "Teach one visible action";
-  console.log("[SCREEN_TARGETS] detect request", {
+  safeLog("[SCREEN_TARGETS] detect request", {
     hasBase64: Boolean(base64PNG),
     prompt: normalizedPrompt
   });
   if (!base64PNG) {
-    console.warn("[SCREEN_TARGETS] no screenshot provided; returning empty target set");
+    safeWarn("[SCREEN_TARGETS] no screenshot provided; returning empty target set");
     return fallbackScreenTargets(normalizedPrompt);
   }
   if (!anthropic) {
-    console.warn("[SCREEN_TARGETS] ANTHROPIC_API_KEY missing; returning empty target set");
-    return fallbackScreenTargets(normalizedPrompt);
+    safeWarn("[AI_BACKEND] Anthropic API key missing; using fallback");
+    return fallbackScreenTargets(normalizedPrompt, "AI_BACKEND_UNAVAILABLE");
   }
   try {
-    console.log("[SCREEN_TARGETS] calling Claude Vision...", {
+    safeLog("[SCREEN_TARGETS] calling Claude Vision...", {
       model: CLAUDE_VISION_MODEL
     });
     const message = await anthropic.messages.create({
@@ -567,11 +625,11 @@ async function detectScreenTargets(base64PNG, prompt = "") {
     });
     const textParts = message.content.flatMap((part) => part.type === "text" && "text" in part && typeof part.text === "string" ? [part.text] : []).join("\n");
     if (textParts) {
-      console.log("[SCREEN_TARGETS] raw response:", textParts);
+      safeLog("[SCREEN_TARGETS] raw response:", textParts);
       const parsed = extractJson$1(textParts);
       if (parsed) {
         const normalized = normalizeScreenTargets(parsed, normalizedPrompt);
-        console.log("[SCREEN_TARGETS] normalized targets", {
+        safeLog("[SCREEN_TARGETS] normalized targets", {
           app: normalized.app,
           count: normalized.targets.length,
           topTarget: normalized.targets[0] ? {
@@ -586,23 +644,30 @@ async function detectScreenTargets(base64PNG, prompt = "") {
     }
     return fallbackScreenTargets(normalizedPrompt);
   } catch (error) {
-    console.error("[SCREEN_TARGETS] error:", error);
-    return fallbackScreenTargets(normalizedPrompt);
+    const errorMessage = error?.message || String(error);
+    const causeMessage = error?.cause?.message || "";
+    if (errorMessage.includes("11434") || causeMessage.includes("11434")) {
+      safeError(
+        "[AI_BACKEND] Refusing localhost:11434 Anthropic route because USE_LOCAL_MODEL is not true. Check ANTHROPIC_BASE_URL / proxy env."
+      );
+    }
+    safeError("[AI_BACKEND] Anthropic unavailable; using fallback");
+    return fallbackScreenTargets(normalizedPrompt, "AI_BACKEND_UNAVAILABLE");
   }
 }
 async function analyzeScreen(base64PNG) {
-  console.log("[SCREENER] Got base64, length:", base64PNG?.length);
-  const anthropic = anthropicClient$1();
+  safeLog("[SCREENER] Got base64, length:", base64PNG?.length);
+  const anthropic = createAnthropicClient();
   if (!base64PNG) {
-    console.warn("[Specter] No screenshot provided; using screen analysis fallback.");
+    safeWarn("[Specter] No screenshot provided; skipping screen analysis.");
     return fallbackScreenState();
   }
   if (!anthropic) {
-    console.warn("[Specter] ANTHROPIC_API_KEY missing; skipping screen analysis.");
-    return fallbackScreenState();
+    safeWarn("[AI_BACKEND] Anthropic API key missing; using fallback");
+    return fallbackScreenState("AI_BACKEND_UNAVAILABLE");
   }
   try {
-    console.log("[SCREENER] Calling Claude Vision...", {
+    safeLog("[SCREENER] Calling Claude Vision...", {
       model: CLAUDE_VISION_MODEL
     });
     const message = await anthropic.messages.create({
@@ -631,32 +696,31 @@ async function analyzeScreen(base64PNG) {
     });
     const textParts = message.content.flatMap((part) => part.type === "text" && "text" in part && typeof part.text === "string" ? [part.text] : []).join("\n");
     if (textParts) {
-      console.log("[SCREENER] Raw response:", textParts);
+      safeLog("[SCREENER] Raw response:", textParts);
       const cleanJson = textParts.replace(/```json/g, "").replace(/```/g, "").trim();
       const jsonMatch = cleanJson.match(/\{[\s\S]*\}/);
       if (jsonMatch) {
         const parsed = JSON.parse(jsonMatch[0]);
-        console.log("[SCREENER] Parsed state:", JSON.stringify(parsed));
+        safeLog("[SCREENER] Parsed state:", JSON.stringify(parsed));
         return normalizeScreenState(parsed);
       }
     }
     return fallbackScreenState();
   } catch (error) {
-    console.error("[SCREENER] Error:", error);
-    return fallbackScreenState();
+    const errorMessage = error?.message || String(error);
+    const causeMessage = error?.cause?.message || "";
+    if (errorMessage.includes("11434") || causeMessage.includes("11434")) {
+      safeError(
+        "[AI_BACKEND] Refusing localhost:11434 Anthropic route because USE_LOCAL_MODEL is not true. Check ANTHROPIC_BASE_URL / proxy env."
+      );
+    }
+    safeError("[AI_BACKEND] Anthropic unavailable; using fallback");
+    return fallbackScreenState("AI_BACKEND_UNAVAILABLE");
   }
 }
-const CLAUDE_MODEL = process.env.ANTHROPIC_MODEL || "claude-sonnet-4-5";
+const CLAUDE_MODEL = getAnthropicModel();
 const STEP_ACTIONS$1 = ["click", "type", "scroll", "wait"];
 const SYSTEM_PROMPT = "You are a software tutor. Given the user's intent, current screen state, and their learning history, generate a precise step-by-step tutorial. Return ONLY valid JSON. Coordinates must be percentages of screen dimensions. Keep instructions under 15 words each for Silent mode, conversational for Ultra mode.";
-function anthropicClient() {
-  if (!process.env.ANTHROPIC_API_KEY) {
-    return null;
-  }
-  return new Anthropic({
-    apiKey: process.env.ANTHROPIC_API_KEY
-  });
-}
 function extractJson(text) {
   const fenced = text.match(/```(?:json)?\s*([\s\S]*?)```/i);
   const candidate = fenced?.[1] || text.match(/\{[\s\S]*\}/)?.[0] || text;
@@ -807,17 +871,17 @@ async function planSteps(userIntent, screenState, sessionHistory, mode) {
   const normalizedScreenState = safeScreenState(screenState);
   const normalizedHistory = Array.isArray(sessionHistory) ? sessionHistory : [];
   const normalizedIntent = typeof userIntent === "string" && userIntent.trim() ? userIntent : "Specter Tutorial";
-  console.log("[PLANNER] Intent:", normalizedIntent);
-  console.log("[PLANNER] Mode:", normalizedMode);
-  console.log("[PLANNER] Screen app detected:", normalizedScreenState.app);
+  safeLog("[PLANNER] Intent:", normalizedIntent);
+  safeLog("[PLANNER] Mode:", normalizedMode);
+  safeLog("[PLANNER] Screen app detected:", normalizedScreenState.app);
   const fallback = fallbackSequence(normalizedIntent, normalizedScreenState, normalizedMode);
-  const client = anthropicClient();
+  const client = createAnthropicClient();
   if (!client) {
-    console.warn("[Specter] ANTHROPIC_API_KEY missing; using planner fallback.");
+    safeWarn("[AI_BACKEND] Anthropic API key missing; using fallback");
     return fallback;
   }
   try {
-    console.log("[PLANNER] Calling Claude...", { model: CLAUDE_MODEL });
+    safeLog("[PLANNER] Calling Claude...", { model: CLAUDE_MODEL });
     const message = await client.messages.create({
       model: CLAUDE_MODEL,
       max_tokens: 4096,
@@ -855,16 +919,23 @@ async function planSteps(userIntent, screenState, sessionHistory, mode) {
       ]
     });
     const rawText = message.content.flatMap((part) => part.type === "text" && "text" in part && typeof part.text === "string" ? [part.text] : []).join("\n");
-    console.log("[PLANNER] Raw response:", rawText);
+    safeLog("[PLANNER] Raw response:", rawText);
     const steps = normalizeSequence(extractJson(rawText), fallback);
     return steps;
   } catch (error) {
-    console.error("[Specter] Failed to plan steps:", error);
+    const errorMessage = error?.message || String(error);
+    const causeMessage = error?.cause?.message || "";
+    if (errorMessage.includes("11434") || causeMessage.includes("11434")) {
+      safeError(
+        "[AI_BACKEND] Refusing localhost:11434 Anthropic route because USE_LOCAL_MODEL is not true. Check ANTHROPIC_BASE_URL / proxy env."
+      );
+    }
+    safeError("[AI_BACKEND] Anthropic unavailable; using fallback");
     return fallback;
   }
 }
 async function converse(userMessage, screenState, conversationHistory) {
-  const client = anthropicClient();
+  const client = createAnthropicClient();
   if (!client) {
     return "I can help with that once the Claude API key is configured. For now, keep following the cursor.";
   }
@@ -895,7 +966,14 @@ async function converse(userMessage, screenState, conversationHistory) {
     const text = message.content.flatMap((part) => part.type === "text" && "text" in part && typeof part.text === "string" ? [part.text] : []).join("\n").trim();
     return text || "Yes. Keep going with the next highlighted step.";
   } catch (error) {
-    console.error("[Specter] Failed to answer follow-up:", error);
+    const errorMessage = error?.message || String(error);
+    const causeMessage = error?.cause?.message || "";
+    if (errorMessage.includes("11434") || causeMessage.includes("11434")) {
+      safeError(
+        "[AI_BACKEND] Refusing localhost:11434 Anthropic route because USE_LOCAL_MODEL is not true. Check ANTHROPIC_BASE_URL / proxy env."
+      );
+    }
+    safeError("[AI_BACKEND] Anthropic unavailable; using fallback");
     return "I hit a temporary issue answering that. Keep going with the highlighted next step.";
   }
 }
@@ -1514,14 +1592,14 @@ function setOverlayForReplay() {
   const overlayWindow2 = getOverlayWindow();
   if (!overlayWindow2 || overlayWindow2.isDestroyed()) return;
   if (!overlayWindow2.isVisible()) overlayWindow2.show();
-  console.log("[OVERLAY_INTERACTION] replay starting, enabled click-through");
+  safeLog("[OVERLAY_INTERACTION] replay starting, enabled click-through");
   overlayWindow2.setIgnoreMouseEvents(true, { forward: true });
 }
 function setOverlayForKeyboardFallback() {
   const overlayWindow2 = getOverlayWindow();
   if (!overlayWindow2 || overlayWindow2.isDestroyed()) return;
   if (!overlayWindow2.isVisible()) overlayWindow2.show();
-  console.log("[OVERLAY_INTERACTION] keyboard fallback, disabled click-through (interactive mode)");
+  safeLog("[OVERLAY_INTERACTION] keyboard fallback, disabled click-through (interactive mode)");
   overlayWindow2.setIgnoreMouseEvents(false);
   overlayWindow2.focus();
 }
@@ -1529,11 +1607,11 @@ function restoreOverlayAfterReplay(controller) {
   const overlayWindow2 = getOverlayWindow();
   if (!overlayWindow2 || overlayWindow2.isDestroyed()) return;
   if (controller.overlayWasVisible && overlayWindow2.isVisible()) {
-    console.log("[OVERLAY_INTERACTION] replay ended, restoring click-through true");
+    safeLog("[OVERLAY_INTERACTION] replay ended, restoring click-through true");
     overlayWindow2.setIgnoreMouseEvents(true, { forward: true });
     return;
   }
-  console.log("[OVERLAY_INTERACTION] replay ended, restoring click-through true and hiding overlay");
+  safeLog("[OVERLAY_INTERACTION] replay ended, restoring click-through true and hiding overlay");
   overlayWindow2.setIgnoreMouseEvents(true, { forward: true });
   overlayWindow2.hide();
 }
@@ -1557,12 +1635,12 @@ function stepTitle$1(step) {
 async function replayAutoExecute(steps) {
   const controller = createReplayController();
   setOverlayForReplay();
-  console.log("[AUTO_REAL_MOUSE] STARTING REAL OS AUTOMATION", { totalSteps: steps.length });
+  safeLog("[AUTO_REAL_MOUSE] STARTING REAL OS AUTOMATION", { totalSteps: steps.length });
   try {
     for (let index = 0; index < steps.length; index++) {
       if (!isActive(controller)) break;
       const step = steps[index];
-      console.log("[AUTO_REAL_MOUSE] real mouse step", {
+      safeLog("[AUTO_REAL_MOUSE] real mouse step", {
         index,
         displayIndex: index + 1,
         total: steps.length,
@@ -1573,15 +1651,15 @@ async function replayAutoExecute(steps) {
       });
       if (step.action === "click") {
         if (!await sleep(step.delayMs || 0, controller)) break;
-        console.log("[AUTO_REAL_MOUSE] REAL OS move/click", { index, x: step.x, y: step.y });
+        safeLog("[AUTO_REAL_MOUSE] REAL OS move/click", { index, x: step.x, y: step.y });
         await clickRealMouse(step.x, step.y);
       } else if (step.action === "wait") {
         const waitMs = stepWaitMs$1(step);
-        console.log("[AUTO_REAL_MOUSE] wait before next real OS action", { index, waitMs });
+        safeLog("[AUTO_REAL_MOUSE] wait before next real OS action", { index, waitMs });
         if (!await sleep(waitMs, controller)) break;
       } else {
         if (!await sleep(step.delayMs || 0, controller)) break;
-        console.log("[AUTO_REAL_MOUSE] REAL OS action replay", {
+        safeLog("[AUTO_REAL_MOUSE] REAL OS action replay", {
           index,
           action: step.action,
           x: step.x,
@@ -1590,7 +1668,7 @@ async function replayAutoExecute(steps) {
         });
         await executeRealMouseSteps([{ ...step, delayMs: 0 }]);
       }
-      console.log("[AUTO_REAL_MOUSE] real mouse step complete", { index, action: step.action });
+      safeLog("[AUTO_REAL_MOUSE] real mouse step complete", { index, action: step.action });
       sendOverlay("replay:progress", { index, total: steps.length });
     }
   } finally {
@@ -1599,7 +1677,7 @@ async function replayAutoExecute(steps) {
     }
     releaseReplayController(controller);
     restoreOverlayAfterReplay(controller);
-    console.log("[AUTO_REAL_MOUSE] REAL OS AUTOMATION FINISHED", { cancelled: controller.cancelled });
+    safeLog("[AUTO_REAL_MOUSE] REAL OS AUTOMATION FINISHED", { cancelled: controller.cancelled });
   }
 }
 let walkthroughSafetyChecked = false;
@@ -1660,7 +1738,7 @@ async function ghostStartForStep(step, previousTarget) {
   try {
     return await getPhysicalMousePercent();
   } catch (error) {
-    console.warn("[GHOST] could not read physical cursor for ghost start; using fallback", error);
+    safeWarn("[GHOST] could not read physical cursor for ghost start; using fallback", error);
     return fallbackGhostStart(step, previousTarget);
   }
 }
@@ -1683,7 +1761,7 @@ function waitForUserNearTarget(step, controller, timeoutMs = DEFAULT_STEP_TIMEOU
     waitForMouseAtTarget(step.x, step.y, TARGET_APPROACH_TOLERANCE_PX, timeoutMs, abort.signal).then((result) => {
       settle(result);
     }).catch((error) => {
-      console.error("[USER_CURSOR] waitForMouseAtTarget failed", error);
+      safeError("[USER_CURSOR] waitForMouseAtTarget failed", error);
       settle("timeout");
     });
   });
@@ -1707,7 +1785,7 @@ function waitForUserClickOnTarget(step, controller, timeoutMs = DEFAULT_STEP_TIM
     waitForUserClickAtTarget(step.x, step.y, TARGET_CLICK_TOLERANCE_PX, timeoutMs, abort.signal).then((result) => {
       settle(result);
     }).catch((error) => {
-      console.error("[CLICK_DETECT] waitForUserClickAtTarget failed", error);
+      safeError("[CLICK_DETECT] waitForUserClickAtTarget failed", error);
       settle("timeout");
     });
   });
@@ -1731,7 +1809,7 @@ function waitForManualStepConfirmation(step, index, total, controller, timeoutMs
     const cancel = () => settle("cancelled");
     pendingManualConfirm = confirm;
     controller.cancelHandlers.add(cancel);
-    console.warn("[CLICK_DETECT] click fallback armed; waiting for Space/Enter confirmation", {
+    safeWarn("[CLICK_DETECT] click fallback armed; waiting for Space/Enter confirmation", {
       index,
       x: step.x,
       y: step.y,
@@ -1749,10 +1827,10 @@ function waitForManualStepConfirmation(step, index, total, controller, timeoutMs
 }
 function confirmReplayStep() {
   if (!pendingManualConfirm) {
-    console.warn("[WALKTHROUGH] manual step confirmation ignored; no confirmation is pending");
+    safeWarn("[WALKTHROUGH] manual step confirmation ignored; no confirmation is pending");
     return false;
   }
-  console.log("[WALKTHROUGH] manual step confirmation received");
+  safeLog("[WALKTHROUGH] manual step confirmation received");
   pendingManualConfirm();
   return true;
 }
@@ -1763,7 +1841,7 @@ function stepsForNode(nodeId, appName) {
   return latest?.steps || [];
 }
 function logWalkthroughStep(step, index, total, attempt) {
-  console.log("[WALKTHROUGH] step", {
+  safeLog("[WALKTHROUGH] step", {
     index,
     displayIndex: index + 1,
     total,
@@ -1790,7 +1868,7 @@ function emitGhostStep(step, index, total, attempt, reason, ghostStart) {
       timeoutMs: DEFAULT_STEP_TIMEOUT_MS
     }
   });
-  console.log("[GHOST] visual step emitted", {
+  safeLog("[GHOST] visual step emitted", {
     channel,
     index,
     attempt,
@@ -1801,11 +1879,11 @@ function emitGhostStep(step, index, total, attempt, reason, ghostStart) {
     startY: ghostStart.y
   });
   if (ghostLoops) {
-    console.log("[GHOST] looping started", { index, attempt, timeoutMs: DEFAULT_STEP_TIMEOUT_MS });
+    safeLog("[GHOST] looping started", { index, attempt, timeoutMs: DEFAULT_STEP_TIMEOUT_MS });
   }
 }
 function parkGhostAtEndpoint(step, index, total, attempt) {
-  console.log("[GHOST] parked at endpoint", { index, action: step.action, x: step.x, y: step.y });
+  safeLog("[GHOST] parked at endpoint", { index, action: step.action, x: step.x, y: step.y });
   sendOverlay("replay:target-reached", {
     step,
     index,
@@ -1818,7 +1896,7 @@ async function replayWalkthrough(steps, onStep) {
   const controller = createReplayController();
   setOverlayForReplay();
   let previousGhostTarget = null;
-  console.log("[WALKTHROUGH] start", { totalSteps: steps.length });
+  safeLog("[WALKTHROUGH] start", { totalSteps: steps.length });
   try {
     for (let index = 0; index < steps.length; index++) {
       if (!isActive(controller)) break;
@@ -1832,10 +1910,10 @@ async function replayWalkthrough(steps, onStep) {
         if (attempts === 0) onStep(step, index);
         if (step.action === "wait") {
           const waitMs = stepWaitMs(step);
-          console.log("[WALKTHROUGH] wait step sleeping", { index, waitMs });
+          safeLog("[WALKTHROUGH] wait step sleeping", { index, waitMs });
           result = await sleep(waitMs, controller) ? "correct" : "cancelled";
         } else if (step.action === "click") {
-          console.log("[USER_CURSOR] waiting for real cursor to enter tolerance", {
+          safeLog("[USER_CURSOR] waiting for real cursor to enter tolerance", {
             index,
             x: step.x,
             y: step.y,
@@ -1843,10 +1921,10 @@ async function replayWalkthrough(steps, onStep) {
           });
           result = await waitForUserNearTarget(step, controller);
           if (result === "correct") {
-            console.log("[USER_CURSOR] real cursor entered tolerance", { index, x: step.x, y: step.y });
+            safeLog("[USER_CURSOR] real cursor entered tolerance", { index, x: step.x, y: step.y });
             previousGhostTarget = { x: step.x, y: step.y };
             parkGhostAtEndpoint(step, index, steps.length, attempts);
-            console.log("[CLICK_DETECT] waiting for actual user click", {
+            safeLog("[CLICK_DETECT] waiting for actual user click", {
               index,
               x: step.x,
               y: step.y,
@@ -1854,17 +1932,17 @@ async function replayWalkthrough(steps, onStep) {
             });
             result = await waitForUserClickOnTarget(step, controller);
             if (result === "correct") {
-              console.log("[CLICK_DETECT] Success: User click detected at target", { index, x: step.x, y: step.y });
+              safeLog("[CLICK_DETECT] Success: User click detected at target", { index, x: step.x, y: step.y });
             } else if (result === "timeout" && isActive(controller)) {
-              console.warn("[CLICK_DETECT] Failed: Click not detected within timeout. Activating Space/Enter fallback.");
+              safeWarn("[CLICK_DETECT] Failed: Click not detected within timeout. Activating Space/Enter fallback.");
               result = await waitForManualStepConfirmation(step, index, steps.length, controller);
               if (result === "correct") {
-                console.log("[CLICK_DETECT] Step advanced by Space/Enter manual confirmation", { index, x: step.x, y: step.y });
+                safeLog("[CLICK_DETECT] Step advanced by Space/Enter manual confirmation", { index, x: step.x, y: step.y });
               }
             }
           }
         } else {
-          console.log("[USER_CURSOR] waiting for real cursor to enter tolerance", {
+          safeLog("[USER_CURSOR] waiting for real cursor to enter tolerance", {
             index,
             action: step.action,
             x: step.x,
@@ -1873,16 +1951,16 @@ async function replayWalkthrough(steps, onStep) {
           });
           result = await waitForUserNearTarget(step, controller);
           if (result === "correct") {
-            console.log("[USER_CURSOR] real cursor entered tolerance", { index, action: step.action, x: step.x, y: step.y });
+            safeLog("[USER_CURSOR] real cursor entered tolerance", { index, action: step.action, x: step.x, y: step.y });
             previousGhostTarget = { x: step.x, y: step.y };
             parkGhostAtEndpoint(step, index, steps.length, attempts);
           }
         }
         if (result === "correct") {
-          console.log("[WALKTHROUGH] step complete", { index, action: step.action, title: stepTitle(step) });
+          safeLog("[WALKTHROUGH] step complete", { index, action: step.action, title: stepTitle(step) });
         } else if (result === "timeout") {
           attempts++;
-          console.warn("[WALKTHROUGH] step timed out", {
+          safeWarn("[WALKTHROUGH] step timed out", {
             index,
             action: step.action,
             title: stepTitle(step),
@@ -1890,23 +1968,23 @@ async function replayWalkthrough(steps, onStep) {
             maxAttempts: MAX_WALKTHROUGH_ATTEMPTS
           });
           if (attempts >= MAX_WALKTHROUGH_ATTEMPTS) {
-            console.warn("[WALKTHROUGH] step skipped after timeout", { index, action: step.action, title: stepTitle(step) });
+            safeWarn("[WALKTHROUGH] step skipped after timeout", { index, action: step.action, title: stepTitle(step) });
             break;
           }
         } else if (result === "cancelled") {
-          console.warn("[WALKTHROUGH] step cancelled", { index, action: step.action, title: stepTitle(step) });
+          safeWarn("[WALKTHROUGH] step cancelled", { index, action: step.action, title: stepTitle(step) });
           break;
         }
       }
     }
     if (!controller.cancelled) {
-      console.log("[WALKTHROUGH] complete");
+      safeLog("[WALKTHROUGH] complete");
       sendOverlay("replay:complete", {});
     }
   } finally {
     releaseReplayController(controller);
     restoreOverlayAfterReplay(controller);
-    console.log("[WALKTHROUGH] finished", { cancelled: controller.cancelled });
+    safeLog("[WALKTHROUGH] finished", { cancelled: controller.cancelled });
   }
 }
 function registerReplayIpc(ipcMain, windowProvider, appName = "Specter") {
@@ -2041,19 +2119,19 @@ function isLearningGraph(value) {
   );
 }
 function toggleOverlay() {
-  console.log("[TOGGLE] toggleOverlay called, isVisible:", overlayWindow?.isVisible());
+  safeLog("[TOGGLE] toggleOverlay called, isVisible:", overlayWindow?.isVisible());
   if (!overlayWindow) return;
   if (hasActiveReplay()) {
-    console.warn("[TOGGLE] double-shift pressed during active replay; stopping replay instead of hiding the overlay");
+    safeWarn("[TOGGLE] double-shift pressed during active replay; stopping replay instead of hiding the overlay");
     stopReplay();
     return;
   }
   if (overlayWindow.isVisible()) {
-    console.log("[OVERLAY_INTERACTION] hiding overlay, enabled click-through");
+    safeLog("[OVERLAY_INTERACTION] hiding overlay, enabled click-through");
     overlayWindow.setIgnoreMouseEvents(true, { forward: true });
     overlayWindow.hide();
   } else {
-    console.log("[OVERLAY_INTERACTION] showing overlay, enabled click-through (ignore mouse: true)");
+    safeLog("[OVERLAY_INTERACTION] showing overlay, enabled click-through (ignore mouse: true)");
     overlayWindow.setIgnoreMouseEvents(true, { forward: true });
     overlayWindow.show();
   }
@@ -2171,31 +2249,31 @@ electron.app.whenReady().then(async () => {
     overlayWindow.hide();
   });
   electron.ipcMain.handle("cursor:move", async (_event, x, y, durationMs) => {
-    console.log("[IPC] cursor:move", { x, y, durationMs });
+    safeLog("[IPC] cursor:move", { x, y, durationMs });
     return moveRealMouse(x, y, durationMs);
   });
   electron.ipcMain.handle("cursor:click", async (_event, x, y) => clickRealMouse(x, y));
   electron.ipcMain.handle("cursor:replay", async (_event, steps) => {
-    console.warn("[AUTO_REAL_MOUSE] LOUD WARNING: REAL OS automation steps triggered from IPC", { count: steps?.length });
+    safeWarn("[AUTO_REAL_MOUSE] LOUD WARNING: REAL OS automation steps triggered from IPC", { count: steps?.length });
     return executeRealMouseSteps(steps);
   });
   electron.ipcMain.handle("cursor:getPosition", async () => getPhysicalMousePosition());
   electron.ipcMain.handle("cursor:diagnostics", async () => getCoordinateCalibrationDiagnostics());
   electron.ipcMain.handle("cursor:moveCenter", async () => {
-    console.log("[COORD_CALIBRATION] explicit center move requested");
+    safeLog("[COORD_CALIBRATION] explicit center move requested");
     return moveRealMouse(50, 50);
   });
   electron.ipcMain.handle("cursor:waitForTarget", async (_event, x, y, tolerancePx = 50, timeoutMs = 12e3) => {
-    console.log("[IPC] cursor:waitForTarget", { x, y, tolerancePx, timeoutMs });
+    safeLog("[IPC] cursor:waitForTarget", { x, y, tolerancePx, timeoutMs });
     return waitForMouseAtTarget(x, y, tolerancePx, timeoutMs);
   });
   electron.ipcMain.handle("overlay:setClickThrough", async (_event, clickThrough) => {
     if (!overlayWindow || overlayWindow.isDestroyed()) return;
-    console.log(`[OVERLAY_INTERACTION] ${clickThrough ? "enabled click-through" : "enabled interactive zone"}`);
+    safeLog(`[OVERLAY_INTERACTION] ${clickThrough ? "enabled click-through" : "enabled interactive zone"}`);
     overlayWindow.setIgnoreMouseEvents(clickThrough, { forward: true });
   });
   electron.ipcMain.handle("screen:capture", async (event) => {
-    console.log("[IPC] screen:capture");
+    safeLog("[IPC] screen:capture");
     try {
       return await captureScreenBase64();
     } catch (err) {
@@ -2206,29 +2284,30 @@ electron.app.whenReady().then(async () => {
     }
   });
   electron.ipcMain.handle("screen:analyze", async (event, base64PNG, options) => {
-    console.log("[IPC] screen:analyze", { hasBase64: !!base64PNG, captureUnderlying: !!options?.captureUnderlying });
+    safeLog("[IPC] screen:analyze", { hasBase64: !!base64PNG, captureUnderlying: !!options?.captureUnderlying });
     const captureUnderlying = options?.captureUnderlying;
+    const logPrefix = captureUnderlying ? "[CAPTURE_UNDERLYING]" : "[CAPTURE_SCREEN]";
     const wasOverlayVisible = captureUnderlying && Boolean(overlayWindow && !overlayWindow.isDestroyed() && overlayWindow.isVisible());
     try {
       if (wasOverlayVisible && overlayWindow) {
-        console.log("[CAPTURE_UNDERLYING] hiding overlay before screen capture");
+        safeLog("[CAPTURE_UNDERLYING] hiding overlay before screen capture");
         overlayWindow.setIgnoreMouseEvents(true, { forward: true });
         overlayWindow.hide();
         await delay(160);
       }
-      console.log("[CAPTURE_UNDERLYING] starting screenshot capture");
+      safeLog(`${logPrefix} starting screenshot capture`);
       const screenshot = base64PNG || await captureScreenBase64();
-      console.log("[CAPTURE_UNDERLYING] screenshot captured", { bytesBase64: screenshot.length });
+      safeLog(`${logPrefix} screenshot captured`, { bytesBase64: screenshot.length });
       return analyzeScreen(screenshot);
     } catch (err) {
       if (isPermissionError(err) || err.code === "SCREEN_PERMISSION_DENIED") {
         event.sender.send("permissions:screen-denied");
       }
-      console.error("[Specter] Screen analysis failed; using fallback screen state:", err);
+      safeError("[Specter] Screen analysis failed; using fallback screen state:", err);
       return fallbackScreenState();
     } finally {
       if (wasOverlayVisible && overlayWindow && !overlayWindow.isDestroyed()) {
-        console.log("[CAPTURE_UNDERLYING] restoring overlay after capture, click-through true");
+        safeLog("[CAPTURE_UNDERLYING] restoring overlay after capture, click-through true");
         overlayWindow.show();
         overlayWindow.setIgnoreMouseEvents(true, { forward: true });
       }
@@ -2236,28 +2315,28 @@ electron.app.whenReady().then(async () => {
   });
   electron.ipcMain.handle("realApp:detectTargets", async (event, userIntent = "") => {
     const prompt = typeof userIntent === "string" && userIntent.trim() ? userIntent.trim() : "Teach one visible action";
-    console.log("[REAL_APP_TEST] capture requested", { prompt });
+    safeLog("[REAL_APP_TEST] capture requested", { prompt });
     const wasOverlayVisible = Boolean(overlayWindow && !overlayWindow.isDestroyed() && overlayWindow.isVisible());
     try {
       if (wasOverlayVisible && overlayWindow) {
-        console.log("[CAPTURE_UNDERLYING] hiding overlay before real-app target detection");
+        safeLog("[CAPTURE_UNDERLYING] hiding overlay before real-app target detection");
         overlayWindow.setIgnoreMouseEvents(true, { forward: true });
         overlayWindow.hide();
         await delay(160);
       }
-      console.log("[CAPTURE_UNDERLYING] starting screenshot capture for real-app targets");
+      safeLog("[CAPTURE_UNDERLYING] starting screenshot capture for real-app targets");
       const screenshot = await captureScreenBase64();
-      console.log("[CAPTURE_UNDERLYING] screenshot captured for real-app targets", {
+      safeLog("[CAPTURE_UNDERLYING] screenshot captured for real-app targets", {
         prompt,
         bytesBase64: screenshot.length
       });
       if (wasOverlayVisible && overlayWindow && !overlayWindow.isDestroyed()) {
-        console.log("[CAPTURE_UNDERLYING] restoring overlay after real-app capture, click-through true");
+        safeLog("[CAPTURE_UNDERLYING] restoring overlay after real-app capture, click-through true");
         overlayWindow.show();
         overlayWindow.setIgnoreMouseEvents(true, { forward: true });
       }
       const result = await detectScreenTargets(screenshot, prompt);
-      console.log("[SCREEN_TARGETS] targets returned", {
+      safeLog("[SCREEN_TARGETS] targets returned", {
         prompt,
         app: result.app,
         count: result.targets.length,
@@ -2272,7 +2351,7 @@ electron.app.whenReady().then(async () => {
       if (isPermissionError(err) || err.code === "SCREEN_PERMISSION_DENIED") {
         event.sender.send("permissions:screen-denied");
       }
-      console.error("[REAL_APP_TEST] target detection failed:", err);
+      safeError("[REAL_APP_TEST] target detection failed:", err);
       return {
         ...fallbackScreenTargets(prompt),
         confidenceThreshold: REAL_APP_CONFIDENCE_THRESHOLD
@@ -2291,14 +2370,14 @@ electron.app.whenReady().then(async () => {
     const nodeId = realAppNodeId(input, step.targetLabel || step.title || "Selected target");
     const targetConfidence = confidenceValue(target?.confidence, source === "manual" ? 1 : 0);
     if (source === "manual") {
-      console.log("[MANUAL_TARGET] saving manual real-app target", {
+      safeLog("[MANUAL_TARGET] saving manual real-app target", {
         nodeId,
         label: step.targetLabel,
         x: step.x,
         y: step.y
       });
     } else {
-      console.log("[TARGET_CONFIRM] saving confirmed real-app target", {
+      safeLog("[TARGET_CONFIRM] saving confirmed real-app target", {
         nodeId,
         label: step.targetLabel,
         x: step.x,
@@ -2308,7 +2387,7 @@ electron.app.whenReady().then(async () => {
     }
     const graph = saveToNode(loadGraph(DEFAULT_APP_NAME), nodeId, [step]);
     saveGraph(graph);
-    console.log("[REAL_APP_WALKTHROUGH] workflow ready", {
+    safeLog("[REAL_APP_WALKTHROUGH] workflow ready", {
       nodeId,
       totalSteps: 1,
       label: step.targetLabel,
@@ -2324,7 +2403,7 @@ electron.app.whenReady().then(async () => {
     };
   });
   electron.ipcMain.handle("planner:plan", async (_event, userIntent, screenState, sessionHistory, mode) => {
-    console.log("[IPC] planner:plan", { userIntent, mode });
+    safeLog("[IPC] planner:plan", { userIntent, mode });
     return planSteps(userIntent, screenState, sessionHistory, mode);
   });
   electron.ipcMain.handle(
@@ -2361,7 +2440,7 @@ electron.app.whenReady().then(async () => {
     const workflow = createControlledDemoWorkflow(mainWindow);
     const graph = saveToNode(loadGraph(DEFAULT_APP_NAME), workflow.nodeId, workflow.steps);
     saveGraph(graph);
-    console.log("[DEMO] controlled workflow prepared", {
+    safeLog("[DEMO] controlled workflow prepared", {
       nodeId: workflow.nodeId,
       totalSteps: workflow.steps.length,
       steps: workflow.steps.map((step) => ({
@@ -2434,12 +2513,12 @@ electron.app.whenReady().then(async () => {
     });
   });
   electron.ipcMain.handle("tts:speak", async (_event, text) => {
-    console.log("[IPC] tts:speak", { text: text?.slice(0, 50) });
+    safeLog("[IPC] tts:speak", { text: text?.slice(0, 50) });
     return speak(text);
   });
   electron.ipcMain.handle("tts:stop", async () => stopSpeaking());
   electron.ipcMain.handle("whisper:transcribe", async (_event, audioData) => {
-    console.log("[IPC] whisper:transcribe", { size: audioData?.byteLength });
+    safeLog("[IPC] whisper:transcribe", { size: audioData?.byteLength });
     const buffer = Buffer.from(audioData);
     return transcribe(buffer);
   });

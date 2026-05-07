@@ -233,6 +233,64 @@ async function main() {
   )
   check(userCursor.includes('waitForUserClickAtTarget') && userCursor.includes("uIOhook.on('click'"), 'user cursor module can wait for an actual user click at target')
 
+  printHeader('AI Config Safety')
+
+  const config = readFile('src/main/ai/config.ts')
+  check(fileExists('src/main/ai/config.ts'), 'src/main/ai/config.ts exists')
+  check(config.includes('export function createAnthropicClient'), 'config.ts exports createAnthropicClient')
+  check(config.includes('getUseLocalModel'), 'config.ts reads USE_LOCAL_MODEL')
+  check(
+    config.includes('USE_LOCAL_MODEL === \'true\'') || config.includes('USE_LOCAL_MODEL === "true"'),
+    'config.ts uses strict "true" check for USE_LOCAL_MODEL'
+  )
+  check(config.includes('isLocalhostUrl'), 'config.ts has localhost URL guard')
+  warnIf(
+    !config.includes('11434') && !config.includes('ollama'),
+    'config.ts does not hardcode ollama/11434'
+  )
+
+  printHeader('Logger Safety')
+
+  check(fileExists('src/main/logger.ts'), 'src/main/logger.ts exists')
+  const logger = readFile('src/main/logger.ts')
+  check(logger.includes('export function safeLog'), 'logger.ts exports safeLog')
+  check(logger.includes('export function safeWarn'), 'logger.ts exports safeWarn')
+  check(logger.includes('export function safeError'), 'logger.ts exports safeError')
+  check(mainIndex.includes("from './logger'") || mainIndex.includes("from '../logger'"), 'index.ts imports safe logger')
+  check(mainIndex.includes('safeLog') && mainIndex.includes('safeWarn') && mainIndex.includes('safeError'), 'index.ts uses safeLog/safeWarn/safeError')
+
+  printHeader('Capture Log Naming')
+
+  const analyzeBody = exportedFunctionBody(mainIndex, "screen:analyze")
+  check(mainIndex.includes("[CAPTURE_SCREEN]"), 'index.ts uses [CAPTURE_SCREEN] prefix when captureUnderlying is false')
+  check(
+    !/\[CAPTURE_UNDERLYING\][\s\S]*?starting screenshot capture/.test(analyzeBody) || analyzeBody.includes('logPrefix'),
+    'screen:analyze does not unconditionally log [CAPTURE_UNDERLYING]'
+  )
+
+  printHeader('Passive Overlay Behavior')
+
+  const overlayAppBody = readFile('src/renderer/src/OverlayApp.tsx')
+  check(
+    !overlayAppBody.includes('api.analyzeScreen()') || !/useEffect\(\s*\(\)\s*=>\s*{[\s\S]*?api\.analyzeScreen\(\)/.test(overlayAppBody),
+    'OverlayApp does not unconditionally call api.analyzeScreen() inside a useEffect tied to isVisible'
+  )
+
+  printHeader('AI Backend Fallback Safety')
+
+  const screenerBody = readFile('src/main/ai/screener.ts')
+  const plannerBody = readFile('src/main/ai/planner.ts')
+  check(screenerBody.includes('AI_BACKEND_UNAVAILABLE'), 'screener returns AI_BACKEND_UNAVAILABLE fallback')
+  check(plannerBody.includes('AI_BACKEND_UNAVAILABLE'), 'planner handles AI_BACKEND_UNAVAILABLE')
+  check(
+    screenerBody.includes("'[AI_BACKEND] Anthropic unavailable; using fallback'") || screenerBody.includes('"[AI_BACKEND] Anthropic unavailable; using fallback"'),
+    'screener logs AI_BACKEND fallback'
+  )
+  check(
+    plannerBody.includes("'[AI_BACKEND] Anthropic unavailable; using fallback'") || plannerBody.includes('"[AI_BACKEND] Anthropic unavailable; using fallback"'),
+    'planner logs AI_BACKEND fallback'
+  )
+
   printHeader('Session Normalization')
 
   const storage = readFile('src/main/session/storage.ts')

@@ -1,19 +1,12 @@
-import Anthropic from '@anthropic-ai/sdk'
+import { createAnthropicClient, getAnthropicModel } from './config'
+import { safeLog, safeWarn, safeError } from '../logger'
 
-const CLAUDE_MODEL = process.env.ANTHROPIC_MODEL || 'claude-sonnet-4-5'
+const CLAUDE_MODEL = getAnthropicModel()
 const STEP_ACTIONS = ['click', 'type', 'scroll', 'wait']
 type PlannerMode = 'silent' | 'ultra'
 const SYSTEM_PROMPT =
   'You are a software tutor. Given the user\'s intent, current screen state, and their learning history, generate a precise step-by-step tutorial. Return ONLY valid JSON. Coordinates must be percentages of screen dimensions. Keep instructions under 15 words each for Silent mode, conversational for Ultra mode.'
 
-function anthropicClient() {
-  if (!process.env.ANTHROPIC_API_KEY) {
-    return null
-  }
-  return new Anthropic({
-    apiKey: process.env.ANTHROPIC_API_KEY
-  })
-}
 
 function extractJson(text: string): any {
   const fenced = text.match(/```(?:json)?\s*([\s\S]*?)```/i)
@@ -212,20 +205,20 @@ export async function planSteps(userIntent: string, screenState: any, sessionHis
   const normalizedHistory = Array.isArray(sessionHistory) ? sessionHistory : []
   const normalizedIntent = typeof userIntent === 'string' && userIntent.trim() ? userIntent : 'Specter Tutorial'
 
-  console.log('[PLANNER] Intent:', normalizedIntent)
-  console.log('[PLANNER] Mode:', normalizedMode)
-  console.log('[PLANNER] Screen app detected:', normalizedScreenState.app)
+  safeLog('[PLANNER] Intent:', normalizedIntent)
+  safeLog('[PLANNER] Mode:', normalizedMode)
+  safeLog('[PLANNER] Screen app detected:', normalizedScreenState.app)
 
   const fallback = fallbackSequence(normalizedIntent, normalizedScreenState, normalizedMode)
-  const client = anthropicClient()
+  const client = createAnthropicClient()
 
   if (!client) {
-    console.warn('[Specter] ANTHROPIC_API_KEY missing; using planner fallback.')
+    safeWarn('[AI_BACKEND] Anthropic API key missing; using fallback')
     return fallback
   }
 
   try {
-    console.log('[PLANNER] Calling Claude...', { model: CLAUDE_MODEL })
+    safeLog('[PLANNER] Calling Claude...', { model: CLAUDE_MODEL })
     const message = await client.messages.create({
       model: CLAUDE_MODEL,
       max_tokens: 4096,
@@ -267,17 +260,24 @@ export async function planSteps(userIntent: string, screenState: any, sessionHis
       .flatMap((part) => (part.type === 'text' && 'text' in part && typeof part.text === 'string' ? [part.text] : []))
       .join('\n')
 
-    console.log('[PLANNER] Raw response:', rawText)
+    safeLog('[PLANNER] Raw response:', rawText)
     const steps = normalizeSequence(extractJson(rawText), fallback)
     return steps
-  } catch (error) {
-    console.error('[Specter] Failed to plan steps:', error)
+  } catch (error: any) {
+    const errorMessage = error?.message || String(error)
+    const causeMessage = error?.cause?.message || ''
+    if (errorMessage.includes('11434') || causeMessage.includes('11434')) {
+      safeError(
+        '[AI_BACKEND] Refusing localhost:11434 Anthropic route because USE_LOCAL_MODEL is not true. Check ANTHROPIC_BASE_URL / proxy env.'
+      )
+    }
+    safeError('[AI_BACKEND] Anthropic unavailable; using fallback. AI_BACKEND_UNAVAILABLE')
     return fallback
   }
 }
 
 export async function converse(userMessage: string, screenState: any, conversationHistory: any[]): Promise<string> {
-  const client = anthropicClient()
+  const client = createAnthropicClient()
   if (!client) {
     return 'I can help with that once the Claude API key is configured. For now, keep following the cursor.'
   }
@@ -315,8 +315,15 @@ export async function converse(userMessage: string, screenState: any, conversati
       .trim()
 
     return text || 'Yes. Keep going with the next highlighted step.'
-  } catch (error) {
-    console.error('[Specter] Failed to answer follow-up:', error)
+  } catch (error: any) {
+    const errorMessage = error?.message || String(error)
+    const causeMessage = error?.cause?.message || ''
+    if (errorMessage.includes('11434') || causeMessage.includes('11434')) {
+      safeError(
+        '[AI_BACKEND] Refusing localhost:11434 Anthropic route because USE_LOCAL_MODEL is not true. Check ANTHROPIC_BASE_URL / proxy env.'
+      )
+    }
+    safeError('[AI_BACKEND] Anthropic unavailable; using fallback')
     return 'I hit a temporary issue answering that. Keep going with the highlighted next step.'
   }
 }

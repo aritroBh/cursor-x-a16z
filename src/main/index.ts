@@ -30,6 +30,7 @@ import { registerReplayIpc, replayWalkthrough } from './session/replay'
 import { hasActiveReplay, stopReplay } from './session/replayController'
 import { CONTROLLED_DEMO_HEIGHT, CONTROLLED_DEMO_WIDTH, createControlledDemoWorkflow } from './session/demoWorkflow'
 import type { Step } from './session/types'
+import { safeLog, safeWarn, safeError } from './logger'
 
 const icon = join(__dirname, '../../resources/icon.png')
 const DEFAULT_APP_NAME = 'Specter'
@@ -102,19 +103,19 @@ function isLearningGraph(value: any): boolean {
 }
 
 function toggleOverlay(): void {
-  console.log('[TOGGLE] toggleOverlay called, isVisible:', overlayWindow?.isVisible())
+  safeLog('[TOGGLE] toggleOverlay called, isVisible:', overlayWindow?.isVisible())
   if (!overlayWindow) return
   if (hasActiveReplay()) {
-    console.warn('[TOGGLE] double-shift pressed during active replay; stopping replay instead of hiding the overlay')
+    safeWarn('[TOGGLE] double-shift pressed during active replay; stopping replay instead of hiding the overlay')
     stopReplay()
     return
   }
   if (overlayWindow.isVisible()) {
-    console.log('[OVERLAY_INTERACTION] hiding overlay, enabled click-through')
+    safeLog('[OVERLAY_INTERACTION] hiding overlay, enabled click-through')
     overlayWindow.setIgnoreMouseEvents(true, { forward: true })
     overlayWindow.hide()
   } else {
-    console.log('[OVERLAY_INTERACTION] showing overlay, enabled click-through (ignore mouse: true)')
+    safeLog('[OVERLAY_INTERACTION] showing overlay, enabled click-through (ignore mouse: true)')
     overlayWindow.setIgnoreMouseEvents(true, { forward: true })
     overlayWindow.show()
   }
@@ -255,34 +256,34 @@ app.whenReady().then(async () => {
   })
 
   ipcMain.handle('cursor:move', async (_event, x, y, durationMs) => {
-    console.log('[IPC] cursor:move', { x, y, durationMs })
+    safeLog('[IPC] cursor:move', { x, y, durationMs })
     return moveRealMouse(x, y, durationMs)
   })
 
   ipcMain.handle('cursor:click', async (_event, x, y) => clickRealMouse(x, y))
   ipcMain.handle('cursor:replay', async (_event, steps) => {
-    console.warn('[AUTO_REAL_MOUSE] LOUD WARNING: REAL OS automation steps triggered from IPC', { count: steps?.length })
+    safeWarn('[AUTO_REAL_MOUSE] LOUD WARNING: REAL OS automation steps triggered from IPC', { count: steps?.length })
     return executeRealMouseSteps(steps)
   })
   ipcMain.handle('cursor:getPosition', async () => getPhysicalMousePosition())
   ipcMain.handle('cursor:diagnostics', async () => getCoordinateCalibrationDiagnostics())
   ipcMain.handle('cursor:moveCenter', async () => {
-    console.log('[COORD_CALIBRATION] explicit center move requested')
+    safeLog('[COORD_CALIBRATION] explicit center move requested')
     return moveRealMouse(50, 50)
   })
   ipcMain.handle('cursor:waitForTarget', async (_event, x, y, tolerancePx = 50, timeoutMs = 12000) => {
-    console.log('[IPC] cursor:waitForTarget', { x, y, tolerancePx, timeoutMs })
+    safeLog('[IPC] cursor:waitForTarget', { x, y, tolerancePx, timeoutMs })
     return waitForMouseAtTarget(x, y, tolerancePx, timeoutMs)
   })
 
   ipcMain.handle('overlay:setClickThrough', async (_event, clickThrough) => {
     if (!overlayWindow || overlayWindow.isDestroyed()) return
-    console.log(`[OVERLAY_INTERACTION] ${clickThrough ? 'enabled click-through' : 'enabled interactive zone'}`)
+    safeLog(`[OVERLAY_INTERACTION] ${clickThrough ? 'enabled click-through' : 'enabled interactive zone'}`)
     overlayWindow.setIgnoreMouseEvents(clickThrough, { forward: true })
   })
 
   ipcMain.handle('screen:capture', async (event) => {
-    console.log('[IPC] screen:capture')
+    safeLog('[IPC] screen:capture')
     try {
       return await captureScreenBase64()
     } catch (err: any) {
@@ -294,29 +295,30 @@ app.whenReady().then(async () => {
   })
 
   ipcMain.handle('screen:analyze', async (event, base64PNG, options) => {
-    console.log('[IPC] screen:analyze', { hasBase64: !!base64PNG, captureUnderlying: !!options?.captureUnderlying })
+    safeLog('[IPC] screen:analyze', { hasBase64: !!base64PNG, captureUnderlying: !!options?.captureUnderlying })
     const captureUnderlying = options?.captureUnderlying
+    const logPrefix = captureUnderlying ? '[CAPTURE_UNDERLYING]' : '[CAPTURE_SCREEN]'
     const wasOverlayVisible = captureUnderlying && Boolean(overlayWindow && !overlayWindow.isDestroyed() && overlayWindow.isVisible())
     try {
       if (wasOverlayVisible && overlayWindow) {
-        console.log('[CAPTURE_UNDERLYING] hiding overlay before screen capture')
+        safeLog('[CAPTURE_UNDERLYING] hiding overlay before screen capture')
         overlayWindow.setIgnoreMouseEvents(true, { forward: true })
         overlayWindow.hide()
         await delay(160)
       }
-      console.log('[CAPTURE_UNDERLYING] starting screenshot capture')
+      safeLog(`${logPrefix} starting screenshot capture`)
       const screenshot = base64PNG || (await captureScreenBase64())
-      console.log('[CAPTURE_UNDERLYING] screenshot captured', { bytesBase64: screenshot.length })
+      safeLog(`${logPrefix} screenshot captured`, { bytesBase64: screenshot.length })
       return analyzeScreen(screenshot)
     } catch (err: any) {
       if (isPermissionError(err) || err.code === 'SCREEN_PERMISSION_DENIED') {
         event.sender.send('permissions:screen-denied')
       }
-      console.error('[Specter] Screen analysis failed; using fallback screen state:', err)
+      safeError('[Specter] Screen analysis failed; using fallback screen state:', err)
       return fallbackScreenState()
     } finally {
       if (wasOverlayVisible && overlayWindow && !overlayWindow.isDestroyed()) {
-        console.log('[CAPTURE_UNDERLYING] restoring overlay after capture, click-through true')
+        safeLog('[CAPTURE_UNDERLYING] restoring overlay after capture, click-through true')
         overlayWindow.show()
         overlayWindow.setIgnoreMouseEvents(true, { forward: true })
       }
@@ -325,33 +327,33 @@ app.whenReady().then(async () => {
 
   ipcMain.handle('realApp:detectTargets', async (event, userIntent = '') => {
     const prompt = typeof userIntent === 'string' && userIntent.trim() ? userIntent.trim() : 'Teach one visible action'
-    console.log('[REAL_APP_TEST] capture requested', { prompt })
+    safeLog('[REAL_APP_TEST] capture requested', { prompt })
 
     const wasOverlayVisible = Boolean(overlayWindow && !overlayWindow.isDestroyed() && overlayWindow.isVisible())
 
     try {
       if (wasOverlayVisible && overlayWindow) {
-        console.log('[CAPTURE_UNDERLYING] hiding overlay before real-app target detection')
+        safeLog('[CAPTURE_UNDERLYING] hiding overlay before real-app target detection')
         overlayWindow.setIgnoreMouseEvents(true, { forward: true })
         overlayWindow.hide()
         await delay(160)
       }
 
-      console.log('[CAPTURE_UNDERLYING] starting screenshot capture for real-app targets')
+      safeLog('[CAPTURE_UNDERLYING] starting screenshot capture for real-app targets')
       const screenshot = await captureScreenBase64()
-      console.log('[CAPTURE_UNDERLYING] screenshot captured for real-app targets', {
+      safeLog('[CAPTURE_UNDERLYING] screenshot captured for real-app targets', {
         prompt,
         bytesBase64: screenshot.length
       })
 
       if (wasOverlayVisible && overlayWindow && !overlayWindow.isDestroyed()) {
-        console.log('[CAPTURE_UNDERLYING] restoring overlay after real-app capture, click-through true')
+        safeLog('[CAPTURE_UNDERLYING] restoring overlay after real-app capture, click-through true')
         overlayWindow.show()
         overlayWindow.setIgnoreMouseEvents(true, { forward: true })
       }
 
       const result = await detectScreenTargets(screenshot, prompt)
-      console.log('[SCREEN_TARGETS] targets returned', {
+      safeLog('[SCREEN_TARGETS] targets returned', {
         prompt,
         app: result.app,
         count: result.targets.length,
@@ -366,7 +368,7 @@ app.whenReady().then(async () => {
       if (isPermissionError(err) || err.code === 'SCREEN_PERMISSION_DENIED') {
         event.sender.send('permissions:screen-denied')
       }
-      console.error('[REAL_APP_TEST] target detection failed:', err)
+      safeError('[REAL_APP_TEST] target detection failed:', err)
       return {
         ...fallbackScreenTargets(prompt),
         confidenceThreshold: REAL_APP_CONFIDENCE_THRESHOLD
@@ -387,14 +389,14 @@ app.whenReady().then(async () => {
     const targetConfidence = confidenceValue(target?.confidence, source === 'manual' ? 1 : 0)
 
     if (source === 'manual') {
-      console.log('[MANUAL_TARGET] saving manual real-app target', {
+      safeLog('[MANUAL_TARGET] saving manual real-app target', {
         nodeId,
         label: step.targetLabel,
         x: step.x,
         y: step.y
       })
     } else {
-      console.log('[TARGET_CONFIRM] saving confirmed real-app target', {
+      safeLog('[TARGET_CONFIRM] saving confirmed real-app target', {
         nodeId,
         label: step.targetLabel,
         x: step.x,
@@ -405,7 +407,7 @@ app.whenReady().then(async () => {
 
     const graph = saveToNode(loadGraph(DEFAULT_APP_NAME), nodeId, [step])
     saveGraph(graph)
-    console.log('[REAL_APP_WALKTHROUGH] workflow ready', {
+    safeLog('[REAL_APP_WALKTHROUGH] workflow ready', {
       nodeId,
       totalSteps: 1,
       label: step.targetLabel,
@@ -423,7 +425,7 @@ app.whenReady().then(async () => {
   })
 
   ipcMain.handle('planner:plan', async (_event, userIntent, screenState, sessionHistory, mode) => {
-    console.log('[IPC] planner:plan', { userIntent, mode })
+    safeLog('[IPC] planner:plan', { userIntent, mode })
     return planSteps(userIntent, screenState, sessionHistory, mode)
   })
 
@@ -465,7 +467,7 @@ app.whenReady().then(async () => {
     const workflow = createControlledDemoWorkflow(mainWindow)
     const graph = saveToNode(loadGraph(DEFAULT_APP_NAME), workflow.nodeId, workflow.steps)
     saveGraph(graph)
-    console.log('[DEMO] controlled workflow prepared', {
+    safeLog('[DEMO] controlled workflow prepared', {
       nodeId: workflow.nodeId,
       totalSteps: workflow.steps.length,
       steps: workflow.steps.map((step) => ({
@@ -547,14 +549,14 @@ app.whenReady().then(async () => {
   })
 
   ipcMain.handle('tts:speak', async (_event, text) => {
-    console.log('[IPC] tts:speak', { text: text?.slice(0, 50) })
+    safeLog('[IPC] tts:speak', { text: text?.slice(0, 50) })
     return speak(text)
   })
 
   ipcMain.handle('tts:stop', async () => stopSpeaking())
 
   ipcMain.handle('whisper:transcribe', async (_event, audioData) => {
-    console.log('[IPC] whisper:transcribe', { size: audioData?.byteLength })
+    safeLog('[IPC] whisper:transcribe', { size: audioData?.byteLength })
     const buffer = Buffer.from(audioData)
     return transcribe(buffer)
   })

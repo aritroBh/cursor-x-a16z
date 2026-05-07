@@ -29,6 +29,8 @@ interface RealAppTargetsResult {
   needsConfirmation?: boolean
   reason?: string
   confidenceThreshold?: number
+  error?: string
+  fallbackAvailable?: boolean
 }
 
 const SHOW_WALKTHROUGH_DEBUG = import.meta.env.DEV
@@ -168,14 +170,9 @@ const OverlayApp: React.FC = () => {
   // Detect current app context when overlay becomes visible
   useEffect(() => {
     if (isVisible) {
-      console.log('[OVERLAY_INTERACTION] overlay became visible')
-      void api.analyzeScreen().then((res) => {
-        setScreenState(res)
-      }).catch((err) => {
-        console.error('[Overlay] Initial screen analysis failed:', err)
-      })
+      // Cheap text only; do not call Claude Vision on toggle
+      setScreenState((prev: any) => prev || { app: 'current app' })
     } else {
-      console.log('[OVERLAY_INTERACTION] overlay hidden')
       setScreenState(null)
     }
   }, [isVisible])
@@ -307,6 +304,11 @@ const OverlayApp: React.FC = () => {
 
     try {
       const res = await api.analyzeScreen(undefined, { captureUnderlying: true })
+      if (res?.error === 'AI_BACKEND_UNAVAILABLE') {
+        setErrorMessage('AI vision is unavailable right now. You can still use Controlled Demo or pick a target manually.')
+        setIsLoading(false)
+        return
+      }
       setScreenState(res)
 
       setLoadingMessage('Planning the walkthrough...')
@@ -433,8 +435,20 @@ const OverlayApp: React.FC = () => {
     setLoadingMessage('Capturing real app...')
 
     try {
-      console.log('[REAL_APP_FLOW] normal Enter started real-app test', { intent: testIntent })
       const result = await api.detectRealAppTargets(testIntent)
+      if (result?.error === 'AI_BACKEND_UNAVAILABLE') {
+        setRealAppTargets({
+          error: 'AI_BACKEND_UNAVAILABLE',
+          fallbackAvailable: true,
+          targets: [],
+          microTask: 'AI vision is unavailable right now. You can still use Controlled Demo or pick a target manually.',
+          app: 'Unavailable',
+          confidenceThreshold: DEFAULT_CONFIDENCE_THRESHOLD
+        })
+        setSelectedRealAppTarget(null)
+        setIsLoading(false)
+        return
+      }
       const normalizedTargets = Array.isArray(result?.targets) ? result.targets.map((target: RealAppTarget) => normalizedRealAppTarget(target)) : []
       const nextTargets: RealAppTargetsResult = {
         ...result,
@@ -443,13 +457,6 @@ const OverlayApp: React.FC = () => {
       }
       const bestTarget = normalizedTargets[0] || null
       const threshold = nextTargets.confidenceThreshold || DEFAULT_CONFIDENCE_THRESHOLD
-
-      console.log('[REAL_APP_FLOW] targets detected', {
-        app: nextTargets.app,
-        targetCount: normalizedTargets.length,
-        topConfidence: bestTarget?.confidence ?? null,
-        needsConfirmation: !bestTarget || (bestTarget.confidence ?? 0) < threshold
-      })
 
       setRealAppTargets(nextTargets)
       setSelectedRealAppTarget(bestTarget)
@@ -463,7 +470,6 @@ const OverlayApp: React.FC = () => {
         setRealAppNotice('Confirm the target before the ghost starts.')
       }
     } catch (error) {
-      console.error('[REAL_APP_TEST] failed:', error)
       setErrorMessage(messageFromError(error))
     } finally {
       setIsLoading(false)
@@ -891,6 +897,82 @@ const OverlayApp: React.FC = () => {
                 zIndex: 10004
               }}
             >
+              {realAppTargets?.fallbackAvailable && (
+                <div style={{
+                  width: '100%',
+                  background: 'rgba(12, 14, 18, 0.86)',
+                  border: '1px solid rgba(255,255,255,0.12)',
+                  borderRadius: '16px',
+                  padding: '14px',
+                  color: '#fff',
+                  boxShadow: '0 16px 42px rgba(0,0,0,0.34)',
+                  backdropFilter: 'blur(18px)',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: '10px'
+                }}>
+                  <div style={{ fontSize: '14px', fontWeight: 800, lineHeight: 1.35 }}>
+                    AI vision is unavailable right now. You can still use Controlled Demo or pick a target manually.
+                  </div>
+                  <div style={{ display: 'flex', gap: '8px', width: '100%' }}>
+                    <button
+                      disabled={isLoading}
+                      onClick={prepareControlledDemo}
+                      style={{
+                        flex: 1,
+                        border: '1px solid rgba(255,255,255,0.12)',
+                        borderRadius: '10px',
+                        padding: '9px 10px',
+                        color: 'white',
+                        background: 'rgba(48,209,88,0.28)',
+                        fontSize: '12px',
+                        fontWeight: 800,
+                        cursor: 'pointer'
+                      }}
+                    >
+                      Controlled Demo
+                    </button>
+                    <button
+                      disabled={isLoading}
+                      onClick={startManualTargetPicking}
+                      style={{
+                        flex: 1,
+                        border: '1px solid rgba(255,255,255,0.12)',
+                        borderRadius: '10px',
+                        padding: '9px 10px',
+                        color: 'white',
+                        background: 'rgba(10,132,255,0.24)',
+                        fontSize: '12px',
+                        fontWeight: 800,
+                        cursor: 'pointer'
+                      }}
+                    >
+                      Pick target manually
+                    </button>
+                    <button
+                      disabled={isLoading}
+                      onClick={() => {
+                        setRealAppTargets(null)
+                        startRealAppTest(realAppIntent || intent || DEFAULT_REAL_APP_PROMPT)
+                      }}
+                      style={{
+                        flex: 1,
+                        border: '1px solid rgba(255,255,255,0.12)',
+                        borderRadius: '10px',
+                        padding: '9px 10px',
+                        color: 'white',
+                        background: 'rgba(255,255,255,0.12)',
+                        fontSize: '12px',
+                        fontWeight: 800,
+                        cursor: 'pointer'
+                      }}
+                    >
+                      Retry AI
+                    </button>
+                  </div>
+                </div>
+              )}
+
               <div style={{ display: 'flex', alignItems: 'center', gap: '12px', width: '100%', justifyContent: 'center' }}>
                 <ModeToggle mode={mode} onChange={setMode} />
                 <button

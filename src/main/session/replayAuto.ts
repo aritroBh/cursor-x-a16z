@@ -1,5 +1,6 @@
+import { safeLog } from '../logger'
 import { clickRealMouse, executeRealMouseSteps } from '../cursor'
-import { Step } from './types'
+import type { Step } from './types'
 import {
   createReplayController,
   isActive,
@@ -23,13 +24,13 @@ function stepTitle(step: Step): string {
 export async function replayAutoExecute(steps: Step[]): Promise<void> {
   const controller = createReplayController()
   setOverlayForReplay()
-  console.log('[AUTO_REAL_MOUSE] STARTING REAL OS AUTOMATION', { totalSteps: steps.length })
+  safeLog('[AUTO_REAL_MOUSE] STARTING REAL OS AUTOMATION', { totalSteps: steps.length })
 
   try {
     for (let index = 0; index < steps.length; index++) {
       if (!isActive(controller)) break
       const step = steps[index]
-      console.log('[AUTO_REAL_MOUSE] real mouse step', {
+      safeLog('[AUTO_REAL_MOUSE] real mouse step', {
         index,
         displayIndex: index + 1,
         total: steps.length,
@@ -41,15 +42,15 @@ export async function replayAutoExecute(steps: Step[]): Promise<void> {
 
       if (step.action === 'click') {
         if (!(await sleep(step.delayMs || 0, controller))) break
-        console.log('[AUTO_REAL_MOUSE] REAL OS move/click', { index, x: step.x, y: step.y })
+        safeLog('[AUTO_REAL_MOUSE] REAL OS move/click', { index, x: step.x, y: step.y })
         await clickRealMouse(step.x, step.y)
       } else if (step.action === 'wait') {
         const waitMs = stepWaitMs(step)
-        console.log('[AUTO_REAL_MOUSE] wait before next real OS action', { index, waitMs })
+        safeLog('[AUTO_REAL_MOUSE] wait before next real OS action', { index, waitMs })
         if (!(await sleep(waitMs, controller))) break
       } else {
         if (!(await sleep(step.delayMs || 0, controller))) break
-        console.log('[AUTO_REAL_MOUSE] REAL OS action replay', {
+        safeLog('[AUTO_REAL_MOUSE] REAL OS action replay', {
           index,
           action: step.action,
           x: step.x,
@@ -58,7 +59,7 @@ export async function replayAutoExecute(steps: Step[]): Promise<void> {
         })
         await executeRealMouseSteps([{ ...step, delayMs: 0 }])
       }
-      console.log('[AUTO_REAL_MOUSE] real mouse step complete', { index, action: step.action })
+      safeLog('[AUTO_REAL_MOUSE] real mouse step complete', { index, action: step.action })
       sendOverlay('replay:progress', { index, total: steps.length })
     }
   } finally {
@@ -67,6 +68,6 @@ export async function replayAutoExecute(steps: Step[]): Promise<void> {
     }
     releaseReplayController(controller)
     restoreOverlayAfterReplay(controller)
-    console.log('[AUTO_REAL_MOUSE] REAL OS AUTOMATION FINISHED', { cancelled: controller.cancelled })
+    safeLog('[AUTO_REAL_MOUSE] REAL OS AUTOMATION FINISHED', { cancelled: controller.cancelled })
   }
 }

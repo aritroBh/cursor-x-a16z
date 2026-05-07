@@ -1,4 +1,5 @@
 import { BrowserWindow, IpcMain } from 'electron'
+import { safeLog, safeWarn, safeError } from '../logger'
 import { getPhysicalMousePercent, waitForMouseAtTarget, waitForUserClickAtTarget } from '../userCursor'
 import { loadGraph } from './storage'
 import { Step } from './types'
@@ -57,7 +58,7 @@ async function ghostStartForStep(step: Step, previousTarget: GhostStart | null):
   try {
     return await getPhysicalMousePercent()
   } catch (error) {
-    console.warn('[GHOST] could not read physical cursor for ghost start; using fallback', error)
+    safeWarn('[GHOST] could not read physical cursor for ghost start; using fallback', error)
     return fallbackGhostStart(step, previousTarget)
   }
 }
@@ -89,7 +90,7 @@ function waitForUserNearTarget(
         settle(result)
       })
       .catch((error) => {
-        console.error('[USER_CURSOR] waitForMouseAtTarget failed', error)
+        safeError('[USER_CURSOR] waitForMouseAtTarget failed', error)
         settle('timeout')
       })
   })
@@ -122,7 +123,7 @@ function waitForUserClickOnTarget(
         settle(result)
       })
       .catch((error) => {
-        console.error('[CLICK_DETECT] waitForUserClickAtTarget failed', error)
+        safeError('[CLICK_DETECT] waitForUserClickAtTarget failed', error)
         settle('timeout')
       })
   })
@@ -157,7 +158,7 @@ function waitForManualStepConfirmation(
     pendingManualConfirm = confirm
     controller.cancelHandlers.add(cancel)
 
-    console.warn('[CLICK_DETECT] click fallback armed; waiting for Space/Enter confirmation', {
+    safeWarn('[CLICK_DETECT] click fallback armed; waiting for Space/Enter confirmation', {
       index,
       x: step.x,
       y: step.y,
@@ -177,11 +178,11 @@ function waitForManualStepConfirmation(
 
 export function confirmReplayStep(): boolean {
   if (!pendingManualConfirm) {
-    console.warn('[WALKTHROUGH] manual step confirmation ignored; no confirmation is pending')
+    safeWarn('[WALKTHROUGH] manual step confirmation ignored; no confirmation is pending')
     return false
   }
 
-  console.log('[WALKTHROUGH] manual step confirmation received')
+  safeLog('[WALKTHROUGH] manual step confirmation received')
   pendingManualConfirm()
   return true
 }
@@ -197,7 +198,7 @@ function stepsForNode(nodeId: string | undefined, appName: string): Step[] {
 }
 
 function logWalkthroughStep(step: Step, index: number, total: number, attempt: number): void {
-  console.log('[WALKTHROUGH] step', {
+  safeLog('[WALKTHROUGH] step', {
     index,
     displayIndex: index + 1,
     total,
@@ -227,7 +228,7 @@ function emitGhostStep(step: Step, index: number, total: number, attempt: number
     }
   })
 
-  console.log('[GHOST] visual step emitted', {
+  safeLog('[GHOST] visual step emitted', {
     channel,
     index,
     attempt,
@@ -239,12 +240,12 @@ function emitGhostStep(step: Step, index: number, total: number, attempt: number
   })
 
   if (ghostLoops) {
-    console.log('[GHOST] looping started', { index, attempt, timeoutMs: DEFAULT_STEP_TIMEOUT_MS })
+    safeLog('[GHOST] looping started', { index, attempt, timeoutMs: DEFAULT_STEP_TIMEOUT_MS })
   }
 }
 
 function parkGhostAtEndpoint(step: Step, index: number, total: number, attempt: number): void {
-  console.log('[GHOST] parked at endpoint', { index, action: step.action, x: step.x, y: step.y })
+  safeLog('[GHOST] parked at endpoint', { index, action: step.action, x: step.x, y: step.y })
   sendOverlay('replay:target-reached', {
     step,
     index,
@@ -261,7 +262,7 @@ export async function replayWalkthrough(steps: Step[], onStep: (step: Step, inde
   const controller = createReplayController()
   setOverlayForReplay()
   let previousGhostTarget: GhostStart | null = null
-  console.log('[WALKTHROUGH] start', { totalSteps: steps.length })
+  safeLog('[WALKTHROUGH] start', { totalSteps: steps.length })
 
   try {
     for (let index = 0; index < steps.length; index++) {
@@ -279,10 +280,10 @@ export async function replayWalkthrough(steps: Step[], onStep: (step: Step, inde
 
         if (step.action === 'wait') {
           const waitMs = stepWaitMs(step)
-          console.log('[WALKTHROUGH] wait step sleeping', { index, waitMs })
+          safeLog('[WALKTHROUGH] wait step sleeping', { index, waitMs })
           result = (await sleep(waitMs, controller)) ? 'correct' : 'cancelled'
         } else if (step.action === 'click') {
-          console.log('[USER_CURSOR] waiting for real cursor to enter tolerance', {
+          safeLog('[USER_CURSOR] waiting for real cursor to enter tolerance', {
             index,
             x: step.x,
             y: step.y,
@@ -291,11 +292,11 @@ export async function replayWalkthrough(steps: Step[], onStep: (step: Step, inde
           result = await waitForUserNearTarget(step, controller)
 
           if (result === 'correct') {
-            console.log('[USER_CURSOR] real cursor entered tolerance', { index, x: step.x, y: step.y })
+            safeLog('[USER_CURSOR] real cursor entered tolerance', { index, x: step.x, y: step.y })
             previousGhostTarget = { x: step.x, y: step.y }
             parkGhostAtEndpoint(step, index, steps.length, attempts)
 
-            console.log('[CLICK_DETECT] waiting for actual user click', {
+            safeLog('[CLICK_DETECT] waiting for actual user click', {
               index,
               x: step.x,
               y: step.y,
@@ -303,17 +304,17 @@ export async function replayWalkthrough(steps: Step[], onStep: (step: Step, inde
             })
             result = await waitForUserClickOnTarget(step, controller)
             if (result === 'correct') {
-              console.log('[CLICK_DETECT] Success: User click detected at target', { index, x: step.x, y: step.y })
+              safeLog('[CLICK_DETECT] Success: User click detected at target', { index, x: step.x, y: step.y })
             } else if (result === 'timeout' && isActive(controller)) {
-              console.warn('[CLICK_DETECT] Failed: Click not detected within timeout. Activating Space/Enter fallback.')
+              safeWarn('[CLICK_DETECT] Failed: Click not detected within timeout. Activating Space/Enter fallback.')
               result = await waitForManualStepConfirmation(step, index, steps.length, controller)
               if (result === 'correct') {
-                console.log('[CLICK_DETECT] Step advanced by Space/Enter manual confirmation', { index, x: step.x, y: step.y })
+                safeLog('[CLICK_DETECT] Step advanced by Space/Enter manual confirmation', { index, x: step.x, y: step.y })
               }
             }
           }
         } else {
-          console.log('[USER_CURSOR] waiting for real cursor to enter tolerance', {
+          safeLog('[USER_CURSOR] waiting for real cursor to enter tolerance', {
             index,
             action: step.action,
             x: step.x,
@@ -323,17 +324,17 @@ export async function replayWalkthrough(steps: Step[], onStep: (step: Step, inde
           result = await waitForUserNearTarget(step, controller)
 
           if (result === 'correct') {
-            console.log('[USER_CURSOR] real cursor entered tolerance', { index, action: step.action, x: step.x, y: step.y })
+            safeLog('[USER_CURSOR] real cursor entered tolerance', { index, action: step.action, x: step.x, y: step.y })
             previousGhostTarget = { x: step.x, y: step.y }
             parkGhostAtEndpoint(step, index, steps.length, attempts)
           }
         }
 
         if (result === 'correct') {
-          console.log('[WALKTHROUGH] step complete', { index, action: step.action, title: stepTitle(step) })
+          safeLog('[WALKTHROUGH] step complete', { index, action: step.action, title: stepTitle(step) })
         } else if (result === 'timeout') {
           attempts++
-          console.warn('[WALKTHROUGH] step timed out', {
+          safeWarn('[WALKTHROUGH] step timed out', {
             index,
             action: step.action,
             title: stepTitle(step),
@@ -341,24 +342,24 @@ export async function replayWalkthrough(steps: Step[], onStep: (step: Step, inde
             maxAttempts: MAX_WALKTHROUGH_ATTEMPTS
           })
           if (attempts >= MAX_WALKTHROUGH_ATTEMPTS) {
-            console.warn('[WALKTHROUGH] step skipped after timeout', { index, action: step.action, title: stepTitle(step) })
+            safeWarn('[WALKTHROUGH] step skipped after timeout', { index, action: step.action, title: stepTitle(step) })
             break
           }
         } else if (result === 'cancelled') {
-          console.warn('[WALKTHROUGH] step cancelled', { index, action: step.action, title: stepTitle(step) })
+          safeWarn('[WALKTHROUGH] step cancelled', { index, action: step.action, title: stepTitle(step) })
           break
         }
       }
     }
 
     if (!controller.cancelled) {
-      console.log('[WALKTHROUGH] complete')
+      safeLog('[WALKTHROUGH] complete')
       sendOverlay('replay:complete', {})
     }
   } finally {
     releaseReplayController(controller)
     restoreOverlayAfterReplay(controller)
-    console.log('[WALKTHROUGH] finished', { cancelled: controller.cancelled })
+    safeLog('[WALKTHROUGH] finished', { cancelled: controller.cancelled })
   }
 }
 

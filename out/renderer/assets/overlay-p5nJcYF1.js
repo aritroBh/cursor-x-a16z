@@ -557,14 +557,8 @@ const OverlayApp = () => {
   }, []);
   reactExports.useEffect(() => {
     if (isVisible) {
-      console.log("[OVERLAY_INTERACTION] overlay became visible");
-      void api.analyzeScreen().then((res) => {
-        setScreenState(res);
-      }).catch((err) => {
-        console.error("[Overlay] Initial screen analysis failed:", err);
-      });
+      setScreenState((prev) => prev || { app: "current app" });
     } else {
-      console.log("[OVERLAY_INTERACTION] overlay hidden");
       setScreenState(null);
     }
   }, [isVisible]);
@@ -672,6 +666,11 @@ const OverlayApp = () => {
     let selectedArm = null;
     try {
       const res = await api.analyzeScreen(void 0, { captureUnderlying: true });
+      if (res?.error === "AI_BACKEND_UNAVAILABLE") {
+        setErrorMessage("AI vision is unavailable right now. You can still use Controlled Demo or pick a target manually.");
+        setIsLoading(false);
+        return;
+      }
       setScreenState(res);
       setLoadingMessage("Planning the walkthrough...");
       const plan = await api.planSteps(trimmed, res, [], mode);
@@ -783,8 +782,20 @@ const OverlayApp = () => {
     setIsLoading(true);
     setLoadingMessage("Capturing real app...");
     try {
-      console.log("[REAL_APP_FLOW] normal Enter started real-app test", { intent: testIntent });
       const result = await api.detectRealAppTargets(testIntent);
+      if (result?.error === "AI_BACKEND_UNAVAILABLE") {
+        setRealAppTargets({
+          error: "AI_BACKEND_UNAVAILABLE",
+          fallbackAvailable: true,
+          targets: [],
+          microTask: "AI vision is unavailable right now. You can still use Controlled Demo or pick a target manually.",
+          app: "Unavailable",
+          confidenceThreshold: DEFAULT_CONFIDENCE_THRESHOLD
+        });
+        setSelectedRealAppTarget(null);
+        setIsLoading(false);
+        return;
+      }
       const normalizedTargets = Array.isArray(result?.targets) ? result.targets.map((target) => normalizedRealAppTarget(target)) : [];
       const nextTargets = {
         ...result,
@@ -793,12 +804,6 @@ const OverlayApp = () => {
       };
       const bestTarget = normalizedTargets[0] || null;
       const threshold = nextTargets.confidenceThreshold || DEFAULT_CONFIDENCE_THRESHOLD;
-      console.log("[REAL_APP_FLOW] targets detected", {
-        app: nextTargets.app,
-        targetCount: normalizedTargets.length,
-        topConfidence: bestTarget?.confidence ?? null,
-        needsConfirmation: !bestTarget || (bestTarget.confidence ?? 0) < threshold
-      });
       setRealAppTargets(nextTargets);
       setSelectedRealAppTarget(bestTarget);
       if (!bestTarget) {
@@ -810,7 +815,6 @@ const OverlayApp = () => {
         setRealAppNotice("Confirm the target before the ghost starts.");
       }
     } catch (error) {
-      console.error("[REAL_APP_TEST] failed:", error);
       setErrorMessage(messageFromError(error));
     } finally {
       setIsLoading(false);
@@ -1155,6 +1159,83 @@ const OverlayApp = () => {
               zIndex: 10004
             },
             children: [
+              realAppTargets?.fallbackAvailable && /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { style: {
+                width: "100%",
+                background: "rgba(12, 14, 18, 0.86)",
+                border: "1px solid rgba(255,255,255,0.12)",
+                borderRadius: "16px",
+                padding: "14px",
+                color: "#fff",
+                boxShadow: "0 16px 42px rgba(0,0,0,0.34)",
+                backdropFilter: "blur(18px)",
+                display: "flex",
+                flexDirection: "column",
+                gap: "10px"
+              }, children: [
+                /* @__PURE__ */ jsxRuntimeExports.jsx("div", { style: { fontSize: "14px", fontWeight: 800, lineHeight: 1.35 }, children: "AI vision is unavailable right now. You can still use Controlled Demo or pick a target manually." }),
+                /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { style: { display: "flex", gap: "8px", width: "100%" }, children: [
+                  /* @__PURE__ */ jsxRuntimeExports.jsx(
+                    "button",
+                    {
+                      disabled: isLoading,
+                      onClick: prepareControlledDemo,
+                      style: {
+                        flex: 1,
+                        border: "1px solid rgba(255,255,255,0.12)",
+                        borderRadius: "10px",
+                        padding: "9px 10px",
+                        color: "white",
+                        background: "rgba(48,209,88,0.28)",
+                        fontSize: "12px",
+                        fontWeight: 800,
+                        cursor: "pointer"
+                      },
+                      children: "Controlled Demo"
+                    }
+                  ),
+                  /* @__PURE__ */ jsxRuntimeExports.jsx(
+                    "button",
+                    {
+                      disabled: isLoading,
+                      onClick: startManualTargetPicking,
+                      style: {
+                        flex: 1,
+                        border: "1px solid rgba(255,255,255,0.12)",
+                        borderRadius: "10px",
+                        padding: "9px 10px",
+                        color: "white",
+                        background: "rgba(10,132,255,0.24)",
+                        fontSize: "12px",
+                        fontWeight: 800,
+                        cursor: "pointer"
+                      },
+                      children: "Pick target manually"
+                    }
+                  ),
+                  /* @__PURE__ */ jsxRuntimeExports.jsx(
+                    "button",
+                    {
+                      disabled: isLoading,
+                      onClick: () => {
+                        setRealAppTargets(null);
+                        startRealAppTest(realAppIntent || intent || DEFAULT_REAL_APP_PROMPT);
+                      },
+                      style: {
+                        flex: 1,
+                        border: "1px solid rgba(255,255,255,0.12)",
+                        borderRadius: "10px",
+                        padding: "9px 10px",
+                        color: "white",
+                        background: "rgba(255,255,255,0.12)",
+                        fontSize: "12px",
+                        fontWeight: 800,
+                        cursor: "pointer"
+                      },
+                      children: "Retry AI"
+                    }
+                  )
+                ] })
+              ] }),
               /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { style: { display: "flex", alignItems: "center", gap: "12px", width: "100%", justifyContent: "center" }, children: [
                 /* @__PURE__ */ jsxRuntimeExports.jsx(ModeToggle, { mode, onChange: setMode }),
                 /* @__PURE__ */ jsxRuntimeExports.jsx(

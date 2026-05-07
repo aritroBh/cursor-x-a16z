@@ -285,7 +285,7 @@ const OverlayApp: React.FC = () => {
     }
   }, [])
 
-  const handleIntentSubmit = async (text: string) => {
+  const runLegacyPlannerFlow = async (text: string) => {
     const trimmed = text.trim()
     if (!trimmed) return
 
@@ -301,11 +301,11 @@ const OverlayApp: React.FC = () => {
     let selectedArm: string | null = null
 
     try {
-      const res = await api.analyzeScreen()
+      const res = await api.analyzeScreen(undefined, { captureUnderlying: true })
       setScreenState(res)
 
       setLoadingMessage('Planning the walkthrough...')
-      const plan = await api.planSteps(trimmed, screenState, [], mode)
+      const plan = await api.planSteps(trimmed, res, [], mode)
       if (!plan || !Array.isArray(plan.steps) || plan.steps.length === 0) {
         throw new Error('Specter could not create a usable plan for that intent.')
       }
@@ -870,8 +870,7 @@ const OverlayApp: React.FC = () => {
                 style={{ width: '100%', position: 'relative' }}
               >
                 <InputBar 
-                  onSubmit={handleIntentSubmit} 
-                  onRealAppTest={showDebugTools ? startRealAppTest : undefined} 
+                  onSubmit={startRealAppTest} 
                   disabled={isLoading}
                   onFocus={() => setIsInputFocused(true)}
                   onBlur={() => setIsInputFocused(false)}
@@ -937,6 +936,23 @@ const OverlayApp: React.FC = () => {
                       }}
                     >
                       Log calibration
+                    </button>
+                    <button
+                      disabled={isLoading || !intent}
+                      onClick={() => runLegacyPlannerFlow(intent)}
+                      style={{
+                        flex: 1,
+                        border: '1px solid rgba(255,255,255,0.12)',
+                        borderRadius: '10px',
+                        padding: '8px',
+                        color: 'white',
+                        background: 'rgba(191,90,242,0.15)',
+                        fontSize: '11px',
+                        fontWeight: 700,
+                        cursor: 'pointer'
+                      }}
+                    >
+                      Legacy planner
                     </button>
                     <button
                       disabled={isLoading}

@@ -90,7 +90,7 @@ export function restoreOverlayAfterReplay(controller: ReplayController): void {
   const overlayWindow = getOverlayWindow()
   if (!overlayWindow || overlayWindow.isDestroyed()) return
   if (controller.overlayWasVisible && overlayWindow.isVisible()) {
-    overlayWindow.setIgnoreMouseEvents(false)
+    overlayWindow.setIgnoreMouseEvents(true, { forward: true })
     return
   }
 

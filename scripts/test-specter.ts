@@ -113,7 +113,7 @@ async function main() {
 
   const overlayCss = readFile('src/renderer/src/assets/overlay.css')
   check(overlayCss.includes('@property --angle'), 'overlay.css keeps @property --angle')
-  check(overlayCss.includes('siri-spin 5s'), 'overlay.css keeps 5s Siri-style conic rotation')
+  check(/siri-spin\s+[5-8]s/.test(overlayCss), 'overlay.css keeps 5–8s Siri-style conic rotation')
   check(!overlayCss.includes('siri-glow-thin'), 'old siri-glow-thin animation name is absent')
   check(!overlayCss.includes('background: #000'), 'overlay.css does not force an opaque black background')
 
@@ -129,8 +129,8 @@ async function main() {
   printHeader('Renderer Stability')
 
   const overlayApp = readFile('src/renderer/src/OverlayApp.tsx')
-  check(overlayApp.includes('api.planSteps(trimmed, screenState, [], mode)'), 'OverlayApp passes current mode to planSteps')
-  check(/try\s*{[\s\S]*api\.analyzeScreen\(\)[\s\S]*catch\s*\(/.test(overlayApp), 'intent submission is wrapped in try/catch')
+  check(overlayApp.includes('api.planSteps(trimmed, res, [], mode)'), 'OverlayApp passes fresh analyze result to planSteps')
+  check(/try\s*{[\s\S]*api\.(analyzeScreen|detectRealAppTargets)\([\s\S]*catch\s*\(/.test(overlayApp), 'intent submission is wrapped in try/catch')
   check(/finally\s*{[\s\S]*setIsLoading\(false\)/.test(overlayApp), 'intent submission clears loading in finally')
   check(overlayApp.includes('setErrorMessage('), 'OverlayApp can show a visible error message')
   check(overlayApp.includes('Walk me through') || overlayApp.includes('onWalkthrough'), 'renderer exposes walkthrough replay UI')
@@ -176,12 +176,21 @@ async function main() {
   check(!/return\s+null/.test(analyzeScreenBody), 'analyzeScreen does not return null on failures')
   check(mainIndex.includes('fallbackScreenState()'), 'main screen:analyze handler returns fallback on capture/analyze failure')
 
+  const replayController = readFile('src/main/session/replayController.ts')
+
+  printHeader('Click-Through Safety')
+
+  const restoreOverlayBody = exportedFunctionBody(replayController, 'restoreOverlayAfterReplay')
+  check(!restoreOverlayBody.includes('overlayWindow.setIgnoreMouseEvents(false)'), 'restoreOverlayAfterReplay does not force interactive by default')
+  const detectTargetsBody = exportedFunctionBody(mainIndex, 'realApp:detectTargets')
+  check(!detectTargetsBody.includes('setIgnoreMouseEvents(false)'), 'realApp:detectTargets restores click-through true after capture')
+  check(mainIndex.includes("'screen:analyze'") && mainIndex.includes('captureUnderlying') && mainIndex.includes('overlayWindow.hide()'), 'screen:analyze hides overlay before capture when captureUnderlying is set')
+
   printHeader('Walkthrough vs Auto')
 
   const cursor = readFile('src/main/cursor.ts')
   const replay = readFile('src/main/session/replay.ts')
   const replayAuto = readFile('src/main/session/replayAuto.ts')
-  const replayController = readFile('src/main/session/replayController.ts')
   const replaySafety = readFile('src/main/session/replaySafety.ts')
   const userCursor = readFile('src/main/userCursor.ts')
   const walkthroughBody = exportedFunctionBody(replay, 'replayWalkthrough', 'registerReplayIpc')

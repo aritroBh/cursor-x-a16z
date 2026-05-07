@@ -29,7 +29,7 @@ const api = {
 
   // Screen
   captureScreen: () => ipcRenderer.invoke('screen:capture'),
-  analyzeScreen: (base64PNG?: string) => ipcRenderer.invoke('screen:analyze', base64PNG),
+  analyzeScreen: (base64PNG?: string, options?: { captureUnderlying?: boolean }) => ipcRenderer.invoke('screen:analyze', base64PNG, options),
   onScreenPermissionDenied: (callback: () => void) => onIpc('permissions:screen-denied', callback),
 
   // Real App Test

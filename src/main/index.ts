@@ -293,9 +293,16 @@ app.whenReady().then(async () => {
     }
   })
 
-  ipcMain.handle('screen:analyze', async (event, base64PNG) => {
-    console.log('[IPC] screen:analyze', { hasBase64: !!base64PNG })
+  ipcMain.handle('screen:analyze', async (event, base64PNG, options) => {
+    console.log('[IPC] screen:analyze', { hasBase64: !!base64PNG, captureUnderlying: !!options?.captureUnderlying })
+    const captureUnderlying = options?.captureUnderlying
+    const wasOverlayVisible = captureUnderlying && Boolean(overlayWindow && !overlayWindow.isDestroyed() && overlayWindow.isVisible())
     try {
+      if (wasOverlayVisible && overlayWindow) {
+        overlayWindow.setIgnoreMouseEvents(true, { forward: true })
+        overlayWindow.hide()
+        await delay(160)
+      }
       const screenshot = base64PNG || (await captureScreenBase64())
       return analyzeScreen(screenshot)
     } catch (err: any) {
@@ -304,6 +311,11 @@ app.whenReady().then(async () => {
       }
       console.error('[Specter] Screen analysis failed; using fallback screen state:', err)
       return fallbackScreenState()
+    } finally {
+      if (wasOverlayVisible && overlayWindow && !overlayWindow.isDestroyed()) {
+        overlayWindow.show()
+        overlayWindow.setIgnoreMouseEvents(true, { forward: true })
+      }
     }
   })
 
@@ -328,7 +340,7 @@ app.whenReady().then(async () => {
 
       if (wasOverlayVisible && overlayWindow && !overlayWindow.isDestroyed()) {
         overlayWindow.show()
-        overlayWindow.setIgnoreMouseEvents(false)
+        overlayWindow.setIgnoreMouseEvents(true, { forward: true })
       }
 
       const result = await detectScreenTargets(screenshot, prompt)
@@ -355,7 +367,7 @@ app.whenReady().then(async () => {
     } finally {
       if (wasOverlayVisible && overlayWindow && !overlayWindow.isDestroyed()) {
         overlayWindow.show()
-        overlayWindow.setIgnoreMouseEvents(false)
+        overlayWindow.setIgnoreMouseEvents(true, { forward: true })
       }
     }
   })

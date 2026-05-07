@@ -35,9 +35,7 @@ export const OverlayApp: React.FC = () => {
 
   const handleIntentSubmit = async (text: string) => {
     setIntent(text)
-    setIsVisible(false)
-    api.hideOverlay()
-    
+
     // Capture + analyze screen
     const screenState = await api.analyzeScreen()
     
@@ -78,7 +76,7 @@ export const OverlayApp: React.FC = () => {
       height: '100vh',
       position: 'relative',
       pointerEvents: isVisible ? 'auto' : 'none',
-      background: isVisible ? 'rgba(0,0,0,0.1)' : 'transparent',
+      background: 'transparent',
       display: 'flex',
       flexDirection: 'column',
       alignItems: 'center',

@@ -931,6 +931,26 @@ const OverlayApp: React.FC = () => {
     setHudPosition(null);
   };
 
+  const startNewChat = () => {
+    setIntent("");
+    setRealAppIntent("");
+    setLastNodeId("");
+    setCurrentStep(null);
+    setReplayState("idle");
+    setReplayMode(null);
+    setErrorMessage("");
+    setManualConfirmMessage("");
+    setCalibrationMessage("");
+    setRealAppTargets(null);
+    setSelectedRealAppTarget(null);
+    setIsManualTargetPicking(false);
+    setRealAppNotice("");
+    setLoadingMessage("Analyzing your screen...");
+    if (api.stopSpeaking) {
+      void api.stopSpeaking().catch(() => undefined);
+    }
+  };
+
   if (!isVisible && replayState === "idle" && !isLoading) return null;
 
   const isReplayRunning = replayState === "running";
@@ -1413,6 +1433,7 @@ const OverlayApp: React.FC = () => {
               >
                 <ModeToggle mode={mode} onChange={setMode} />
                 <button
+                  className="specter-debug-toggle"
                   onClick={() => setShowDebugTools(!showDebugTools)}
                   style={{
                     background: showDebugTools
@@ -1441,6 +1462,7 @@ const OverlayApp: React.FC = () => {
               >
                 <InputBar
                   onSubmit={startRealAppTest}
+                  onNewChat={startNewChat}
                   disabled={isLoading}
                   onFocus={() => {
                     console.log("[OVERLAY_INTERACTION] input focused");
@@ -1470,6 +1492,7 @@ const OverlayApp: React.FC = () => {
 
               {showDebugTools && (
                 <div
+                  className="specter-debug-tools"
                   style={{
                     width: "100%",
                     background: "rgba(12, 14, 18, 0.45)",

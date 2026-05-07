@@ -1,128 +1,193 @@
-import React, { useState } from 'react'
-import { MicRecorder } from './MicRecorder'
+import React, { useState } from "react";
+import { MicRecorder } from "./MicRecorder";
 
-const recorder = new MicRecorder()
+const recorder = new MicRecorder();
 
 interface InputBarProps {
-  onSubmit: (text: string) => void
-  onRealAppTest?: (text: string) => void
-  disabled?: boolean
-  showDebugTools?: boolean
-  onFocus?: () => void
-  onBlur?: () => void
+  onSubmit: (text: string) => void;
+  onNewChat?: () => void;
+  disabled?: boolean;
+  onFocus?: () => void;
+  onBlur?: () => void;
 }
 
-export const InputBar: React.FC<InputBarProps> = ({ 
-  onSubmit, 
-  onRealAppTest, 
-  disabled = false, 
-  showDebugTools = false,
+const SpecterMarkIcon = () => (
+  <svg className="input-bar-brand-icon" viewBox="0 0 24 24" aria-hidden="true">
+    <path
+      d="M12 2.75l1.75 6.05L19.75 7 15.5 11.95l4.25 5-6-1.8L12 21.25l-1.75-6.1-6 1.8 4.25-5L4.25 7l6 1.8L12 2.75z"
+      fill="currentColor"
+    />
+    <circle cx="12" cy="12" r="2.25" fill="rgba(12, 16, 24, 0.92)" />
+  </svg>
+);
+
+const MicrophoneIcon = () => (
+  <svg viewBox="0 0 24 24" aria-hidden="true">
+    <path
+      d="M12 14.5a3.5 3.5 0 0 0 3.5-3.5V6.5a3.5 3.5 0 0 0-7 0V11a3.5 3.5 0 0 0 3.5 3.5Z"
+      fill="none"
+      stroke="currentColor"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      strokeWidth="1.8"
+    />
+    <path
+      d="M5.75 10.5v.75a6.25 6.25 0 0 0 12.5 0v-.75M12 17.5v3M9 20.5h6"
+      fill="none"
+      stroke="currentColor"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      strokeWidth="1.8"
+    />
+  </svg>
+);
+
+const ChevronDownIcon = () => (
+  <svg viewBox="0 0 16 16" aria-hidden="true">
+    <path
+      d="M4 6l4 4 4-4"
+      fill="none"
+      stroke="currentColor"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      strokeWidth="1.7"
+    />
+  </svg>
+);
+
+const SendArrowIcon = () => (
+  <svg viewBox="0 0 24 24" aria-hidden="true">
+    <path
+      d="M5 12h13.5M13.5 6.5 19 12l-5.5 5.5"
+      fill="none"
+      stroke="currentColor"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      strokeWidth="2"
+    />
+  </svg>
+);
+
+export const InputBar: React.FC<InputBarProps> = ({
+  onSubmit,
+  onNewChat,
+  disabled = false,
   onFocus,
-  onBlur
+  onBlur,
 }) => {
-  const [value, setValue] = useState('')
-  const [isRecording, setIsRecording] = useState(false)
+  const [value, setValue] = useState("");
+  const [isRecording, setIsRecording] = useState(false);
+  const canSubmit = Boolean(value.trim()) && !disabled;
+
+  const submitValue = () => {
+    if (!canSubmit) return;
+    onSubmit(value.trim());
+    setValue("");
+  };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
-    if (!disabled && e.key === 'Enter' && value.trim()) {
-      onSubmit(value)
-      setValue('')
+    if (e.key === "Enter") {
+      submitValue();
     }
-  }
+  };
+
+  const handleNewChat = () => {
+    if (disabled) return;
+    setValue("");
+    onNewChat?.();
+  };
+
+  const startRecording = async (
+    event: React.PointerEvent<HTMLButtonElement>,
+  ) => {
+    if (disabled || isRecording) return;
+    event.currentTarget.setPointerCapture(event.pointerId);
+    setIsRecording(true);
+
+    try {
+      await recorder.start();
+    } catch (error) {
+      console.error("[InputBar] Microphone recording failed:", error);
+      setIsRecording(false);
+    }
+  };
+
+  const stopRecording = async () => {
+    if (disabled || !isRecording) return;
+    setIsRecording(false);
+
+    try {
+      const buffer = await recorder.stop();
+      const text = await (window as any).api.transcribe(buffer);
+      if (text) {
+        onSubmit(text);
+        setValue("");
+      }
+    } catch (error) {
+      console.error("[InputBar] Microphone transcription failed:", error);
+    }
+  };
 
   return (
-    <div className="input-bar" style={{
-      width: '100%',
-      background: 'rgba(18, 18, 22, 0.72)',
-      backdropFilter: 'blur(16px)',
-      borderRadius: '16px',
-      padding: '12px 20px',
-      boxShadow: '0 8px 32px rgba(0,0,0,0.25)',
-      display: 'flex',
-      alignItems: 'center',
-      border: '1px solid rgba(255,255,255,0.1)'
-    }}>
+    <div className={`input-bar ${disabled ? "is-disabled" : ""}`}>
+      <div className="input-bar-brand" title="Specter" aria-hidden="true">
+        <SpecterMarkIcon />
+      </div>
       <input
         autoFocus
+        className="input-bar-field"
         type="text"
-        placeholder="What would you like to learn?"
+        placeholder="What can I help you with today?"
         value={value}
         disabled={disabled}
         onChange={(e) => setValue(e.target.value)}
         onKeyDown={handleKeyDown}
         onFocus={onFocus}
         onBlur={onBlur}
-        style={{
-          flex: 1,
-          border: 'none',
-          background: 'transparent',
-          fontSize: '18px',
-          outline: 'none',
-          color: '#ffffff',
-          opacity: disabled ? 0.55 : 1
-        }}
       />
-      <div style={{
-        marginLeft: '12px',
-        color: 'rgba(255,255,255,0.4)',
-        fontSize: '11px',
-        fontWeight: 700,
-        textTransform: 'uppercase',
-        letterSpacing: '1px'
-      }}>
-        Return
-      </div>
-      {onRealAppTest && (
+      <div className="input-bar-actions">
         <button
+          type="button"
+          className={`input-bar-icon-button input-bar-mic-button ${
+            isRecording ? "is-recording" : ""
+          }`}
           disabled={disabled}
-          onClick={() => {
-            if (disabled) return
-            onRealAppTest(value)
-            setValue('')
-          }}
-          style={{
-            border: '1px solid rgba(0,0,0,0.1)',
-            borderRadius: '10px',
-            height: '36px',
-            padding: '0 10px',
-            marginLeft: '10px',
-            background: 'rgba(10,132,255,0.12)',
-            color: '#0a4d86',
-            fontSize: '12px',
-            fontWeight: 800,
-            cursor: disabled ? 'default' : 'pointer',
-            opacity: disabled ? 0.55 : 1,
-            whiteSpace: 'nowrap'
-          }}
+          onPointerDown={startRecording}
+          onPointerUp={stopRecording}
+          onPointerCancel={stopRecording}
+          aria-label={
+            isRecording ? "Release to stop recording" : "Record voice input"
+          }
+          title={
+            isRecording ? "Release to stop recording" : "Record voice input"
+          }
         >
-          Real App Test
+          <MicrophoneIcon />
         </button>
-      )}
-      <button
-        disabled={disabled}
-        onMouseDown={async () => {
-          if (disabled) return
-          setIsRecording(true)
-          await recorder.start()
-        }}
-        onMouseUp={async () => {
-          if (disabled) return
-          setIsRecording(false)
-          const buffer = await recorder.stop()
-          const text = await (window as any).api.transcribe(buffer)
-          if (text) onSubmit(text)
-        }}
-        style={{
-          background: isRecording ? '#ff3b30' : 'rgba(0,0,0,0.1)',
-          border: 'none', borderRadius: '50%',
-          width: '36px', height: '36px',
-          cursor: disabled ? 'default' : 'pointer', marginLeft: '8px',
-          opacity: disabled ? 0.55 : 1,
-          display: 'flex', alignItems: 'center', justifyContent: 'center'
-        }}
-      >
-        {isRecording ? '⏹' : '🎤'}
-      </button>
+        {onNewChat && (
+          <button
+            type="button"
+            className="input-bar-new-chat"
+            disabled={disabled}
+            onClick={handleNewChat}
+            aria-label="Start a new chat"
+            title="Start a new chat"
+          >
+            <span>New Chat</span>
+            <ChevronDownIcon />
+          </button>
+        )}
+        <button
+          type="button"
+          className="input-bar-send-button"
+          disabled={!canSubmit}
+          onClick={submitValue}
+          aria-label="Send message"
+          title="Send message"
+        >
+          <SendArrowIcon />
+        </button>
+      </div>
     </div>
-  )
-}
+  );
+};

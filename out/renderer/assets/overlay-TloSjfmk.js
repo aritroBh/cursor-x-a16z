@@ -32,122 +32,172 @@ class MicRecorder {
   }
 }
 const recorder = new MicRecorder();
+const SpecterMarkIcon = () => /* @__PURE__ */ jsxRuntimeExports.jsxs("svg", { className: "input-bar-brand-icon", viewBox: "0 0 24 24", "aria-hidden": "true", children: [
+  /* @__PURE__ */ jsxRuntimeExports.jsx(
+    "path",
+    {
+      d: "M12 2.75l1.75 6.05L19.75 7 15.5 11.95l4.25 5-6-1.8L12 21.25l-1.75-6.1-6 1.8 4.25-5L4.25 7l6 1.8L12 2.75z",
+      fill: "currentColor"
+    }
+  ),
+  /* @__PURE__ */ jsxRuntimeExports.jsx("circle", { cx: "12", cy: "12", r: "2.25", fill: "rgba(12, 16, 24, 0.92)" })
+] });
+const MicrophoneIcon = () => /* @__PURE__ */ jsxRuntimeExports.jsxs("svg", { viewBox: "0 0 24 24", "aria-hidden": "true", children: [
+  /* @__PURE__ */ jsxRuntimeExports.jsx(
+    "path",
+    {
+      d: "M12 14.5a3.5 3.5 0 0 0 3.5-3.5V6.5a3.5 3.5 0 0 0-7 0V11a3.5 3.5 0 0 0 3.5 3.5Z",
+      fill: "none",
+      stroke: "currentColor",
+      strokeLinecap: "round",
+      strokeLinejoin: "round",
+      strokeWidth: "1.8"
+    }
+  ),
+  /* @__PURE__ */ jsxRuntimeExports.jsx(
+    "path",
+    {
+      d: "M5.75 10.5v.75a6.25 6.25 0 0 0 12.5 0v-.75M12 17.5v3M9 20.5h6",
+      fill: "none",
+      stroke: "currentColor",
+      strokeLinecap: "round",
+      strokeLinejoin: "round",
+      strokeWidth: "1.8"
+    }
+  )
+] });
+const ChevronDownIcon = () => /* @__PURE__ */ jsxRuntimeExports.jsx("svg", { viewBox: "0 0 16 16", "aria-hidden": "true", children: /* @__PURE__ */ jsxRuntimeExports.jsx(
+  "path",
+  {
+    d: "M4 6l4 4 4-4",
+    fill: "none",
+    stroke: "currentColor",
+    strokeLinecap: "round",
+    strokeLinejoin: "round",
+    strokeWidth: "1.7"
+  }
+) });
+const SendArrowIcon = () => /* @__PURE__ */ jsxRuntimeExports.jsx("svg", { viewBox: "0 0 24 24", "aria-hidden": "true", children: /* @__PURE__ */ jsxRuntimeExports.jsx(
+  "path",
+  {
+    d: "M5 12h13.5M13.5 6.5 19 12l-5.5 5.5",
+    fill: "none",
+    stroke: "currentColor",
+    strokeLinecap: "round",
+    strokeLinejoin: "round",
+    strokeWidth: "2"
+  }
+) });
 const InputBar = ({
   onSubmit,
-  onRealAppTest,
+  onNewChat,
   disabled = false,
-  showDebugTools = false,
   onFocus,
   onBlur
 }) => {
   const [value, setValue] = reactExports.useState("");
   const [isRecording, setIsRecording] = reactExports.useState(false);
+  const canSubmit = Boolean(value.trim()) && !disabled;
+  const submitValue = () => {
+    if (!canSubmit) return;
+    onSubmit(value.trim());
+    setValue("");
+  };
   const handleKeyDown = (e) => {
-    if (!disabled && e.key === "Enter" && value.trim()) {
-      onSubmit(value);
-      setValue("");
+    if (e.key === "Enter") {
+      submitValue();
     }
   };
-  return /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "input-bar", style: {
-    width: "100%",
-    background: "rgba(18, 18, 22, 0.72)",
-    backdropFilter: "blur(16px)",
-    borderRadius: "16px",
-    padding: "12px 20px",
-    boxShadow: "0 8px 32px rgba(0,0,0,0.25)",
-    display: "flex",
-    alignItems: "center",
-    border: "1px solid rgba(255,255,255,0.1)"
-  }, children: [
+  const handleNewChat = () => {
+    if (disabled) return;
+    setValue("");
+    onNewChat?.();
+  };
+  const startRecording = async (event) => {
+    if (disabled || isRecording) return;
+    event.currentTarget.setPointerCapture(event.pointerId);
+    setIsRecording(true);
+    try {
+      await recorder.start();
+    } catch (error) {
+      console.error("[InputBar] Microphone recording failed:", error);
+      setIsRecording(false);
+    }
+  };
+  const stopRecording = async () => {
+    if (disabled || !isRecording) return;
+    setIsRecording(false);
+    try {
+      const buffer = await recorder.stop();
+      const text = await window.api.transcribe(buffer);
+      if (text) {
+        onSubmit(text);
+        setValue("");
+      }
+    } catch (error) {
+      console.error("[InputBar] Microphone transcription failed:", error);
+    }
+  };
+  return /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: `input-bar ${disabled ? "is-disabled" : ""}`, children: [
+    /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "input-bar-brand", title: "Specter", "aria-hidden": "true", children: /* @__PURE__ */ jsxRuntimeExports.jsx(SpecterMarkIcon, {}) }),
     /* @__PURE__ */ jsxRuntimeExports.jsx(
       "input",
       {
         autoFocus: true,
+        className: "input-bar-field",
         type: "text",
-        placeholder: "What would you like to learn?",
+        placeholder: "What can I help you with today?",
         value,
         disabled,
         onChange: (e) => setValue(e.target.value),
         onKeyDown: handleKeyDown,
         onFocus,
-        onBlur,
-        style: {
-          flex: 1,
-          border: "none",
-          background: "transparent",
-          fontSize: "18px",
-          outline: "none",
-          color: "#ffffff",
-          opacity: disabled ? 0.55 : 1
+        onBlur
+      }
+    ),
+    /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "input-bar-actions", children: [
+      /* @__PURE__ */ jsxRuntimeExports.jsx(
+        "button",
+        {
+          type: "button",
+          className: `input-bar-icon-button input-bar-mic-button ${isRecording ? "is-recording" : ""}`,
+          disabled,
+          onPointerDown: startRecording,
+          onPointerUp: stopRecording,
+          onPointerCancel: stopRecording,
+          "aria-label": isRecording ? "Release to stop recording" : "Record voice input",
+          title: isRecording ? "Release to stop recording" : "Record voice input",
+          children: /* @__PURE__ */ jsxRuntimeExports.jsx(MicrophoneIcon, {})
         }
-      }
-    ),
-    /* @__PURE__ */ jsxRuntimeExports.jsx("div", { style: {
-      marginLeft: "12px",
-      color: "rgba(255,255,255,0.4)",
-      fontSize: "11px",
-      fontWeight: 700,
-      textTransform: "uppercase",
-      letterSpacing: "1px"
-    }, children: "Return" }),
-    onRealAppTest && /* @__PURE__ */ jsxRuntimeExports.jsx(
-      "button",
-      {
-        disabled,
-        onClick: () => {
-          if (disabled) return;
-          onRealAppTest(value);
-          setValue("");
-        },
-        style: {
-          border: "1px solid rgba(0,0,0,0.1)",
-          borderRadius: "10px",
-          height: "36px",
-          padding: "0 10px",
-          marginLeft: "10px",
-          background: "rgba(10,132,255,0.12)",
-          color: "#0a4d86",
-          fontSize: "12px",
-          fontWeight: 800,
-          cursor: disabled ? "default" : "pointer",
-          opacity: disabled ? 0.55 : 1,
-          whiteSpace: "nowrap"
-        },
-        children: "Real App Test"
-      }
-    ),
-    /* @__PURE__ */ jsxRuntimeExports.jsx(
-      "button",
-      {
-        disabled,
-        onMouseDown: async () => {
-          if (disabled) return;
-          setIsRecording(true);
-          await recorder.start();
-        },
-        onMouseUp: async () => {
-          if (disabled) return;
-          setIsRecording(false);
-          const buffer = await recorder.stop();
-          const text = await window.api.transcribe(buffer);
-          if (text) onSubmit(text);
-        },
-        style: {
-          background: isRecording ? "#ff3b30" : "rgba(0,0,0,0.1)",
-          border: "none",
-          borderRadius: "50%",
-          width: "36px",
-          height: "36px",
-          cursor: disabled ? "default" : "pointer",
-          marginLeft: "8px",
-          opacity: disabled ? 0.55 : 1,
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "center"
-        },
-        children: isRecording ? "⏹" : "🎤"
-      }
-    )
+      ),
+      onNewChat && /* @__PURE__ */ jsxRuntimeExports.jsxs(
+        "button",
+        {
+          type: "button",
+          className: "input-bar-new-chat",
+          disabled,
+          onClick: handleNewChat,
+          "aria-label": "Start a new chat",
+          title: "Start a new chat",
+          children: [
+            /* @__PURE__ */ jsxRuntimeExports.jsx("span", { children: "New Chat" }),
+            /* @__PURE__ */ jsxRuntimeExports.jsx(ChevronDownIcon, {})
+          ]
+        }
+      ),
+      /* @__PURE__ */ jsxRuntimeExports.jsx(
+        "button",
+        {
+          type: "button",
+          className: "input-bar-send-button",
+          disabled: !canSubmit,
+          onClick: submitValue,
+          "aria-label": "Send message",
+          title: "Send message",
+          children: /* @__PURE__ */ jsxRuntimeExports.jsx(SendArrowIcon, {})
+        }
+      )
+    ] })
   ] });
 };
 const DEMO_LOOP_MS = 1700;
@@ -1163,6 +1213,25 @@ const OverlayApp = () => {
   const resetHudPosition = () => {
     setHudPosition(null);
   };
+  const startNewChat = () => {
+    setIntent("");
+    setRealAppIntent("");
+    setLastNodeId("");
+    setCurrentStep(null);
+    setReplayState("idle");
+    setReplayMode(null);
+    setErrorMessage("");
+    setManualConfirmMessage("");
+    setCalibrationMessage("");
+    setRealAppTargets(null);
+    setSelectedRealAppTarget(null);
+    setIsManualTargetPicking(false);
+    setRealAppNotice("");
+    setLoadingMessage("Analyzing your screen...");
+    if (api.stopSpeaking) {
+      void api.stopSpeaking().catch(() => void 0);
+    }
+  };
   if (!isVisible && replayState === "idle" && !isLoading) return null;
   const isReplayRunning = replayState === "running";
   const showWalkthroughDebug = SHOW_WALKTHROUGH_DEBUG;
@@ -1550,6 +1619,7 @@ const OverlayApp = () => {
                     /* @__PURE__ */ jsxRuntimeExports.jsx(
                       "button",
                       {
+                        className: "specter-debug-toggle",
                         onClick: () => setShowDebugTools(!showDebugTools),
                         style: {
                           background: showDebugTools ? "rgba(255,255,255,0.18)" : "rgba(255,255,255,0.08)",
@@ -1581,6 +1651,7 @@ const OverlayApp = () => {
                       InputBar,
                       {
                         onSubmit: startRealAppTest,
+                        onNewChat: startNewChat,
                         disabled: isLoading,
                         onFocus: () => {
                           console.log("[OVERLAY_INTERACTION] input focused");
@@ -1616,6 +1687,7 @@ const OverlayApp = () => {
               showDebugTools && /* @__PURE__ */ jsxRuntimeExports.jsxs(
                 "div",
                 {
+                  className: "specter-debug-tools",
                   style: {
                     width: "100%",
                     background: "rgba(12, 14, 18, 0.45)",

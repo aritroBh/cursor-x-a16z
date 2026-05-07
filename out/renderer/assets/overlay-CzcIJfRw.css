@@ -49,10 +49,10 @@
 .overlay-container {
   --edge-band: 8px;
   --edge-bloom: 16px;
-  --edge-bloom-opacity: 0.36;
-  --edge-band-opacity: 0.48;
-  --edge-bloom-blur: 16px;
-  --edge-saturation: 1.18;
+  --edge-bloom-opacity: 0.5;
+  --edge-band-opacity: 0.64;
+  --edge-bloom-blur: 18px;
+  --edge-saturation: 1.32;
   --edge-light-opacity: 1;
   --cursor-x: 50vw;
   --cursor-y: 50vh;
@@ -72,28 +72,28 @@
 .overlay-state-summon {
   --edge-band: 10px;
   --edge-bloom: 20px;
-  --edge-bloom-opacity: 0.64;
-  --edge-band-opacity: 0.72;
-  --edge-bloom-blur: 18px;
-  --edge-saturation: 1.32;
+  --edge-bloom-opacity: 0.84;
+  --edge-band-opacity: 0.9;
+  --edge-bloom-blur: 20px;
+  --edge-saturation: 1.46;
 }
 
 .overlay-state-idle {
   --edge-band: 8px;
   --edge-bloom: 16px;
-  --edge-bloom-opacity: 0.34;
-  --edge-band-opacity: 0.44;
-  --edge-bloom-blur: 16px;
-  --edge-saturation: 1.14;
+  --edge-bloom-opacity: 0.47;
+  --edge-band-opacity: 0.59;
+  --edge-bloom-blur: 18px;
+  --edge-saturation: 1.28;
 }
 
 .overlay-state-walkthrough {
   --edge-band: 8px;
   --edge-bloom: 18px;
-  --edge-bloom-opacity: 0.42;
-  --edge-band-opacity: 0.52;
-  --edge-bloom-blur: 17px;
-  --edge-saturation: 1.2;
+  --edge-bloom-opacity: 0.58;
+  --edge-band-opacity: 0.7;
+  --edge-bloom-blur: 19px;
+  --edge-saturation: 1.35;
 }
 
 .overlay-state-hidden {
@@ -168,12 +168,12 @@
   border-radius: 26px;
   background: conic-gradient(
     from var(--angle),
-    rgba(10, 132, 255, 0.86),
-    rgba(94, 92, 230, 0.78),
-    rgba(191, 90, 242, 0.82),
-    rgba(255, 55, 95, 0.72),
-    rgba(48, 209, 88, 0.52),
-    rgba(10, 132, 255, 0.86)
+    rgba(10, 132, 255, 0.92),
+    rgba(94, 92, 230, 0.86),
+    rgba(191, 90, 242, 0.9),
+    rgba(255, 55, 95, 0.8),
+    rgba(48, 209, 88, 0.62),
+    rgba(10, 132, 255, 0.92)
   );
   animation: siri-spin 7s linear infinite;
   filter: blur(var(--edge-bloom-blur)) saturate(var(--edge-saturation));
@@ -201,12 +201,12 @@
   border-radius: 18px;
   background: conic-gradient(
     from var(--angle),
-    rgba(10, 132, 255, 0.72),
-    rgba(64, 156, 255, 0.66),
-    rgba(191, 90, 242, 0.72),
-    rgba(255, 55, 95, 0.62),
-    rgba(48, 209, 88, 0.48),
-    rgba(10, 132, 255, 0.72)
+    rgba(10, 132, 255, 0.8),
+    rgba(64, 156, 255, 0.74),
+    rgba(191, 90, 242, 0.8),
+    rgba(255, 55, 95, 0.7),
+    rgba(48, 209, 88, 0.56),
+    rgba(10, 132, 255, 0.8)
   );
   mask:
     linear-gradient(#fff 0 0) content-box,
@@ -238,11 +238,25 @@
   gap: 12px;
   width: min(80vw, 600px);
   max-width: calc(100vw - 24px);
-  pointer-events: auto;
+  pointer-events: none;
   z-index: 10004;
   isolation: isolate;
   touch-action: none;
   transition: filter 0.24s ease;
+}
+
+.specter-hud-drag-handle,
+.specter-workflow-card,
+.mode-toggle,
+.input-bar,
+.session-panel,
+.specter-debug-toggle,
+.specter-debug-tools,
+.specter-hud-shell button,
+.specter-hud-shell input,
+.specter-hud-shell textarea,
+.specter-hud-shell select {
+  pointer-events: auto;
 }
 
 .specter-hud-shell::after {
@@ -456,10 +470,251 @@
 
 /* Input bar is now clean and glassy */
 .input-bar {
-  transition: all 0.3s ease;
+  width: 100%;
+  min-height: 64px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px 10px 14px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 18px;
+  background:
+    linear-gradient(135deg, rgba(22, 24, 31, 0.82), rgba(9, 11, 18, 0.74)),
+    rgba(18, 18, 22, 0.72);
+  box-shadow:
+    0 18px 48px rgba(0, 0, 0, 0.34),
+    inset 0 1px 0 rgba(255, 255, 255, 0.08);
+  -webkit-backdrop-filter: blur(18px) saturate(1.18);
+  backdrop-filter: blur(18px) saturate(1.18);
+  transition:
+    border-color 0.22s ease,
+    box-shadow 0.22s ease,
+    background 0.22s ease;
 }
 
 .input-bar:focus-within {
-  box-shadow: 0 12px 48px rgba(0, 0, 0, 0.25);
-  border-color: rgba(255, 255, 255, 0.3) !important;
+  border-color: rgba(255, 255, 255, 0.3);
+  box-shadow:
+    0 20px 56px rgba(0, 0, 0, 0.34),
+    0 0 0 1px rgba(10, 132, 255, 0.18),
+    inset 0 1px 0 rgba(255, 255, 255, 0.12);
+}
+
+.input-bar.is-disabled {
+  opacity: 0.72;
+}
+
+.input-bar-brand {
+  width: 36px;
+  height: 36px;
+  flex: 0 0 36px;
+  display: grid;
+  place-items: center;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 11px;
+  color: rgba(255, 255, 255, 0.96);
+  background:
+    radial-gradient(
+      circle at 35% 28%,
+      rgba(255, 255, 255, 0.28),
+      transparent 34%
+    ),
+    linear-gradient(145deg, rgba(10, 132, 255, 0.4), rgba(191, 90, 242, 0.26)),
+    rgba(255, 255, 255, 0.07);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.16),
+    0 8px 18px rgba(0, 0, 0, 0.2);
+}
+
+.input-bar-brand-icon {
+  width: 21px;
+  height: 21px;
+  display: block;
+}
+
+.input-bar-field {
+  flex: 1 1 auto;
+  min-width: 0;
+  height: 42px;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: #ffffff;
+  font: inherit;
+  font-size: 16px;
+  font-weight: 500;
+}
+
+.input-bar-field::placeholder {
+  color: rgba(255, 255, 255, 0.46);
+}
+
+.input-bar-field:disabled {
+  cursor: default;
+}
+
+.input-bar-actions {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.input-bar-icon-button,
+.input-bar-new-chat,
+.input-bar-send-button {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  font: inherit;
+  cursor: pointer;
+  transition:
+    transform 0.18s ease,
+    border-color 0.18s ease,
+    background 0.18s ease,
+    box-shadow 0.18s ease,
+    color 0.18s ease,
+    opacity 0.18s ease;
+}
+
+.input-bar-icon-button:disabled,
+.input-bar-new-chat:disabled,
+.input-bar-send-button:disabled {
+  cursor: default;
+  opacity: 0.42;
+  transform: none;
+  box-shadow: none;
+}
+
+.input-bar-icon-button:not(:disabled):hover,
+.input-bar-new-chat:not(:disabled):hover {
+  border-color: rgba(255, 255, 255, 0.22);
+  background: rgba(255, 255, 255, 0.12);
+}
+
+.input-bar-icon-button:not(:disabled):active,
+.input-bar-new-chat:not(:disabled):active,
+.input-bar-send-button:not(:disabled):active {
+  transform: translateY(1px);
+}
+
+.input-bar-icon-button:focus-visible,
+.input-bar-new-chat:focus-visible,
+.input-bar-send-button:focus-visible {
+  outline: 2px solid rgba(100, 210, 255, 0.72);
+  outline-offset: 2px;
+}
+
+.input-bar-icon-button {
+  width: 38px;
+  height: 38px;
+  border-radius: 12px;
+  color: rgba(255, 255, 255, 0.72);
+  background: rgba(255, 255, 255, 0.07);
+}
+
+.input-bar-icon-button svg {
+  width: 18px;
+  height: 18px;
+}
+
+.input-bar-mic-button.is-recording {
+  color: #ffffff;
+  border-color: rgba(255, 69, 58, 0.62);
+  background: rgba(255, 69, 58, 0.2);
+  box-shadow: 0 0 0 4px rgba(255, 69, 58, 0.08);
+}
+
+.input-bar-new-chat {
+  height: 38px;
+  gap: 6px;
+  padding: 0 11px;
+  border-radius: 12px;
+  color: rgba(255, 255, 255, 0.72);
+  background: rgba(255, 255, 255, 0.07);
+  font-size: 12px;
+  font-weight: 750;
+  white-space: nowrap;
+}
+
+.input-bar-new-chat svg {
+  width: 13px;
+  height: 13px;
+  color: rgba(255, 255, 255, 0.5);
+}
+
+.input-bar-send-button {
+  width: 40px;
+  height: 40px;
+  border-radius: 13px;
+  color: #071019;
+  border-color: rgba(255, 255, 255, 0.5);
+  background: linear-gradient(135deg, #ffffff, #bfddff 48%, #8dd8ff);
+  box-shadow:
+    0 9px 22px rgba(10, 132, 255, 0.22),
+    inset 0 1px 0 rgba(255, 255, 255, 0.9);
+}
+
+.input-bar-send-button:not(:disabled):hover {
+  box-shadow:
+    0 11px 26px rgba(10, 132, 255, 0.3),
+    inset 0 1px 0 rgba(255, 255, 255, 0.95);
+}
+
+.input-bar-send-button svg {
+  width: 20px;
+  height: 20px;
+}
+
+@media (max-width: 520px) {
+  .input-bar {
+    min-height: 58px;
+    gap: 8px;
+    padding: 8px;
+    border-radius: 16px;
+  }
+
+  .input-bar-brand {
+    width: 32px;
+    height: 32px;
+    flex-basis: 32px;
+    border-radius: 10px;
+  }
+
+  .input-bar-brand-icon {
+    width: 19px;
+    height: 19px;
+  }
+
+  .input-bar-field {
+    height: 38px;
+    font-size: 14px;
+  }
+
+  .input-bar-actions {
+    gap: 6px;
+  }
+
+  .input-bar-icon-button,
+  .input-bar-new-chat {
+    height: 34px;
+    border-radius: 10px;
+  }
+
+  .input-bar-icon-button,
+  .input-bar-send-button {
+    width: 34px;
+  }
+
+  .input-bar-new-chat {
+    padding: 0 8px;
+    font-size: 11px;
+  }
+
+  .input-bar-send-button {
+    height: 34px;
+    border-radius: 11px;
+  }
 }

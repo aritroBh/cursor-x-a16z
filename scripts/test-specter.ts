@@ -48,6 +48,13 @@ async function main() {
     return fs.readFileSync(filePath(p), 'utf-8')
   }
 
+  function cssSelectorRuleContains(source: string, selector: string, declaration: RegExp): boolean {
+    return Array.from(source.matchAll(/([^{}]+)\{([^{}]*)\}/g)).some((match) => {
+      const selectors = match[1].split(',').map((entry) => entry.trim())
+      return selectors.includes(selector) && declaration.test(match[2])
+    })
+  }
+
   function exportedFunctionBody(source: string, name: string, nextName?: string): string {
     const start = source.indexOf(`export async function ${name}`)
     if (start === -1) return ''
@@ -189,6 +196,26 @@ async function main() {
   const detectTargetsBody = exportedFunctionBody(mainIndex, 'realApp:detectTargets')
   check(!detectTargetsBody.includes('setIgnoreMouseEvents(false)'), 'realApp:detectTargets restores click-through true after capture')
   check(mainIndex.includes("'screen:analyze'") && mainIndex.includes('captureUnderlying') && mainIndex.includes('overlayWindow.hide()'), 'screen:analyze hides overlay before capture when captureUnderlying is set')
+  check(
+    cssSelectorRuleContains(overlayCss, '.specter-hud-shell', /pointer-events:\s*none/),
+    'HUD shell does not block clicks in invisible surrounding space'
+  )
+  for (const selector of [
+    '.specter-hud-drag-handle',
+    '.specter-workflow-card',
+    '.mode-toggle',
+    '.input-bar',
+    '.session-panel',
+    '.specter-debug-toggle',
+    '.specter-debug-tools',
+    '.specter-hud-shell button',
+    '.specter-hud-shell input'
+  ]) {
+    check(
+      cssSelectorRuleContains(overlayCss, selector, /pointer-events:\s*auto/),
+      `${selector} remains clickable inside the inert HUD shell`
+    )
+  }
 
   printHeader('Walkthrough vs Auto')
 

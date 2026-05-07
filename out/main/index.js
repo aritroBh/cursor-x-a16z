@@ -1188,6 +1188,7 @@ function isLearningGraph(value) {
   );
 }
 function toggleOverlay() {
+  console.log("[TOGGLE] toggleOverlay called, isVisible:", overlayWindow?.isVisible());
   if (!overlayWindow) return;
   if (overlayWindow.isVisible()) {
     overlayWindow.setIgnoreMouseEvents(true, { forward: true });
@@ -1253,6 +1254,7 @@ function createOverlayWindow() {
     alwaysOnTop: true,
     skipTaskbar: true,
     show: false,
+    backgroundColor: "#00000000",
     webPreferences: {
       preload: path.join(__dirname, "../preload/index.js"),
       sandbox: false

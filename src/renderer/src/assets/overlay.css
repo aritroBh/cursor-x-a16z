@@ -32,7 +32,9 @@
   inset: 0;
   pointer-events: none;
   z-index: 9998;
-  animation: siri-glow 4s ease-in-out infinite;
+  border: 3px solid transparent;
+  animation: siri-glow 3s linear infinite;
+  background: transparent;
 }
 
 .siri-glow-input {

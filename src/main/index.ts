@@ -42,6 +42,7 @@ function isLearningGraph(value: any): boolean {
 }
 
 function toggleOverlay(): void {
+  console.log('[TOGGLE] toggleOverlay called, isVisible:', overlayWindow?.isVisible())
   if (!overlayWindow) return
   if (overlayWindow.isVisible()) {
     overlayWindow.setIgnoreMouseEvents(true, { forward: true })
@@ -115,6 +116,7 @@ function createOverlayWindow(): void {
     alwaysOnTop: true,
     skipTaskbar: true,
     show: false,
+    backgroundColor: '#00000000',
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
       sandbox: false

@@ -89,6 +89,7 @@ export const OverlayApp: React.FC = () => {
   if (!isVisible && replayState === 'idle' && !isLoading) return null
 
   return (
+    <>
     <div className="overlay-container" style={{
       width: '100vw',
       height: '100vh',
@@ -144,5 +145,6 @@ export const OverlayApp: React.FC = () => {
         </>
       )}
     </div>
+    </>
   )
 }

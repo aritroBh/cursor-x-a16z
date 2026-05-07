@@ -1,4 +1,7 @@
 import React, { useState } from 'react'
+import { MicRecorder } from './MicRecorder'
+
+const recorder = new MicRecorder()
 
 interface InputBarProps {
   onSubmit: (text: string) => void
@@ -6,6 +9,7 @@ interface InputBarProps {
 
 export const InputBar: React.FC<InputBarProps> = ({ onSubmit }) => {
   const [value, setValue] = useState('')
+  const [isRecording, setIsRecording] = useState(false)
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter' && value.trim()) {
@@ -52,6 +56,27 @@ export const InputBar: React.FC<InputBarProps> = ({ onSubmit }) => {
       }}>
         Press Enter
       </div>
+      <button
+        onMouseDown={async () => {
+          setIsRecording(true)
+          await recorder.start()
+        }}
+        onMouseUp={async () => {
+          setIsRecording(false)
+          const buffer = await recorder.stop()
+          const text = await (window as any).api.transcribe(buffer)
+          if (text) onSubmit(text)
+        }}
+        style={{
+          background: isRecording ? '#ff3b30' : 'rgba(0,0,0,0.1)',
+          border: 'none', borderRadius: '50%',
+          width: '36px', height: '36px',
+          cursor: 'pointer', marginLeft: '8px',
+          display: 'flex', alignItems: 'center', justifyContent: 'center'
+        }}
+      >
+        {isRecording ? '⏹' : '🎤'}
+      </button>
     </div>
   )
 }

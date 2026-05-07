@@ -1,4 +1,5 @@
 import Anthropic from '@anthropic-ai/sdk'
+import { safeLog, safeWarn } from '../logger'
 
 export function getAnthropicApiKey(): string | undefined {
   return process.env.ANTHROPIC_API_KEY
@@ -17,6 +18,9 @@ export function getUseLocalModel(): boolean {
 }
 
 export function getLocalModelBaseUrl(): string | undefined {
+  if (process.env.USE_LOCAL_MODEL !== 'true') {
+    return undefined
+  }
   return process.env.LOCAL_MODEL_BASE_URL || process.env.ANTHROPIC_BASE_URL
 }
 
@@ -37,19 +41,23 @@ export function createAnthropicClient(): Anthropic | null {
   }
 
   const useLocal = getUseLocalModel()
-  const localBaseUrl = getLocalModelBaseUrl()
 
-  if (!useLocal && localBaseUrl && isLocalhostUrl(localBaseUrl)) {
-    console.warn(
-      '[AI_BACKEND] Refusing localhost Anthropic route because USE_LOCAL_MODEL is not true. Check ANTHROPIC_BASE_URL / proxy env.'
-    )
-    return new Anthropic({ apiKey })
+  if (!useLocal) {
+    const envBaseUrl = process.env.ANTHROPIC_BASE_URL || process.env.LOCAL_MODEL_BASE_URL
+    if (envBaseUrl && isLocalhostUrl(envBaseUrl)) {
+      safeWarn('[AI_BACKEND] Ignoring localhost Anthropic base URL because USE_LOCAL_MODEL is not true')
+    }
+    // Force official Anthropic endpoint so the SDK cannot read ANTHROPIC_BASE_URL from process.env
+    return new Anthropic({ apiKey, baseURL: 'https://api.anthropic.com' })
   }
 
-  if (useLocal && localBaseUrl) {
-    console.log('[AI_BACKEND] Using local model endpoint:', localBaseUrl)
+  // Local mode
+  const localBaseUrl = getLocalModelBaseUrl()
+  if (localBaseUrl) {
+    safeLog('[AI_BACKEND] Using local model endpoint:', localBaseUrl)
     return new Anthropic({ apiKey, baseURL: localBaseUrl })
   }
 
-  return new Anthropic({ apiKey })
+  safeWarn('[AI_BACKEND] USE_LOCAL_MODEL is true but no local base URL is set; falling back to official Anthropic API')
+  return new Anthropic({ apiKey, baseURL: 'https://api.anthropic.com' })
 }

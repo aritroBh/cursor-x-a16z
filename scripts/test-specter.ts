@@ -244,9 +244,17 @@ async function main() {
     'config.ts uses strict "true" check for USE_LOCAL_MODEL'
   )
   check(config.includes('isLocalhostUrl'), 'config.ts has localhost URL guard')
-  warnIf(
-    !config.includes('11434') && !config.includes('ollama'),
-    'config.ts does not hardcode ollama/11434'
+  check(
+    config.includes("baseURL: 'https://api.anthropic.com'") || config.includes('baseURL: "https://api.anthropic.com"'),
+    'config.ts explicitly forces official Anthropic baseURL in non-local mode'
+  )
+  check(
+    /getLocalModelBaseUrl\(\)[\s\S]*?USE_LOCAL_MODEL (===|!==) ['"]true['"]/.test(config),
+    'config.ts gates getLocalModelBaseUrl behind USE_LOCAL_MODEL === "true"'
+  )
+  check(
+    !config.includes('console.log') && !config.includes('console.warn') && !config.includes('console.error'),
+    'config.ts does not use raw console.log/console.warn/console.error'
   )
 
   printHeader('Logger Safety')

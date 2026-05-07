@@ -407,49 +407,6 @@ async function waitForUserClickAtTarget(targetPercentX, targetPercentY, toleranc
     throw userCursorPermissionError(error);
   }
 }
-function getAnthropicApiKey() {
-  return process.env.ANTHROPIC_API_KEY;
-}
-function getAnthropicModel() {
-  return process.env.ANTHROPIC_MODEL || "claude-sonnet-4-5";
-}
-function getAnthropicVisionModel() {
-  return process.env.ANTHROPIC_VISION_MODEL || "claude-3-5-sonnet-20241022";
-}
-function getUseLocalModel() {
-  return process.env.USE_LOCAL_MODEL === "true";
-}
-function getLocalModelBaseUrl() {
-  return process.env.LOCAL_MODEL_BASE_URL || process.env.ANTHROPIC_BASE_URL;
-}
-function isLocalhostUrl(url) {
-  try {
-    const parsed = new URL(url);
-    const hostname = parsed.hostname;
-    return hostname === "localhost" || hostname === "127.0.0.1" || hostname === "::1" || hostname === "[::1]";
-  } catch {
-    return false;
-  }
-}
-function createAnthropicClient() {
-  const apiKey = getAnthropicApiKey();
-  if (!apiKey) {
-    return null;
-  }
-  const useLocal = getUseLocalModel();
-  const localBaseUrl = getLocalModelBaseUrl();
-  if (!useLocal && localBaseUrl && isLocalhostUrl(localBaseUrl)) {
-    console.warn(
-      "[AI_BACKEND] Refusing localhost Anthropic route because USE_LOCAL_MODEL is not true. Check ANTHROPIC_BASE_URL / proxy env."
-    );
-    return new Anthropic({ apiKey });
-  }
-  if (useLocal && localBaseUrl) {
-    console.log("[AI_BACKEND] Using local model endpoint:", localBaseUrl);
-    return new Anthropic({ apiKey, baseURL: localBaseUrl });
-  }
-  return new Anthropic({ apiKey });
-}
 function safeLog(...args) {
   try {
     console.log(...args);
@@ -467,6 +424,54 @@ function safeError(...args) {
     console.error(...args);
   } catch {
   }
+}
+function getAnthropicApiKey() {
+  return process.env.ANTHROPIC_API_KEY;
+}
+function getAnthropicModel() {
+  return process.env.ANTHROPIC_MODEL || "claude-sonnet-4-5";
+}
+function getAnthropicVisionModel() {
+  return process.env.ANTHROPIC_VISION_MODEL || "claude-3-5-sonnet-20241022";
+}
+function getUseLocalModel() {
+  return process.env.USE_LOCAL_MODEL === "true";
+}
+function getLocalModelBaseUrl() {
+  if (process.env.USE_LOCAL_MODEL !== "true") {
+    return void 0;
+  }
+  return process.env.LOCAL_MODEL_BASE_URL || process.env.ANTHROPIC_BASE_URL;
+}
+function isLocalhostUrl(url) {
+  try {
+    const parsed = new URL(url);
+    const hostname = parsed.hostname;
+    return hostname === "localhost" || hostname === "127.0.0.1" || hostname === "::1" || hostname === "[::1]";
+  } catch {
+    return false;
+  }
+}
+function createAnthropicClient() {
+  const apiKey = getAnthropicApiKey();
+  if (!apiKey) {
+    return null;
+  }
+  const useLocal = getUseLocalModel();
+  if (!useLocal) {
+    const envBaseUrl = process.env.ANTHROPIC_BASE_URL || process.env.LOCAL_MODEL_BASE_URL;
+    if (envBaseUrl && isLocalhostUrl(envBaseUrl)) {
+      safeWarn("[AI_BACKEND] Ignoring localhost Anthropic base URL because USE_LOCAL_MODEL is not true");
+    }
+    return new Anthropic({ apiKey, baseURL: "https://api.anthropic.com" });
+  }
+  const localBaseUrl = getLocalModelBaseUrl();
+  if (localBaseUrl) {
+    safeLog("[AI_BACKEND] Using local model endpoint:", localBaseUrl);
+    return new Anthropic({ apiKey, baseURL: localBaseUrl });
+  }
+  safeWarn("[AI_BACKEND] USE_LOCAL_MODEL is true but no local base URL is set; falling back to official Anthropic API");
+  return new Anthropic({ apiKey, baseURL: "https://api.anthropic.com" });
 }
 const CLAUDE_VISION_MODEL = getAnthropicVisionModel();
 function fallbackScreenState(error) {
@@ -930,7 +935,7 @@ async function planSteps(userIntent, screenState, sessionHistory, mode) {
         "[AI_BACKEND] Refusing localhost:11434 Anthropic route because USE_LOCAL_MODEL is not true. Check ANTHROPIC_BASE_URL / proxy env."
       );
     }
-    safeError("[AI_BACKEND] Anthropic unavailable; using fallback");
+    safeError("[AI_BACKEND] Anthropic unavailable; using fallback. AI_BACKEND_UNAVAILABLE");
     return fallback;
   }
 }

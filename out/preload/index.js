@@ -15,6 +15,8 @@ const api = {
   clickCursor: (x, y) => electron.ipcRenderer.invoke("cursor:click", x, y),
   replaySteps: (steps) => electron.ipcRenderer.invoke("cursor:replay", steps),
   getCursorPosition: () => electron.ipcRenderer.invoke("cursor:getPosition"),
+  getCursorCalibration: () => electron.ipcRenderer.invoke("cursor:diagnostics"),
+  moveCursorToScreenCenter: () => electron.ipcRenderer.invoke("cursor:moveCenter"),
   waitForCursorTarget: (x, y, tolerancePx, timeoutMs) => electron.ipcRenderer.invoke("cursor:waitForTarget", x, y, tolerancePx, timeoutMs),
   // Overlay
   hideOverlay: () => electron.ipcRenderer.send("overlay:hide"),
@@ -51,12 +53,17 @@ const api = {
   walkthrough: (nodeId) => electron.ipcRenderer.invoke("replay:walkthrough", nodeId),
   autoExecute: (nodeId) => electron.ipcRenderer.invoke("replay:auto", nodeId),
   stopReplay: () => electron.ipcRenderer.invoke("replay:stop"),
+  confirmReplayStep: () => electron.ipcRenderer.invoke("replay:confirmStep"),
   onReplayStep: (callback) => onIpc("replay:step", callback),
   onReplayRetry: (callback) => onIpc("replay:retry", callback),
   onReplayTargetReached: (callback) => onIpc("replay:target-reached", callback),
+  onReplayConfirmNeeded: (callback) => onIpc("replay:confirm-needed", callback),
+  onReplayConfirmCleared: (callback) => onIpc("replay:confirm-cleared", callback),
   onReplayProgress: (callback) => onIpc("replay:progress", callback),
   onReplayComplete: (callback) => onIpc("replay:complete", callback),
-  onReplayStopped: (callback) => onIpc("replay:stopped", callback)
+  onReplayStopped: (callback) => onIpc("replay:stopped", callback),
+  // Demo
+  prepareControlledDemo: () => electron.ipcRenderer.invoke("demo:controlledWorkflow")
 };
 if (process.contextIsolated) {
   try {

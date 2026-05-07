@@ -17,6 +17,8 @@ const api = {
   clickCursor: (x: number, y: number) => ipcRenderer.invoke('cursor:click', x, y),
   replaySteps: (steps: any[]) => ipcRenderer.invoke('cursor:replay', steps),
   getCursorPosition: () => ipcRenderer.invoke('cursor:getPosition'),
+  getCursorCalibration: () => ipcRenderer.invoke('cursor:diagnostics'),
+  moveCursorToScreenCenter: () => ipcRenderer.invoke('cursor:moveCenter'),
   waitForCursorTarget: (x: number, y: number, tolerancePx?: number, timeoutMs?: number) =>
     ipcRenderer.invoke('cursor:waitForTarget', x, y, tolerancePx, timeoutMs),
 
@@ -66,12 +68,18 @@ const api = {
   walkthrough: (nodeId?: string) => ipcRenderer.invoke('replay:walkthrough', nodeId),
   autoExecute: (nodeId?: string) => ipcRenderer.invoke('replay:auto', nodeId),
   stopReplay: () => ipcRenderer.invoke('replay:stop'),
+  confirmReplayStep: () => ipcRenderer.invoke('replay:confirmStep'),
   onReplayStep: (callback: (data: any) => void) => onIpc('replay:step', callback),
   onReplayRetry: (callback: (data: any) => void) => onIpc('replay:retry', callback),
   onReplayTargetReached: (callback: (data: any) => void) => onIpc('replay:target-reached', callback),
+  onReplayConfirmNeeded: (callback: (data: any) => void) => onIpc('replay:confirm-needed', callback),
+  onReplayConfirmCleared: (callback: () => void) => onIpc('replay:confirm-cleared', callback),
   onReplayProgress: (callback: (data: any) => void) => onIpc('replay:progress', callback),
   onReplayComplete: (callback: () => void) => onIpc('replay:complete', callback),
-  onReplayStopped: (callback: () => void) => onIpc('replay:stopped', callback)
+  onReplayStopped: (callback: () => void) => onIpc('replay:stopped', callback),
+
+  // Demo
+  prepareControlledDemo: () => ipcRenderer.invoke('demo:controlledWorkflow')
 }
 
 // Use `contextBridge` APIs to expose Electron APIs to

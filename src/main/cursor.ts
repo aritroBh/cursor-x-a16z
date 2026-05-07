@@ -75,6 +75,7 @@ export async function executeRealMouseSteps(steps: Step[]): Promise<void> {
       case 'type':
         await moveRealMouse(step.x, step.y)
         if (step.typeText) {
+          await mouse.click(Button.LEFT)
           await keyboard.type(step.typeText)
         }
         break

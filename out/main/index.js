@@ -48,11 +48,13 @@ async function triggerScreenRecordingPrompt() {
 function showPermissionDialog(missing) {
   const screenLine = missing.includes("screen") ? "• Screen Recording — required to capture your desktop\n" : "";
   const accessibilityLine = missing.includes("accessibility") ? "• Accessibility — required for mouse control automation\n" : "";
+  const inputMonitoringLine = "• Input Monitoring — enable this if global clicks, Space/Enter fallback, or double-shift detection do not fire\n";
   const detail = `Specter needs the following permissions to function:
 
-` + screenLine + accessibilityLine + `
+` + screenLine + accessibilityLine + inputMonitoringLine + `
 For Screen Recording: if the system prompt did not appear, open System Settings → Privacy & Security → Screen Recording and enable Specter, then click Retry.
-For Accessibility: grant access in System Settings, then click Retry.`;
+For Accessibility: grant access in System Settings, then click Retry.
+For Input Monitoring: Specter does not block startup on this, but walkthrough click detection depends on macOS allowing global input hooks.`;
   const result = electron.dialog.showMessageBoxSync({
     type: "warning",
     buttons: ["Retry", "Quit"],
@@ -128,6 +130,27 @@ async function captureScreenBase64() {
 function clampPercent(value) {
   return Math.min(100, Math.max(0, value));
 }
+function rectSnapshot(rect) {
+  return {
+    x: rect.x,
+    y: rect.y,
+    width: rect.width,
+    height: rect.height
+  };
+}
+function getPrimaryDisplayMetrics() {
+  const primary = electron.screen.getPrimaryDisplay();
+  return {
+    id: primary.id,
+    scaleFactor: primary.scaleFactor,
+    bounds: rectSnapshot(primary.bounds),
+    workArea: rectSnapshot(primary.workArea),
+    size: {
+      width: primary.size.width,
+      height: primary.size.height
+    }
+  };
+}
 async function toScreenPoint(x, y) {
   const primary = electron.screen.getPrimaryDisplay();
   const { width: logicalW, height: logicalH } = primary.size;
@@ -135,6 +158,22 @@ async function toScreenPoint(x, y) {
   const pixelX = Math.round(clampPercent(x) / 100 * logicalW * scale);
   const pixelY = Math.round(clampPercent(y) / 100 * logicalH * scale);
   return new nutJs.Point(pixelX, pixelY);
+}
+function screenPointToPercent(x, y) {
+  const primary = electron.screen.getPrimaryDisplay();
+  const { width: logicalW, height: logicalH } = primary.size;
+  const scale = primary.scaleFactor;
+  return {
+    x: clampPercent(x / (logicalW * scale) * 100),
+    y: clampPercent(y / (logicalH * scale) * 100)
+  };
+}
+function logicalPointToPercent(x, y) {
+  const primary = electron.screen.getPrimaryDisplay();
+  return {
+    x: clampPercent((x - primary.bounds.x) / primary.bounds.width * 100),
+    y: clampPercent((y - primary.bounds.y) / primary.bounds.height * 100)
+  };
 }
 const DEFAULT_MOVE_DURATION_MS = 650;
 function sleep$2(ms) {
@@ -199,6 +238,7 @@ async function executeRealMouseSteps(steps) {
       case "type":
         await moveRealMouse(step.x, step.y);
         if (step.typeText) {
+          await nutJs.mouse.click(nutJs.Button.LEFT);
           await nutJs.keyboard.type(step.typeText);
         }
         break;
@@ -232,13 +272,31 @@ async function getPhysicalMousePosition() {
 async function getPhysicalMousePercent() {
   try {
     const pos = await nutJs.mouse.getPosition();
-    const primary = electron.screen.getPrimaryDisplay();
-    const { width: logicalW, height: logicalH } = primary.size;
-    const scale = primary.scaleFactor;
-    return {
-      x: clampPercent(pos.x / (logicalW * scale) * 100),
-      y: clampPercent(pos.y / (logicalH * scale) * 100)
+    return screenPointToPercent(pos.x, pos.y);
+  } catch (error) {
+    throw userCursorPermissionError(error);
+  }
+}
+async function getCoordinateCalibrationDiagnostics() {
+  try {
+    const currentMousePosition = await nutJs.mouse.getPosition();
+    const computedPercent = screenPointToPercent(currentMousePosition.x, currentMousePosition.y);
+    const centerTarget = await toScreenPoint(50, 50);
+    const diagnostics = {
+      primaryDisplay: getPrimaryDisplayMetrics(),
+      currentMousePosition: {
+        x: currentMousePosition.x,
+        y: currentMousePosition.y
+      },
+      computedPercent,
+      toScreenPoint50_50: {
+        x: centerTarget.x,
+        y: centerTarget.y
+      },
+      coordinateMode: "percent * primary logical size * primary scaleFactor"
     };
+    console.log("[COORD_CALIBRATION]", diagnostics);
+    return diagnostics;
   } catch (error) {
     throw userCursorPermissionError(error);
   }
@@ -336,6 +394,7 @@ async function waitForUserClickAtTarget(targetPercentX, targetPercentY, toleranc
     throw userCursorPermissionError(error);
   }
 }
+const CLAUDE_VISION_MODEL = process.env.ANTHROPIC_VISION_MODEL || "claude-3-5-sonnet-20241022";
 function anthropicClient$1() {
   const key = process.env.ANTHROPIC_API_KEY;
   if (!key) {
@@ -378,9 +437,9 @@ async function analyzeScreen(base64PNG) {
     return fallbackScreenState();
   }
   try {
-    console.log("[SCREENER] Calling Claude Vision...");
+    console.log("[SCREENER] Calling Claude Vision...", { model: CLAUDE_VISION_MODEL });
     const message = await anthropic.messages.create({
-      model: "claude-3-5-sonnet-20241022",
+      model: CLAUDE_VISION_MODEL,
       max_tokens: 4096,
       system: "You are a UI state analyzer. Given a screenshot, return ONLY valid JSON matching the ScreenState schema. Identify clickable elements and their approximate screen coordinates as percentages (0-100) of screen width/height.",
       messages: [
@@ -420,7 +479,7 @@ async function analyzeScreen(base64PNG) {
     return fallbackScreenState();
   }
 }
-const CLAUDE_MODEL = "claude-sonnet-4-5";
+const CLAUDE_MODEL = process.env.ANTHROPIC_MODEL || "claude-sonnet-4-5";
 const STEP_ACTIONS$1 = ["click", "type", "scroll", "wait"];
 const SYSTEM_PROMPT = "You are a software tutor. Given the user's intent, current screen state, and their learning history, generate a precise step-by-step tutorial. Return ONLY valid JSON. Coordinates must be percentages of screen dimensions. Keep instructions under 15 words each for Silent mode, conversational for Ultra mode.";
 function anthropicClient() {
@@ -591,7 +650,7 @@ async function planSteps(userIntent, screenState, sessionHistory, mode) {
     return fallback;
   }
   try {
-    console.log("[PLANNER] Calling Claude...");
+    console.log("[PLANNER] Calling Claude...", { model: CLAUDE_MODEL });
     const message = await client.messages.create({
       model: CLAUDE_MODEL,
       max_tokens: 4096,
@@ -1257,6 +1316,9 @@ function isActive(controller) {
 function releaseReplayController(controller) {
   if (activeReplay === controller) activeReplay = null;
 }
+function hasActiveReplay() {
+  return Boolean(activeReplay && !activeReplay.cancelled);
+}
 function sleep(ms, controller) {
   if (controller.cancelled) return Promise.resolve(false);
   if (ms <= 0) return Promise.resolve(true);
@@ -1284,6 +1346,13 @@ function setOverlayForReplay() {
   if (!overlayWindow2 || overlayWindow2.isDestroyed()) return;
   if (!overlayWindow2.isVisible()) overlayWindow2.show();
   overlayWindow2.setIgnoreMouseEvents(true, { forward: true });
+}
+function setOverlayForKeyboardFallback() {
+  const overlayWindow2 = getOverlayWindow();
+  if (!overlayWindow2 || overlayWindow2.isDestroyed()) return;
+  if (!overlayWindow2.isVisible()) overlayWindow2.show();
+  overlayWindow2.setIgnoreMouseEvents(false);
+  overlayWindow2.focus();
 }
 function restoreOverlayAfterReplay(controller) {
   const overlayWindow2 = getOverlayWindow();
@@ -1397,6 +1466,8 @@ const DEFAULT_WAIT_STEP_MS = 800;
 const MAX_WALKTHROUGH_ATTEMPTS = 2;
 const TARGET_APPROACH_TOLERANCE_PX = 50;
 const TARGET_CLICK_TOLERANCE_PX = 60;
+const MANUAL_CONFIRM_TIMEOUT_MS = 3e4;
+let pendingManualConfirm = null;
 function stepTitle(step) {
   return step.instruction || step.targetLabel || step.id || "Untitled step";
 }
@@ -1467,6 +1538,50 @@ function waitForUserClickOnTarget(step, controller, timeoutMs = DEFAULT_STEP_TIM
       settle("timeout");
     });
   });
+}
+function waitForManualStepConfirmation(step, index, total, controller, timeoutMs = MANUAL_CONFIRM_TIMEOUT_MS) {
+  if (controller.cancelled) return Promise.resolve("cancelled");
+  return new Promise((resolve) => {
+    let settled = false;
+    const timeout = setTimeout(() => settle(controller.cancelled ? "cancelled" : "timeout"), timeoutMs);
+    const settle = (result) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timeout);
+      if (pendingManualConfirm === confirm) pendingManualConfirm = null;
+      controller.cancelHandlers.delete(cancel);
+      sendOverlay("replay:confirm-cleared", {});
+      setOverlayForReplay();
+      resolve(result);
+    };
+    const confirm = () => settle("correct");
+    const cancel = () => settle("cancelled");
+    pendingManualConfirm = confirm;
+    controller.cancelHandlers.add(cancel);
+    console.warn("[CLICK_DETECT] click fallback armed; waiting for Space/Enter confirmation", {
+      index,
+      x: step.x,
+      y: step.y,
+      timeoutMs
+    });
+    setOverlayForKeyboardFallback();
+    sendOverlay("replay:confirm-needed", {
+      message: "Click not detected. Press Space to confirm this step.",
+      step,
+      index,
+      total,
+      timeoutMs
+    });
+  });
+}
+function confirmReplayStep() {
+  if (!pendingManualConfirm) {
+    console.warn("[WALKTHROUGH] manual step confirmation ignored; no confirmation is pending");
+    return false;
+  }
+  console.log("[WALKTHROUGH] manual step confirmation received");
+  pendingManualConfirm();
+  return true;
 }
 function stepsForNode(nodeId, appName) {
   const graph = loadGraph(appName);
@@ -1567,6 +1682,11 @@ async function replayWalkthrough(steps, onStep) {
             result = await waitForUserClickOnTarget(step, controller);
             if (result === "correct") {
               console.log("[CLICK_DETECT] click detected", { index, x: step.x, y: step.y });
+            } else if (result === "timeout" && isActive(controller)) {
+              result = await waitForManualStepConfirmation(step, index, steps.length, controller);
+              if (result === "correct") {
+                console.log("[CLICK_DETECT] step advanced by Space/Enter fallback", { index, x: step.x, y: step.y });
+              }
             }
           }
         } else {
@@ -1628,6 +1748,68 @@ function registerReplayIpc(ipcMain, windowProvider, appName = "Specter") {
   ipcMain.handle("replay:stop", async () => {
     stopReplay();
   });
+  ipcMain.handle("replay:confirmStep", async () => confirmReplayStep());
+}
+const CONTROLLED_DEMO_NODE_ID = "Specter Controlled Demo";
+const CONTROLLED_DEMO_INTENT = "Controlled Specter demo";
+const DEMO_TARGETS = {
+  buttonOne: { x: 0.28, y: 0.32 },
+  buttonTwo: { x: 0.72, y: 0.32 },
+  textInput: { x: 0.5, y: 0.54 },
+  finalConfirm: { x: 0.5, y: 0.74 }
+};
+function contentTargetPercent(window, target) {
+  const contentBounds = window && !window.isDestroyed() ? window.getContentBounds() : null;
+  const fallbackBounds = electron.screen.getPrimaryDisplay().bounds;
+  const bounds = contentBounds || fallbackBounds;
+  const logicalX = bounds.x + bounds.width * target.x;
+  const logicalY = bounds.y + bounds.height * target.y;
+  return logicalPointToPercent(logicalX, logicalY);
+}
+function createControlledDemoWorkflow(window) {
+  const buttonOne = contentTargetPercent(window, DEMO_TARGETS.buttonOne);
+  const buttonTwo = contentTargetPercent(window, DEMO_TARGETS.buttonTwo);
+  const textInput = contentTargetPercent(window, DEMO_TARGETS.textInput);
+  const finalConfirm = contentTargetPercent(window, DEMO_TARGETS.finalConfirm);
+  return {
+    nodeId: CONTROLLED_DEMO_NODE_ID,
+    intent: CONTROLLED_DEMO_INTENT,
+    steps: [
+      {
+        id: "demo-button-1",
+        instruction: "Click Button 1.",
+        targetLabel: "Button 1",
+        x: buttonOne.x,
+        y: buttonOne.y,
+        action: "click"
+      },
+      {
+        id: "demo-button-2",
+        instruction: "Click Button 2.",
+        targetLabel: "Button 2",
+        x: buttonTwo.x,
+        y: buttonTwo.y,
+        action: "click"
+      },
+      {
+        id: "demo-type-text",
+        instruction: "Type Specter demo.",
+        targetLabel: "Text input",
+        x: textInput.x,
+        y: textInput.y,
+        action: "type",
+        typeText: "Specter demo"
+      },
+      {
+        id: "demo-final-confirm",
+        instruction: "Click Confirm.",
+        targetLabel: "Final confirm",
+        x: finalConfirm.x,
+        y: finalConfirm.y,
+        action: "click"
+      }
+    ]
+  };
 }
 const icon = path.join(__dirname, "../../resources/icon.png");
 const DEFAULT_APP_NAME = "Specter";
@@ -1641,6 +1823,11 @@ function isLearningGraph(value) {
 function toggleOverlay() {
   console.log("[TOGGLE] toggleOverlay called, isVisible:", overlayWindow?.isVisible());
   if (!overlayWindow) return;
+  if (hasActiveReplay()) {
+    console.warn("[TOGGLE] double-shift pressed during active replay; stopping replay instead of hiding the overlay");
+    stopReplay();
+    return;
+  }
   if (overlayWindow.isVisible()) {
     overlayWindow.setIgnoreMouseEvents(true, { forward: true });
     overlayWindow.hide();
@@ -1766,6 +1953,11 @@ electron.app.whenReady().then(async () => {
   electron.ipcMain.handle("cursor:click", async (_event, x, y) => clickRealMouse(x, y));
   electron.ipcMain.handle("cursor:replay", async (_event, steps) => executeRealMouseSteps(steps));
   electron.ipcMain.handle("cursor:getPosition", async () => getPhysicalMousePosition());
+  electron.ipcMain.handle("cursor:diagnostics", async () => getCoordinateCalibrationDiagnostics());
+  electron.ipcMain.handle("cursor:moveCenter", async () => {
+    console.log("[COORD_CALIBRATION] explicit center move requested");
+    return moveRealMouse(50, 50);
+  });
   electron.ipcMain.handle("cursor:waitForTarget", async (_event, x, y, tolerancePx = 50, timeoutMs = 12e3) => {
     console.log("[IPC] cursor:waitForTarget", { x, y, tolerancePx, timeoutMs });
     return waitForMouseAtTarget(x, y, tolerancePx, timeoutMs);
@@ -1825,6 +2017,24 @@ electron.app.whenReady().then(async () => {
     const graph = saveToNode(loadGraph(appName), nodeId, steps);
     saveGraph(graph);
     return graph;
+  });
+  electron.ipcMain.handle("demo:controlledWorkflow", async () => {
+    mainWindow?.show();
+    mainWindow?.focus();
+    const workflow = createControlledDemoWorkflow(mainWindow);
+    const graph = saveToNode(loadGraph(DEFAULT_APP_NAME), workflow.nodeId, workflow.steps);
+    saveGraph(graph);
+    console.log("[DEMO] controlled workflow prepared", {
+      nodeId: workflow.nodeId,
+      totalSteps: workflow.steps.length,
+      steps: workflow.steps.map((step) => ({
+        id: step.id,
+        action: step.action,
+        x: step.x,
+        y: step.y
+      }))
+    });
+    return workflow;
   });
   electron.ipcMain.handle("session:mark-complete", async (_event, nodeId, appName = DEFAULT_APP_NAME) => {
     const graph = markNodeComplete(loadGraph(appName), nodeId);

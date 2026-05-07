@@ -28,13 +28,17 @@ function showPermissionDialog(missing: string[]): 'retry' | 'quit' {
   const accessibilityLine = missing.includes('accessibility')
     ? '• Accessibility — required for mouse control automation\n'
     : ''
+  const inputMonitoringLine =
+    '• Input Monitoring — enable this if global clicks, Space/Enter fallback, or double-shift detection do not fire\n'
 
   const detail =
     `Specter needs the following permissions to function:\n\n` +
     screenLine +
     accessibilityLine +
+    inputMonitoringLine +
     `\nFor Screen Recording: if the system prompt did not appear, open System Settings → Privacy & Security → Screen Recording and enable Specter, then click Retry.\n` +
-    `For Accessibility: grant access in System Settings, then click Retry.`
+    `For Accessibility: grant access in System Settings, then click Retry.\n` +
+    `For Input Monitoring: Specter does not block startup on this, but walkthrough click detection depends on macOS allowing global input hooks.`
 
   const result = dialog.showMessageBoxSync({
     type: 'warning',

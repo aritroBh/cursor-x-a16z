@@ -10,6 +10,7 @@ import {
   ReplayController,
   restoreOverlayAfterReplay,
   sendOverlay,
+  setOverlayForKeyboardFallback,
   setOverlayForReplay,
   setReplayWindowProvider,
   sleep,
@@ -22,6 +23,7 @@ const DEFAULT_WAIT_STEP_MS = 800
 const MAX_WALKTHROUGH_ATTEMPTS = 2
 const TARGET_APPROACH_TOLERANCE_PX = 50
 const TARGET_CLICK_TOLERANCE_PX = 60
+const MANUAL_CONFIRM_TIMEOUT_MS = 30000
 
 type TargetWaitResult = 'correct' | 'timeout' | 'cancelled'
 
@@ -29,6 +31,8 @@ interface GhostStart {
   x: number
   y: number
 }
+
+let pendingManualConfirm: (() => void) | null = null
 
 function stepTitle(step: Step): string {
   return step.instruction || step.targetLabel || step.id || 'Untitled step'
@@ -122,6 +126,64 @@ function waitForUserClickOnTarget(
         settle('timeout')
       })
   })
+}
+
+function waitForManualStepConfirmation(
+  step: Step,
+  index: number,
+  total: number,
+  controller: ReplayController,
+  timeoutMs = MANUAL_CONFIRM_TIMEOUT_MS
+): Promise<TargetWaitResult> {
+  if (controller.cancelled) return Promise.resolve('cancelled')
+
+  return new Promise((resolve) => {
+    let settled = false
+    const timeout = setTimeout(() => settle(controller.cancelled ? 'cancelled' : 'timeout'), timeoutMs)
+
+    const settle = (result: TargetWaitResult) => {
+      if (settled) return
+      settled = true
+      clearTimeout(timeout)
+      if (pendingManualConfirm === confirm) pendingManualConfirm = null
+      controller.cancelHandlers.delete(cancel)
+      sendOverlay('replay:confirm-cleared', {})
+      setOverlayForReplay()
+      resolve(result)
+    }
+
+    const confirm = () => settle('correct')
+    const cancel = () => settle('cancelled')
+    pendingManualConfirm = confirm
+    controller.cancelHandlers.add(cancel)
+
+    console.warn('[CLICK_DETECT] click fallback armed; waiting for Space/Enter confirmation', {
+      index,
+      x: step.x,
+      y: step.y,
+      timeoutMs
+    })
+
+    setOverlayForKeyboardFallback()
+    sendOverlay('replay:confirm-needed', {
+      message: 'Click not detected. Press Space to confirm this step.',
+      step,
+      index,
+      total,
+      timeoutMs
+    })
+  })
+}
+
+export function confirmReplayStep(): boolean {
+  if (!pendingManualConfirm) {
+    console.warn('[WALKTHROUGH] manual step confirmation ignored; no confirmation is pending')
+    return false
+  }
+
+  console.log('[WALKTHROUGH] manual step confirmation received')
+  pendingManualConfirm()
+  return true
 }
 
 function stepsForNode(nodeId: string | undefined, appName: string): Step[] {
@@ -242,6 +304,11 @@ export async function replayWalkthrough(steps: Step[], onStep: (step: Step, inde
             result = await waitForUserClickOnTarget(step, controller)
             if (result === 'correct') {
               console.log('[CLICK_DETECT] click detected', { index, x: step.x, y: step.y })
+            } else if (result === 'timeout' && isActive(controller)) {
+              result = await waitForManualStepConfirmation(step, index, steps.length, controller)
+              if (result === 'correct') {
+                console.log('[CLICK_DETECT] step advanced by Space/Enter fallback', { index, x: step.x, y: step.y })
+              }
             }
           }
         } else {
@@ -309,4 +376,6 @@ export function registerReplayIpc(ipcMain: IpcMain, windowProvider: () => Browse
   ipcMain.handle('replay:stop', async () => {
     stopReplay()
   })
+
+  ipcMain.handle('replay:confirmStep', async () => confirmReplayStep())
 }

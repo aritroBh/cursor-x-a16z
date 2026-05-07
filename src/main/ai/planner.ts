@@ -1,6 +1,6 @@
 import Anthropic from '@anthropic-ai/sdk'
 
-const CLAUDE_MODEL = 'claude-sonnet-4-5'
+const CLAUDE_MODEL = process.env.ANTHROPIC_MODEL || 'claude-sonnet-4-5'
 const STEP_ACTIONS = ['click', 'type', 'scroll', 'wait']
 type PlannerMode = 'silent' | 'ultra'
 const SYSTEM_PROMPT =
@@ -225,7 +225,7 @@ export async function planSteps(userIntent: string, screenState: any, sessionHis
   }
 
   try {
-    console.log('[PLANNER] Calling Claude...')
+    console.log('[PLANNER] Calling Claude...', { model: CLAUDE_MODEL })
     const message = await client.messages.create({
       model: CLAUDE_MODEL,
       max_tokens: 4096,

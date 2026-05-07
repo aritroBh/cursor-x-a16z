@@ -381,6 +381,7 @@ const SessionPanel = ({
   ] });
 };
 const SHOW_WALKTHROUGH_DEBUG = false;
+const SHOW_CALIBRATION_DEBUG = false;
 function messageFromError(error) {
   if (error instanceof Error && error.message) return error.message;
   if (typeof error === "string" && error.trim()) return error;
@@ -411,6 +412,8 @@ const OverlayApp = () => {
   const [loadingMessage, setLoadingMessage] = reactExports.useState("Analyzing your screen...");
   const [errorMessage, setErrorMessage] = reactExports.useState("");
   const [lastNodeId, setLastNodeId] = reactExports.useState("");
+  const [manualConfirmMessage, setManualConfirmMessage] = reactExports.useState("");
+  const [calibrationMessage, setCalibrationMessage] = reactExports.useState("");
   reactExports.useEffect(() => {
     const offToggle = api.onOverlayToggle(() => {
       setIsVisible((prev) => !prev);
@@ -419,11 +422,20 @@ const OverlayApp = () => {
       setCurrentStep(null);
       setReplayState("idle");
       setReplayMode(null);
+      setManualConfirmMessage("");
     });
     const offStopped = api.onReplayStopped(() => {
       setCurrentStep(null);
       setReplayState("idle");
       setReplayMode(null);
+      setManualConfirmMessage("");
+    });
+    const offConfirmNeeded = api.onReplayConfirmNeeded((data) => {
+      setManualConfirmMessage(data?.message || "Click not detected. Press Space to confirm this step.");
+      setIsLoading(false);
+    });
+    const offConfirmCleared = api.onReplayConfirmCleared(() => {
+      setManualConfirmMessage("");
     });
     const offScreenDenied = api.onScreenPermissionDenied(() => {
       setErrorMessage("Screen Recording permission is missing. Grant it in macOS Privacy settings, then retry.");
@@ -433,9 +445,23 @@ const OverlayApp = () => {
       offToggle();
       offComplete();
       offStopped();
+      offConfirmNeeded();
+      offConfirmCleared();
       offScreenDenied();
     };
   }, []);
+  reactExports.useEffect(() => {
+    if (!manualConfirmMessage) return;
+    const onKeyDown = (event) => {
+      if (event.key !== " " && event.key !== "Enter") return;
+      event.preventDefault();
+      void api.confirmReplayStep().catch((error) => {
+        console.error("[Overlay] Replay confirmation failed:", error);
+      });
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [manualConfirmMessage]);
   reactExports.useEffect(() => {
     const offStep = api.onReplayStep((data) => {
       setCurrentStep(walkthroughStepFromReplay(data));
@@ -528,6 +554,7 @@ const OverlayApp = () => {
   };
   const replaySavedWorkflow = async (kind) => {
     if (!lastNodeId) return;
+    if (kind === "auto" && !window.confirm("Specter will control your real mouse. Continue?")) return;
     setErrorMessage("");
     setIsLoading(true);
     setLoadingMessage(kind === "walkthrough" ? "Starting walkthrough..." : "Starting auto-execute...");
@@ -544,6 +571,25 @@ const OverlayApp = () => {
       setErrorMessage(messageFromError(error));
       setReplayState("idle");
       setReplayMode(null);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+  const prepareControlledDemo = async () => {
+    setErrorMessage("");
+    setCalibrationMessage("");
+    setIsLoading(true);
+    setLoadingMessage("Preparing controlled demo...");
+    try {
+      const workflow = await api.prepareControlledDemo();
+      setIntent(workflow.intent || "Controlled Specter demo");
+      setLastNodeId(workflow.nodeId);
+      setReplayState("idle");
+      setReplayMode(null);
+      setCurrentStep(null);
+    } catch (error) {
+      console.error("[Overlay] Demo workflow failed:", error);
+      setErrorMessage(messageFromError(error));
     } finally {
       setIsLoading(false);
     }
@@ -618,6 +664,24 @@ const OverlayApp = () => {
       pointerEvents: "none",
       zIndex: 9999
     }, children: statusText }),
+    manualConfirmMessage && /* @__PURE__ */ jsxRuntimeExports.jsx("div", { style: {
+      position: "fixed",
+      bottom: "72px",
+      left: "50%",
+      transform: "translateX(-50%)",
+      background: "rgba(10, 84, 150, 0.9)",
+      color: "#fff",
+      padding: "10px 14px",
+      borderRadius: "14px",
+      fontSize: "13px",
+      fontWeight: 700,
+      maxWidth: "min(520px, calc(100vw - 32px))",
+      textAlign: "center",
+      boxShadow: "0 10px 28px rgba(0,0,0,0.24)",
+      backdropFilter: "blur(10px)",
+      pointerEvents: "none",
+      zIndex: 1e4
+    }, children: manualConfirmMessage }),
     isVisible && !isReplayRunning && /* @__PURE__ */ jsxRuntimeExports.jsxs(jsxRuntimeExports.Fragment, { children: [
       /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "siri-glow-fullscreen" }),
       /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { style: {
@@ -633,6 +697,26 @@ const OverlayApp = () => {
       }, children: [
         /* @__PURE__ */ jsxRuntimeExports.jsx(ModeToggle, { mode, onChange: setMode }),
         /* @__PURE__ */ jsxRuntimeExports.jsx(InputBar, { onSubmit: handleIntentSubmit, disabled: isLoading }),
+        /* @__PURE__ */ jsxRuntimeExports.jsx(
+          "button",
+          {
+            disabled: isLoading,
+            onClick: prepareControlledDemo,
+            style: {
+              border: "1px solid rgba(255,255,255,0.14)",
+              borderRadius: "12px",
+              padding: "10px 14px",
+              color: "white",
+              background: "rgba(255,255,255,0.12)",
+              fontSize: "13px",
+              fontWeight: 700,
+              cursor: isLoading ? "default" : "pointer",
+              opacity: isLoading ? 0.55 : 1
+            },
+            children: "Use controlled demo"
+          }
+        ),
+        SHOW_CALIBRATION_DEBUG,
         /* @__PURE__ */ jsxRuntimeExports.jsx(
           SessionPanel,
           {

@@ -42,6 +42,10 @@ export function releaseReplayController(controller: ReplayController): void {
   if (activeReplay === controller) activeReplay = null
 }
 
+export function hasActiveReplay(): boolean {
+  return Boolean(activeReplay && !activeReplay.cancelled)
+}
+
 export function sleep(ms: number, controller: ReplayController): Promise<boolean> {
   if (controller.cancelled) return Promise.resolve(false)
   if (ms <= 0) return Promise.resolve(true)
@@ -72,6 +76,14 @@ export function setOverlayForReplay(): void {
   if (!overlayWindow || overlayWindow.isDestroyed()) return
   if (!overlayWindow.isVisible()) overlayWindow.show()
   overlayWindow.setIgnoreMouseEvents(true, { forward: true })
+}
+
+export function setOverlayForKeyboardFallback(): void {
+  const overlayWindow = getOverlayWindow()
+  if (!overlayWindow || overlayWindow.isDestroyed()) return
+  if (!overlayWindow.isVisible()) overlayWindow.show()
+  overlayWindow.setIgnoreMouseEvents(false)
+  overlayWindow.focus()
 }
 
 export function restoreOverlayAfterReplay(controller: ReplayController): void {

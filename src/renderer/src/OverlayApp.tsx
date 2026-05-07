@@ -9,6 +9,7 @@ type SpecterMode = 'silent' | 'ultra'
 type ReplayState = 'idle' | 'running' | 'paused'
 type ReplayMode = 'walkthrough' | 'auto' | null
 const SHOW_WALKTHROUGH_DEBUG = import.meta.env.DEV
+const SHOW_CALIBRATION_DEBUG = import.meta.env.DEV
 
 function messageFromError(error: unknown): string {
   if (error instanceof Error && error.message) return error.message
@@ -46,6 +47,8 @@ export const OverlayApp: React.FC = () => {
   const [loadingMessage, setLoadingMessage] = useState('Analyzing your screen...')
   const [errorMessage, setErrorMessage] = useState('')
   const [lastNodeId, setLastNodeId] = useState('')
+  const [manualConfirmMessage, setManualConfirmMessage] = useState('')
+  const [calibrationMessage, setCalibrationMessage] = useState('')
 
   // Overlay visibility + replay lifecycle events
   useEffect(() => {
@@ -57,12 +60,23 @@ export const OverlayApp: React.FC = () => {
       setCurrentStep(null)
       setReplayState('idle')
       setReplayMode(null)
+      setManualConfirmMessage('')
     })
 
     const offStopped = api.onReplayStopped(() => {
       setCurrentStep(null)
       setReplayState('idle')
       setReplayMode(null)
+      setManualConfirmMessage('')
+    })
+
+    const offConfirmNeeded = api.onReplayConfirmNeeded((data: any) => {
+      setManualConfirmMessage(data?.message || 'Click not detected. Press Space to confirm this step.')
+      setIsLoading(false)
+    })
+
+    const offConfirmCleared = api.onReplayConfirmCleared(() => {
+      setManualConfirmMessage('')
     })
 
     const offScreenDenied = api.onScreenPermissionDenied(() => {
@@ -74,9 +88,26 @@ export const OverlayApp: React.FC = () => {
       offToggle()
       offComplete()
       offStopped()
+      offConfirmNeeded()
+      offConfirmCleared()
       offScreenDenied()
     }
   }, [])
+
+  useEffect(() => {
+    if (!manualConfirmMessage) return
+
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== ' ' && event.key !== 'Enter') return
+      event.preventDefault()
+      void api.confirmReplayStep().catch((error: unknown) => {
+        console.error('[Overlay] Replay confirmation failed:', error)
+      })
+    }
+
+    window.addEventListener('keydown', onKeyDown)
+    return () => window.removeEventListener('keydown', onKeyDown)
+  }, [manualConfirmMessage])
 
   // Listen for walkthrough step events (clears loading once first step fires)
   useEffect(() => {
@@ -188,6 +219,7 @@ export const OverlayApp: React.FC = () => {
 
   const replaySavedWorkflow = async (kind: Exclude<ReplayMode, null>) => {
     if (!lastNodeId) return
+    if (kind === 'auto' && !window.confirm('Specter will control your real mouse. Continue?')) return
 
     setErrorMessage('')
     setIsLoading(true)
@@ -208,6 +240,56 @@ export const OverlayApp: React.FC = () => {
       setReplayMode(null)
     } finally {
       setIsLoading(false)
+    }
+  }
+
+  const prepareControlledDemo = async () => {
+    setErrorMessage('')
+    setCalibrationMessage('')
+    setIsLoading(true)
+    setLoadingMessage('Preparing controlled demo...')
+
+    try {
+      const workflow = await api.prepareControlledDemo()
+      setIntent(workflow.intent || 'Controlled Specter demo')
+      setLastNodeId(workflow.nodeId)
+      setReplayState('idle')
+      setReplayMode(null)
+      setCurrentStep(null)
+    } catch (error) {
+      console.error('[Overlay] Demo workflow failed:', error)
+      setErrorMessage(messageFromError(error))
+    } finally {
+      setIsLoading(false)
+    }
+  }
+
+  const runCoordinateCalibration = async () => {
+    setErrorMessage('')
+    try {
+      const diagnostics = await api.getCursorCalibration()
+      const percent = diagnostics?.computedPercent || {}
+      const center = diagnostics?.toScreenPoint50_50 || {}
+      const scale = diagnostics?.primaryDisplay?.scaleFactor
+      setCalibrationMessage(
+        `Mouse ${formatCoordinate(percent.x)}, ${formatCoordinate(percent.y)} percent. Center maps to ${center.x ?? '?'}, ${center.y ?? '?'}. Scale ${scale ?? '?'}.`
+      )
+    } catch (error) {
+      console.error('[Overlay] Coordinate diagnostics failed:', error)
+      setErrorMessage(messageFromError(error))
+    }
+  }
+
+  const moveCursorToScreenCenter = async () => {
+    if (!window.confirm('Move your real mouse to the screen center?')) return
+
+    setErrorMessage('')
+    try {
+      await api.moveCursorToScreenCenter()
+      setCalibrationMessage('Center move requested. Verify the cursor landed at the visual center.')
+    } catch (error) {
+      console.error('[Overlay] Center move failed:', error)
+      setErrorMessage(messageFromError(error))
     }
   }
 
@@ -328,6 +410,29 @@ export const OverlayApp: React.FC = () => {
         </div>
       )}
 
+      {manualConfirmMessage && (
+        <div style={{
+          position: 'fixed',
+          bottom: '72px',
+          left: '50%',
+          transform: 'translateX(-50%)',
+          background: 'rgba(10, 84, 150, 0.9)',
+          color: '#fff',
+          padding: '10px 14px',
+          borderRadius: '14px',
+          fontSize: '13px',
+          fontWeight: 700,
+          maxWidth: 'min(520px, calc(100vw - 32px))',
+          textAlign: 'center',
+          boxShadow: '0 10px 28px rgba(0,0,0,0.24)',
+          backdropFilter: 'blur(10px)',
+          pointerEvents: 'none',
+          zIndex: 10000
+        }}>
+          {manualConfirmMessage}
+        </div>
+      )}
+
       {isVisible && !isReplayRunning && (
         <>
           <div className="siri-glow-fullscreen" />
@@ -344,6 +449,83 @@ export const OverlayApp: React.FC = () => {
           }}>
             <ModeToggle mode={mode} onChange={setMode} />
             <InputBar onSubmit={handleIntentSubmit} disabled={isLoading} />
+            <button
+              disabled={isLoading}
+              onClick={prepareControlledDemo}
+              style={{
+                border: '1px solid rgba(255,255,255,0.14)',
+                borderRadius: '12px',
+                padding: '10px 14px',
+                color: 'white',
+                background: 'rgba(255,255,255,0.12)',
+                fontSize: '13px',
+                fontWeight: 700,
+                cursor: isLoading ? 'default' : 'pointer',
+                opacity: isLoading ? 0.55 : 1
+              }}
+            >
+              Use controlled demo
+            </button>
+            {SHOW_CALIBRATION_DEBUG && (
+              <div style={{
+                display: 'flex',
+                flexDirection: 'column',
+                gap: '8px',
+                width: '100%',
+                background: 'rgba(12, 14, 18, 0.72)',
+                border: '1px solid rgba(255,255,255,0.08)',
+                borderRadius: '12px',
+                padding: '10px'
+              }}>
+                <div style={{ display: 'flex', gap: '8px', width: '100%' }}>
+                  <button
+                    disabled={isLoading}
+                    onClick={runCoordinateCalibration}
+                    style={{
+                      flex: 1,
+                      border: '1px solid rgba(255,255,255,0.12)',
+                      borderRadius: '10px',
+                      padding: '9px 10px',
+                      color: 'white',
+                      background: 'rgba(10,132,255,0.26)',
+                      fontSize: '12px',
+                      fontWeight: 700,
+                      cursor: isLoading ? 'default' : 'pointer',
+                      opacity: isLoading ? 0.55 : 1
+                    }}
+                  >
+                    Log calibration
+                  </button>
+                  <button
+                    disabled={isLoading}
+                    onClick={moveCursorToScreenCenter}
+                    style={{
+                      flex: 1,
+                      border: '1px solid rgba(255,255,255,0.12)',
+                      borderRadius: '10px',
+                      padding: '9px 10px',
+                      color: 'white',
+                      background: 'rgba(48,209,88,0.22)',
+                      fontSize: '12px',
+                      fontWeight: 700,
+                      cursor: isLoading ? 'default' : 'pointer',
+                      opacity: isLoading ? 0.55 : 1
+                    }}
+                  >
+                    Move center
+                  </button>
+                </div>
+                {calibrationMessage && (
+                  <div style={{
+                    color: 'rgba(255,255,255,0.76)',
+                    fontSize: '11px',
+                    lineHeight: 1.35
+                  }}>
+                    {calibrationMessage}
+                  </div>
+                )}
+              </div>
+            )}
             <SessionPanel
               intent={intent}
               nodeId={lastNodeId}

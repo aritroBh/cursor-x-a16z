@@ -1,5 +1,7 @@
 import Anthropic from '@anthropic-ai/sdk'
 
+const CLAUDE_VISION_MODEL = process.env.ANTHROPIC_VISION_MODEL || 'claude-3-5-sonnet-20241022'
+
 export interface ScreenCoordinate {
   label: string
   x: number
@@ -66,9 +68,9 @@ export async function analyzeScreen(base64PNG?: string): Promise<ScreenState> {
   }
 
   try {
-    console.log('[SCREENER] Calling Claude Vision...')
+    console.log('[SCREENER] Calling Claude Vision...', { model: CLAUDE_VISION_MODEL })
     const message = await anthropic.messages.create({
-      model: 'claude-3-5-sonnet-20241022',
+      model: CLAUDE_VISION_MODEL,
       max_tokens: 4096,
       system:
         'You are a UI state analyzer. Given a screenshot, return ONLY valid JSON matching the ScreenState schema. Identify clickable elements and their approximate screen coordinates as percentages (0-100) of screen width/height.',

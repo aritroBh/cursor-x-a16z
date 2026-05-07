@@ -1,8 +1,7 @@
 import { mouse } from '@nut-tree-fork/nut-js'
 import { uIOhook } from 'uiohook-napi'
 import type { UiohookMouseEvent } from 'uiohook-napi'
-import { clampPercent, toScreenPoint } from './screenCoordinates'
-import { screen } from 'electron'
+import { getPrimaryDisplayMetrics, screenPointToPercent, toScreenPoint } from './screenCoordinates'
 
 type TargetWaitResult = 'correct' | 'timeout' | 'cancelled'
 
@@ -29,14 +28,33 @@ export async function getPhysicalMousePosition(): Promise<{ x: number; y: number
 export async function getPhysicalMousePercent(): Promise<{ x: number; y: number }> {
   try {
     const pos = await mouse.getPosition()
-    const primary = screen.getPrimaryDisplay()
-    const { width: logicalW, height: logicalH } = primary.size
-    const scale = primary.scaleFactor
+    return screenPointToPercent(pos.x, pos.y)
+  } catch (error) {
+    throw userCursorPermissionError(error)
+  }
+}
 
-    return {
-      x: clampPercent((pos.x / (logicalW * scale)) * 100),
-      y: clampPercent((pos.y / (logicalH * scale)) * 100)
+export async function getCoordinateCalibrationDiagnostics(): Promise<any> {
+  try {
+    const currentMousePosition = await mouse.getPosition()
+    const computedPercent = screenPointToPercent(currentMousePosition.x, currentMousePosition.y)
+    const centerTarget = await toScreenPoint(50, 50)
+    const diagnostics = {
+      primaryDisplay: getPrimaryDisplayMetrics(),
+      currentMousePosition: {
+        x: currentMousePosition.x,
+        y: currentMousePosition.y
+      },
+      computedPercent,
+      toScreenPoint50_50: {
+        x: centerTarget.x,
+        y: centerTarget.y
+      },
+      coordinateMode: 'percent * primary logical size * primary scaleFactor'
     }
+
+    console.log('[COORD_CALIBRATION]', diagnostics)
+    return diagnostics
   } catch (error) {
     throw userCursorPermissionError(error)
   }

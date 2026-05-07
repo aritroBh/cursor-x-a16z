@@ -11,7 +11,7 @@ import {
   executeRealMouseSteps,
   moveRealMouse
 } from './cursor'
-import { getPhysicalMousePosition, waitForMouseAtTarget } from './userCursor'
+import { getCoordinateCalibrationDiagnostics, getPhysicalMousePosition, waitForMouseAtTarget } from './userCursor'
 import { analyzeScreen, fallbackScreenState } from './ai/screener'
 import { planSteps, converse } from './ai/planner'
 import { speak, stopSpeaking } from './ai/tts'
@@ -27,6 +27,8 @@ import {
 } from './session/graph'
 import { startRecording, recordStep, stopRecording, saveToNode } from './session/recorder'
 import { registerReplayIpc, replayWalkthrough } from './session/replay'
+import { hasActiveReplay, stopReplay } from './session/replayController'
+import { createControlledDemoWorkflow } from './session/demoWorkflow'
 
 const icon = join(__dirname, '../../resources/icon.png')
 const DEFAULT_APP_NAME = 'Specter'
@@ -49,6 +51,11 @@ function isLearningGraph(value: any): boolean {
 function toggleOverlay(): void {
   console.log('[TOGGLE] toggleOverlay called, isVisible:', overlayWindow?.isVisible())
   if (!overlayWindow) return
+  if (hasActiveReplay()) {
+    console.warn('[TOGGLE] double-shift pressed during active replay; stopping replay instead of hiding the overlay')
+    stopReplay()
+    return
+  }
   if (overlayWindow.isVisible()) {
     overlayWindow.setIgnoreMouseEvents(true, { forward: true })
     overlayWindow.hide()
@@ -198,6 +205,11 @@ app.whenReady().then(async () => {
   ipcMain.handle('cursor:click', async (_event, x, y) => clickRealMouse(x, y))
   ipcMain.handle('cursor:replay', async (_event, steps) => executeRealMouseSteps(steps))
   ipcMain.handle('cursor:getPosition', async () => getPhysicalMousePosition())
+  ipcMain.handle('cursor:diagnostics', async () => getCoordinateCalibrationDiagnostics())
+  ipcMain.handle('cursor:moveCenter', async () => {
+    console.log('[COORD_CALIBRATION] explicit center move requested')
+    return moveRealMouse(50, 50)
+  })
   ipcMain.handle('cursor:waitForTarget', async (_event, x, y, tolerancePx = 50, timeoutMs = 12000) => {
     console.log('[IPC] cursor:waitForTarget', { x, y, tolerancePx, timeoutMs })
     return waitForMouseAtTarget(x, y, tolerancePx, timeoutMs)
@@ -265,6 +277,25 @@ app.whenReady().then(async () => {
     const graph = saveToNode(loadGraph(appName), nodeId, steps)
     saveGraph(graph)
     return graph
+  })
+
+  ipcMain.handle('demo:controlledWorkflow', async () => {
+    mainWindow?.show()
+    mainWindow?.focus()
+    const workflow = createControlledDemoWorkflow(mainWindow)
+    const graph = saveToNode(loadGraph(DEFAULT_APP_NAME), workflow.nodeId, workflow.steps)
+    saveGraph(graph)
+    console.log('[DEMO] controlled workflow prepared', {
+      nodeId: workflow.nodeId,
+      totalSteps: workflow.steps.length,
+      steps: workflow.steps.map((step) => ({
+        id: step.id,
+        action: step.action,
+        x: step.x,
+        y: step.y
+      }))
+    })
+    return workflow
   })
 
   ipcMain.handle('session:mark-complete', async (_event, nodeId, appName = DEFAULT_APP_NAME) => {

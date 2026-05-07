@@ -1199,12 +1199,17 @@ function toggleOverlay() {
   overlayWindow.webContents.send("overlay:toggle");
 }
 let lastShiftTime = 0;
+let lastToggleTime = 0;
 const DOUBLE_TAP_MS = 300;
+const TOGGLE_COOLDOWN_MS = 300;
 uiohookNapi.uIOhook.on("keydown", (e) => {
   if (e.keycode === uiohookNapi.UiohookKey.Shift || e.keycode === uiohookNapi.UiohookKey.ShiftRight) {
     const now = Date.now();
     if (now - lastShiftTime < DOUBLE_TAP_MS) {
-      toggleOverlay();
+      if (now - lastToggleTime >= TOGGLE_COOLDOWN_MS) {
+        toggleOverlay();
+        lastToggleTime = now;
+      }
       lastShiftTime = 0;
     } else {
       lastShiftTime = now;
@@ -1392,6 +1397,34 @@ electron.app.whenReady().then(async () => {
     "bandit:style",
     async (_event, appName = DEFAULT_APP_NAME) => getCurrentStyle(loadGraph(appName).bandtState)
   );
+  electron.ipcMain.handle(
+    "bandit:selectStyle",
+    async (_event, appName = DEFAULT_APP_NAME) => selectArm(loadGraph(appName).bandtState)
+  );
+  electron.ipcMain.handle("bandit:recordReward", async (_event, arm, reward, appName = DEFAULT_APP_NAME) => {
+    const graph = loadGraph(appName);
+    graph.bandtState = recordReward(graph.bandtState, arm, reward);
+    saveGraph(graph);
+    return { bandtState: graph.bandtState, style: getCurrentStyle(graph.bandtState) };
+  });
+  electron.ipcMain.handle("session:markComplete", async (_event, nodeId, appName = DEFAULT_APP_NAME) => {
+    const graph = markNodeComplete(loadGraph(appName), nodeId);
+    saveGraph(graph);
+    return graph;
+  });
+  electron.ipcMain.handle("session:saveNode", async (_event, nodeId, steps, appName = DEFAULT_APP_NAME) => {
+    const graph = saveToNode(loadGraph(appName), nodeId, steps);
+    saveGraph(graph);
+    return graph;
+  });
+  electron.ipcMain.handle("session:walkthrough", async (_event, nodeId, appName = DEFAULT_APP_NAME) => {
+    const graph = loadGraph(appName);
+    const sessions = nodeId ? graph.sessions.filter((s) => s.nodesVisited.includes(nodeId)) : graph.sessions.filter((s) => s.steps.length > 0);
+    const latest = sessions.length > 0 ? sessions[sessions.length - 1] : null;
+    const steps = latest?.steps || [];
+    await replayWalkthrough(steps, () => {
+    });
+  });
   electron.ipcMain.handle("tts:speak", async (_event, text) => {
     console.log("[IPC] tts:speak", { text: text?.slice(0, 50) });
     return speak(text);

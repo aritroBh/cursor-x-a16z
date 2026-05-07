@@ -63,8 +63,8 @@ function normalizeSequence(value: any, fallback: any): any {
           typeof partial.targetLabel === 'string' && partial.targetLabel.trim()
             ? partial.targetLabel
             : fallbackStep.targetLabel,
-        targetX: clampCoordinate(partial.targetX, fallbackStep.targetX),
-        targetY: clampCoordinate(partial.targetY, fallbackStep.targetY),
+        x: clampCoordinate(partial.x ?? partial.targetX, fallbackStep.x),
+        y: clampCoordinate(partial.y ?? partial.targetY, fallbackStep.y),
         action: isStepAction(partial.action) ? partial.action : fallbackStep.action,
         typeText: typeof partial.typeText === 'string' ? partial.typeText : undefined,
         waitForMs: typeof partial.waitForMs === 'number' && Number.isFinite(partial.waitForMs) ? Math.max(0, partial.waitForMs) : undefined
@@ -86,32 +86,32 @@ function fallbackSequence(userIntent: string, screenState: any, mode: string): a
           id: 'open-add-menu',
           instruction: short ? 'Open Add.' : 'Start with the Add menu in the top-left.',
           targetLabel: 'Add menu',
-          targetX: coordinates.find((item) => /add/i.test(item.label))?.x ?? 4,
-          targetY: coordinates.find((item) => /add/i.test(item.label))?.y ?? 3,
+          x: coordinates.find((item) => /add/i.test(item.label))?.x ?? 4,
+          y: coordinates.find((item) => /add/i.test(item.label))?.y ?? 3,
           action: 'click'
         },
         {
           id: 'choose-mesh',
           instruction: short ? 'Choose Mesh.' : 'Now choose Mesh from that menu.',
           targetLabel: 'Mesh',
-          targetX: coordinates.find((item) => /mesh/i.test(item.label))?.x ?? 6,
-          targetY: coordinates.find((item) => /mesh/i.test(item.label))?.y ?? 14,
+          x: coordinates.find((item) => /mesh/i.test(item.label))?.x ?? 6,
+          y: coordinates.find((item) => /mesh/i.test(item.label))?.y ?? 14,
           action: 'click'
         },
         {
           id: 'choose-cube',
           instruction: short ? 'Select Cube.' : 'Pick Cube as your first simple mesh.',
           targetLabel: 'Cube',
-          targetX: coordinates.find((item) => /cube/i.test(item.label))?.x ?? 10,
-          targetY: coordinates.find((item) => /cube/i.test(item.label))?.y ?? 20,
+          x: coordinates.find((item) => /cube/i.test(item.label))?.x ?? 10,
+          y: coordinates.find((item) => /cube/i.test(item.label))?.y ?? 20,
           action: 'click'
         },
         {
           id: 'confirm-viewport',
           instruction: short ? 'Check viewport.' : 'Look in the viewport and confirm the cube appeared.',
           targetLabel: 'Viewport',
-          targetX: 50,
-          targetY: 50,
+          x: 50,
+          y: 50,
           action: 'wait',
           waitForMs: 800
         },
@@ -119,8 +119,8 @@ function fallbackSequence(userIntent: string, screenState: any, mode: string): a
           id: 'select-move-tool',
           instruction: short ? 'Select move.' : 'Select the move tool so you can position it.',
           targetLabel: 'Move tool',
-          targetX: coordinates.find((item) => /move/i.test(item.label))?.x ?? 2,
-          targetY: coordinates.find((item) => /move/i.test(item.label))?.y ?? 24,
+          x: coordinates.find((item) => /move/i.test(item.label))?.x ?? 2,
+          y: coordinates.find((item) => /move/i.test(item.label))?.y ?? 24,
           action: 'click'
         }
       ]
@@ -131,8 +131,8 @@ function fallbackSequence(userIntent: string, screenState: any, mode: string): a
     id: `step-${index + 1}`,
     instruction: short ? `Click ${coordinate.label}.` : `Next, click ${coordinate.label}.`,
     targetLabel: coordinate.label,
-    targetX: coordinate.x,
-    targetY: coordinate.y,
+    x: coordinate.x,
+    y: coordinate.y,
     action: 'click'
   }))
 
@@ -147,8 +147,8 @@ function fallbackSequence(userIntent: string, screenState: any, mode: string): a
               id: 'step-1',
               instruction: short ? 'Start here.' : 'Start with the main control on screen.',
               targetLabel: 'Main target',
-              targetX: 50,
-              targetY: 50,
+              x: 50,
+              y: 50,
               action: 'click'
             }
           ]
@@ -188,8 +188,8 @@ export async function planSteps(userIntent: string, screenState: any, sessionHis
                     id: 'string',
                     instruction: 'string',
                     targetLabel: 'string',
-                    targetX: 0,
-                    targetY: 0,
+                    x: 0,
+                    y: 0,
                     action: 'click | type | scroll | wait',
                     typeText: 'optional string',
                     waitForMs: 'optional number'
@@ -207,8 +207,9 @@ export async function planSteps(userIntent: string, screenState: any, sessionHis
     })
 
     const rawText = message.content
-      .filter((part): part is { type: 'text'; text: string } => part.type === 'text')
-      .map((part) => part.text)
+      .filter((part): part is { type: 'text'; text: string } =>
+        part.type === 'text' && 'text' in part)
+      .map((part) => (part as { type: 'text'; text: string }).text)
       .join('\n')
 
     console.log('[PLANNER] Raw response:', rawText)
@@ -254,8 +255,9 @@ export async function converse(userMessage: string, screenState: any, conversati
     })
 
     const text = message.content
-      .filter((part): part is { type: 'text'; text: string } => part.type === 'text')
-      .map((part) => part.text)
+      .filter((part): part is { type: 'text'; text: string } =>
+        part.type === 'text' && 'text' in part)
+      .map((part) => (part as { type: 'text'; text: string }).text)
       .join('\n')
       .trim()
 

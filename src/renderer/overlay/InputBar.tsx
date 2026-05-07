@@ -15,7 +15,7 @@ export const InputBar: React.FC<InputBarProps> = ({ onSubmit }) => {
   }
 
   return (
-    <div className="input-bar" style={{
+    <div className="input-bar siri-glow-input" style={{
       width: '100%',
       background: 'rgba(255, 255, 255, 0.9)',
       backdropFilter: 'blur(10px)',

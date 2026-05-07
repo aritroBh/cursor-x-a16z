@@ -228,7 +228,7 @@ async function analyzeScreen(base64PNG) {
   try {
     console.log("[SCREENER] Calling Claude Vision...");
     const message = await anthropic.messages.create({
-      model: "claude-sonnet-4-6",
+      model: "claude-3-5-sonnet-20241022",
       max_tokens: 4096,
       system: "You are a UI state analyzer. Given a screenshot, return ONLY valid JSON matching the ScreenState schema. Identify clickable elements and their approximate screen coordinates as percentages (0-100) of screen width/height.",
       messages: [
@@ -251,10 +251,11 @@ async function analyzeScreen(base64PNG) {
         }
       ]
     });
-    const content = message.content[0];
-    if (content.type === "text") {
-      console.log("[SCREENER] Raw response:", content.text);
-      const jsonMatch = content.text.match(/\{[\s\S]*\}/);
+    const textParts = message.content.filter((part) => part.type === "text" && "text" in part).map((part) => part.text).join("\n");
+    if (textParts) {
+      console.log("[SCREENER] Raw response:", textParts);
+      const cleanJson = textParts.replace(/```json/g, "").replace(/```/g, "").trim();
+      const jsonMatch = cleanJson.match(/\{[\s\S]*\}/);
       if (jsonMatch) {
         const parsed = JSON.parse(jsonMatch[0]);
         console.log("[SCREENER] Parsed state:", JSON.stringify(parsed));
@@ -308,8 +309,8 @@ function normalizeSequence(value, fallback) {
         id: typeof partial.id === "string" ? partial.id : `step-${index + 1}`,
         instruction: typeof partial.instruction === "string" && partial.instruction.trim() ? partial.instruction : fallbackStep.instruction,
         targetLabel: typeof partial.targetLabel === "string" && partial.targetLabel.trim() ? partial.targetLabel : fallbackStep.targetLabel,
-        targetX: clampCoordinate(partial.targetX, fallbackStep.targetX),
-        targetY: clampCoordinate(partial.targetY, fallbackStep.targetY),
+        x: clampCoordinate(partial.x ?? partial.targetX, fallbackStep.x),
+        y: clampCoordinate(partial.y ?? partial.targetY, fallbackStep.y),
         action: isStepAction(partial.action) ? partial.action : fallbackStep.action,
         typeText: typeof partial.typeText === "string" ? partial.typeText : void 0,
         waitForMs: typeof partial.waitForMs === "number" && Number.isFinite(partial.waitForMs) ? Math.max(0, partial.waitForMs) : void 0
@@ -329,32 +330,32 @@ function fallbackSequence(userIntent, screenState, mode) {
           id: "open-add-menu",
           instruction: short ? "Open Add." : "Start with the Add menu in the top-left.",
           targetLabel: "Add menu",
-          targetX: coordinates.find((item) => /add/i.test(item.label))?.x ?? 4,
-          targetY: coordinates.find((item) => /add/i.test(item.label))?.y ?? 3,
+          x: coordinates.find((item) => /add/i.test(item.label))?.x ?? 4,
+          y: coordinates.find((item) => /add/i.test(item.label))?.y ?? 3,
           action: "click"
         },
         {
           id: "choose-mesh",
           instruction: short ? "Choose Mesh." : "Now choose Mesh from that menu.",
           targetLabel: "Mesh",
-          targetX: coordinates.find((item) => /mesh/i.test(item.label))?.x ?? 6,
-          targetY: coordinates.find((item) => /mesh/i.test(item.label))?.y ?? 14,
+          x: coordinates.find((item) => /mesh/i.test(item.label))?.x ?? 6,
+          y: coordinates.find((item) => /mesh/i.test(item.label))?.y ?? 14,
           action: "click"
         },
         {
           id: "choose-cube",
           instruction: short ? "Select Cube." : "Pick Cube as your first simple mesh.",
           targetLabel: "Cube",
-          targetX: coordinates.find((item) => /cube/i.test(item.label))?.x ?? 10,
-          targetY: coordinates.find((item) => /cube/i.test(item.label))?.y ?? 20,
+          x: coordinates.find((item) => /cube/i.test(item.label))?.x ?? 10,
+          y: coordinates.find((item) => /cube/i.test(item.label))?.y ?? 20,
           action: "click"
         },
         {
           id: "confirm-viewport",
           instruction: short ? "Check viewport." : "Look in the viewport and confirm the cube appeared.",
           targetLabel: "Viewport",
-          targetX: 50,
-          targetY: 50,
+          x: 50,
+          y: 50,
           action: "wait",
           waitForMs: 800
         },
@@ -362,8 +363,8 @@ function fallbackSequence(userIntent, screenState, mode) {
           id: "select-move-tool",
           instruction: short ? "Select move." : "Select the move tool so you can position it.",
           targetLabel: "Move tool",
-          targetX: coordinates.find((item) => /move/i.test(item.label))?.x ?? 2,
-          targetY: coordinates.find((item) => /move/i.test(item.label))?.y ?? 24,
+          x: coordinates.find((item) => /move/i.test(item.label))?.x ?? 2,
+          y: coordinates.find((item) => /move/i.test(item.label))?.y ?? 24,
           action: "click"
         }
       ]
@@ -373,8 +374,8 @@ function fallbackSequence(userIntent, screenState, mode) {
     id: `step-${index + 1}`,
     instruction: short ? `Click ${coordinate.label}.` : `Next, click ${coordinate.label}.`,
     targetLabel: coordinate.label,
-    targetX: coordinate.x,
-    targetY: coordinate.y,
+    x: coordinate.x,
+    y: coordinate.y,
     action: "click"
   }));
   return {
@@ -385,8 +386,8 @@ function fallbackSequence(userIntent, screenState, mode) {
         id: "step-1",
         instruction: short ? "Start here." : "Start with the main control on screen.",
         targetLabel: "Main target",
-        targetX: 50,
-        targetY: 50,
+        x: 50,
+        y: 50,
         action: "click"
       }
     ]
@@ -422,8 +423,8 @@ async function planSteps(userIntent, screenState, sessionHistory, mode) {
                     id: "string",
                     instruction: "string",
                     targetLabel: "string",
-                    targetX: 0,
-                    targetY: 0,
+                    x: 0,
+                    y: 0,
                     action: "click | type | scroll | wait",
                     typeText: "optional string",
                     waitForMs: "optional number"
@@ -439,7 +440,7 @@ async function planSteps(userIntent, screenState, sessionHistory, mode) {
         }
       ]
     });
-    const rawText = message.content.filter((part) => part.type === "text").map((part) => part.text).join("\n");
+    const rawText = message.content.filter((part) => part.type === "text" && "text" in part).map((part) => part.text).join("\n");
     console.log("[PLANNER] Raw response:", rawText);
     const steps = normalizeSequence(extractJson(rawText), fallback);
     return steps;
@@ -477,7 +478,7 @@ async function converse(userMessage, screenState, conversationHistory) {
         }
       ]
     });
-    const text = message.content.filter((part) => part.type === "text").map((part) => part.text).join("\n").trim();
+    const text = message.content.filter((part) => part.type === "text" && "text" in part).map((part) => part.text).join("\n").trim();
     return text || "Yes. Keep going with the next highlighted step.";
   } catch (error) {
     console.error("[Specter] Failed to answer follow-up:", error);
@@ -601,8 +602,8 @@ async function speak(text) {
     await speakFallback(text);
   }
 }
-const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
 async function transcribe(audioBuffer) {
+  const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
   console.log("[WHISPER] transcribe called, buffer size:", audioBuffer?.length);
   if (!OPENAI_API_KEY) {
     console.error("OPENAI_API_KEY not set in environment");

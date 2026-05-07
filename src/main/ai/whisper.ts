@@ -1,8 +1,8 @@
 import OpenAI from 'openai'
 
-const OPENAI_API_KEY = process.env.OPENAI_API_KEY
 
 export async function transcribe(audioBuffer: Buffer): Promise<string> {
+  const OPENAI_API_KEY = process.env.OPENAI_API_KEY
   console.log('[WHISPER] transcribe called, buffer size:', audioBuffer?.length)
   if (!OPENAI_API_KEY) {
     console.error('OPENAI_API_KEY not set in environment')

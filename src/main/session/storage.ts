@@ -36,7 +36,7 @@ function nonNegativeNumber(value: any, fallback = 0): number {
   return typeof value === 'number' && Number.isFinite(value) ? Math.max(0, value) : fallback
 }
 
-function positiveNumber(value: any, fallback = 1): number {
+function _positiveNumber(value: any, fallback = 1): number {
   const normalized = nonNegativeNumber(value, fallback)
   return normalized > 0 ? normalized : fallback
 }

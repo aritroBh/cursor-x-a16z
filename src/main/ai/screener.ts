@@ -8,6 +8,7 @@ function anthropicClient() {
   return new Anthropic({ apiKey: key })
 }
 
+
 export async function analyzeScreen(base64PNG: string): Promise<any> {
   console.log('[SCREENER] Got base64, length:', base64PNG?.length)
   const anthropic = anthropicClient()
@@ -20,7 +21,7 @@ export async function analyzeScreen(base64PNG: string): Promise<any> {
   try {
     console.log('[SCREENER] Calling Claude Vision...')
     const message = await anthropic.messages.create({
-      model: 'claude-sonnet-4-6',
+      model: 'claude-3-5-sonnet-20241022',
       max_tokens: 4096,
       system:
         'You are a UI state analyzer. Given a screenshot, return ONLY valid JSON matching the ScreenState schema. Identify clickable elements and their approximate screen coordinates as percentages (0-100) of screen width/height.',
@@ -45,10 +46,16 @@ export async function analyzeScreen(base64PNG: string): Promise<any> {
       ]
     })
 
-    const content = message.content[0]
-    if (content.type === 'text') {
-      console.log('[SCREENER] Raw response:', content.text)
-      const jsonMatch = content.text.match(/\{[\s\S]*\}/)
+    const textParts = message.content
+      .filter((part): part is { type: 'text'; text: string } =>
+        part.type === 'text' && 'text' in part)
+      .map((part) => (part as { type: 'text'; text: string }).text)
+      .join('\n')
+
+    if (textParts) {
+      console.log('[SCREENER] Raw response:', textParts)
+      const cleanJson = textParts.replace(/```json/g, '').replace(/```/g, '').trim()
+      const jsonMatch = cleanJson.match(/\{[\s\S]*\}/)
       if (jsonMatch) {
         const parsed = JSON.parse(jsonMatch[0])
         console.log('[SCREENER] Parsed state:', JSON.stringify(parsed))

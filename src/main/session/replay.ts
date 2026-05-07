@@ -1,6 +1,6 @@
 import { BrowserWindow, IpcMain } from 'electron'
 import { safeLog, safeWarn, safeError } from '../logger'
-import { getPhysicalMousePercent, waitForMouseAtTarget, waitForUserClickAtTarget } from '../userCursor'
+import { getMousePercent, waitForMouseAtTarget, waitForUserClickAtTarget } from '../userCursor'
 import { loadGraph } from './storage'
 import { Step } from './types'
 import { replayAutoExecute } from './replayAuto'
@@ -56,9 +56,9 @@ function fallbackGhostStart(step: Step, previousTarget: GhostStart | null): Ghos
 
 async function ghostStartForStep(step: Step, previousTarget: GhostStart | null): Promise<GhostStart> {
   try {
-    return await getPhysicalMousePercent()
+    return await getMousePercent()
   } catch (error) {
-    safeWarn('[GHOST] could not read physical cursor for ghost start; using fallback', error)
+    safeWarn('[GHOST] could not read cursor for ghost start; using fallback', error)
     return fallbackGhostStart(step, previousTarget)
   }
 }

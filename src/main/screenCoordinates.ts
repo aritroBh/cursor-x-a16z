@@ -3,6 +3,8 @@ import type { Display, Rectangle } from 'electron'
 import { Point } from '@nut-tree-fork/nut-js'
 import { safeLog } from './logger'
 
+export const COORDINATE_MODE = 'electron logical display bounds'
+
 let activeCoordinateDisplayId: number | null = null
 
 export function clampPercent(value: number): number {
@@ -23,22 +25,13 @@ function getDisplayById(displayId: number | null): Display | null {
   return screen.getAllDisplays().find((display) => display.id === displayId) || null
 }
 
-function physicalBoundsForDisplay(display: Display): Rectangle {
-  return {
-    x: Math.round(display.bounds.x * display.scaleFactor),
-    y: Math.round(display.bounds.y * display.scaleFactor),
-    width: Math.round(display.bounds.width * display.scaleFactor),
-    height: Math.round(display.bounds.height * display.scaleFactor)
-  }
-}
-
-function displayContainsPhysicalPoint(display: Display, x: number, y: number): boolean {
-  const bounds = physicalBoundsForDisplay(display)
+function displayContainsScreenPoint(display: Display, x: number, y: number): boolean {
+  const bounds = display.bounds
   return x >= bounds.x && x <= bounds.x + bounds.width && y >= bounds.y && y <= bounds.y + bounds.height
 }
 
-function displayForPhysicalPoint(x: number, y: number): Display {
-  return screen.getAllDisplays().find((display) => displayContainsPhysicalPoint(display, x, y)) || getActiveCoordinateDisplay()
+function displayForScreenPoint(x: number, y: number): Display {
+  return screen.getAllDisplays().find((display) => displayContainsScreenPoint(display, x, y)) || getActiveCoordinateDisplay()
 }
 
 export function setActiveCoordinateDisplay(displayId: number): void {
@@ -78,35 +71,43 @@ export function getPrimaryDisplayMetrics() {
     }
   }
 
-  safeLog('[COORD_CALIBRATION] Primary display metrics retrieved', metrics)
+  safeLog('[COORD_CALIBRATION] Primary display metrics retrieved', {
+    coordinateMode: COORDINATE_MODE,
+    ...metrics
+  })
   return metrics
 }
 
 export async function toScreenPoint(x: number, y: number): Promise<Point> {
   const display = getActiveCoordinateDisplay()
-  const scale = display.scaleFactor
   const logicalX = display.bounds.x + (clampPercent(x) / 100) * display.bounds.width
   const logicalY = display.bounds.y + (clampPercent(y) / 100) * display.bounds.height
 
-  const pixelX = Math.round(logicalX * scale)
-  const pixelY = Math.round(logicalY * scale)
+  const screenX = Math.round(logicalX)
+  const screenY = Math.round(logicalY)
+  const expectedCenter = {
+    x: Math.round(display.bounds.x + display.bounds.width / 2),
+    y: Math.round(display.bounds.y + display.bounds.height / 2)
+  }
 
   safeLog('[COORD_CALIBRATION] Mapping percent to screen point', {
+    coordinateMode: COORDINATE_MODE,
     input: { x, y },
     display: {
       id: display.id,
       bounds: rectSnapshot(display.bounds),
-      scale
+      scaleFactor: display.scaleFactor
     },
-    output: { pixelX, pixelY }
+    expectedCenter,
+    output: { x: screenX, y: screenY }
   })
 
-  return new Point(pixelX, pixelY)
+  return new Point(screenX, screenY)
 }
 
 export function screenPointToPercent(x: number, y: number): { x: number; y: number } {
-  const display = displayForPhysicalPoint(x, y)
-  const bounds = physicalBoundsForDisplay(display)
+  const display = displayForScreenPoint(x, y)
+  const bounds = display.bounds
 
   return {
     x: clampPercent(((x - bounds.x) / bounds.width) * 100),

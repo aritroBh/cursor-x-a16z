@@ -1,6 +1,7 @@
 import { mouse, straightTo, Button, keyboard } from '@nut-tree-fork/nut-js'
 import { Step } from './session/types'
 import { toScreenPoint } from './screenCoordinates'
+import { safeLog, safeError } from './logger'
 
 const DEFAULT_MOVE_DURATION_MS = 650
 
@@ -20,10 +21,10 @@ function cursorPermissionError(error: unknown): Error {
 }
 
 export async function moveRealMouse(x: number, y: number, durationMs = DEFAULT_MOVE_DURATION_MS): Promise<void> {
-  console.log('[AUTO_REAL_MOUSE] moveRealMouse invoked REAL OS cursor automation', { x, y, durationMs })
+  safeLog('[AUTO_REAL_MOUSE] moveRealMouse invoked REAL OS cursor automation', { x, y, durationMs })
   try {
     const target = await toScreenPoint(x, y)
-    console.log('[AUTO_REAL_MOUSE] physical target pixels', { x: target.x, y: target.y })
+    safeLog('[AUTO_REAL_MOUSE] target screen point', { x: target.x, y: target.y })
 
     const current = await mouse.getPosition()
     const distance = Math.max(1, Math.hypot(target.x - current.x, target.y - current.y))
@@ -34,31 +35,31 @@ export async function moveRealMouse(x: number, y: number, durationMs = DEFAULT_M
 
     try {
       await mouse.move(straightTo(target), easeInOutCubic)
-      console.log('[AUTO_REAL_MOUSE] nut-js REAL OS move complete')
+      safeLog('[AUTO_REAL_MOUSE] nut-js REAL OS move complete')
     } finally {
       mouse.config.mouseSpeed = previousSpeed
     }
   } catch (error) {
-    console.error('[AUTO_REAL_MOUSE] nut-js REAL OS automation error:', error)
+    safeError('[AUTO_REAL_MOUSE] nut-js REAL OS automation error:', error)
     throw cursorPermissionError(error)
   }
 }
 
 export async function clickRealMouse(x: number, y: number): Promise<void> {
   try {
-    console.log('[AUTO_REAL_MOUSE] clickRealMouse invoked REAL OS cursor automation', { x, y })
+    safeLog('[AUTO_REAL_MOUSE] clickRealMouse invoked REAL OS cursor automation', { x, y })
     await moveRealMouse(x, y)
     await mouse.click(Button.LEFT)
-    console.log('[AUTO_REAL_MOUSE] nut-js REAL OS click complete', { x, y })
+    safeLog('[AUTO_REAL_MOUSE] nut-js REAL OS click complete', { x, y })
   } catch (error) {
     throw cursorPermissionError(error)
   }
 }
 
 export async function executeRealMouseSteps(steps: Step[]): Promise<void> {
-  console.log('[AUTO_REAL_MOUSE] executeRealMouseSteps invoked REAL OS automation', { totalSteps: steps.length })
+  safeLog('[AUTO_REAL_MOUSE] executeRealMouseSteps invoked REAL OS automation', { totalSteps: steps.length })
   for (const [index, step] of steps.entries()) {
-    console.log('[AUTO_REAL_MOUSE] executing real cursor step', {
+    safeLog('[AUTO_REAL_MOUSE] executing real cursor step', {
       index,
       action: step.action,
       x: step.x,

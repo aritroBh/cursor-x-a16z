@@ -140,6 +140,28 @@ function confidencePercent(value: unknown): string {
   return `${Math.round(Math.min(1, Math.max(0, value)) * 100)}%`;
 }
 
+function formatAIHealthStatus(health: any): string {
+  const anthropic = health?.anthropic || {};
+  const anthropicKey = anthropic.key || {};
+  const testRequest = anthropic.testRequest || {};
+  const openai = health?.openai || {};
+  const openaiKey = openai.key || {};
+  const claudeStatus = testRequest.pass
+    ? "Claude health: pass"
+    : `Claude health: failed (${testRequest.category || "unknown"})`;
+  const reason = testRequest.reason ? `\nReason: ${testRequest.reason}` : "";
+
+  return [
+    `Claude configured: ${anthropic.configured ? "true" : "false"}`,
+    claudeStatus,
+    `ANTHROPIC_API_KEY present: ${anthropicKey.present ? "true" : "false"}, length: ${anthropicKey.keyLength || 0}, placeholder: ${anthropicKey.placeholderDetected ? "true" : "false"}`,
+    `Local model: ${anthropic.useLocalModel ? "enabled" : "disabled"}, base: ${anthropic.baseURLKind || "unknown"}`,
+    `Planner: ${anthropic.plannerModel || "unknown"}, Vision: ${anthropic.visionModel || "unknown"}`,
+    `OPENAI_API_KEY present: ${openaiKey.present ? "true" : "false"}, length: ${openaiKey.keyLength || 0}, placeholder: ${openaiKey.placeholderDetected ? "true" : "false"}`,
+    `Whisper configured: ${openai.whisperConfigured ? "true" : "false"}${reason}`,
+  ].join("\n");
+}
+
 function realAppInstruction(target: RealAppTarget): string {
   const label = target.label || "target";
   if (target.action === "type") return `Move to ${label}.`;
@@ -213,6 +235,7 @@ const OverlayApp: React.FC = () => {
   const [isManualTargetPicking, setIsManualTargetPicking] = useState(false);
   const [realAppNotice, setRealAppNotice] = useState("");
   const [showDebugTools, setShowDebugTools] = useState(false);
+  const [aiHealthMessage, setAiHealthMessage] = useState("");
   const [screenState, setScreenState] = useState<any>(null);
   const [isInputFocused, setIsInputFocused] = useState(false);
   const [isClickThrough, setIsClickThrough] = useState(true);
@@ -232,6 +255,22 @@ const OverlayApp: React.FC = () => {
     const next = !interactive;
     setIsClickThrough(next);
     void api.setOverlayClickThrough(next);
+  };
+
+  const speakIfUltra = (text: string, moment: string) => {
+    console.log("[MODE] current mode", { mode, moment });
+    if (mode === "ultra") {
+      console.log("[ULTRA] speaking...", { moment });
+      void api.speak(text).catch((error: unknown) => {
+        console.error("[TTS] error fallback", error);
+      });
+      return;
+    }
+
+    console.log("[ULTRA] skipped because silent mode", { moment });
+    if (api.stopSpeaking) {
+      void api.stopSpeaking().catch(() => undefined);
+    }
   };
 
   useEffect(() => {
@@ -540,7 +579,7 @@ const OverlayApp: React.FC = () => {
       });
       if (res?.error === "AI_BACKEND_UNAVAILABLE") {
         setErrorMessage(
-          "AI vision is unavailable right now. You can still use Controlled Demo or pick a target manually.",
+          "AI vision unavailable. Use controlled demo, pick target manually, or check backend.",
         );
         setIsLoading(false);
         return;
@@ -564,13 +603,7 @@ const OverlayApp: React.FC = () => {
       setLoadingMessage("Saving the workflow...");
       await api.saveNode(nodeId, plan.steps);
 
-      if (mode === 'ultra') {
-        void api.speak(`Starting: ${nodeId}`).catch((error: unknown) => {
-          console.error("[Overlay] TTS failed:", error);
-        });
-      } else if (api.stopSpeaking) {
-        void api.stopSpeaking().catch(() => undefined);
-      }
+      speakIfUltra(`Starting: ${nodeId}`, "starting walkthrough");
 
       try {
         selectedArm = await api.selectStyle();
@@ -589,6 +622,7 @@ const OverlayApp: React.FC = () => {
         await api.recordReward(selectedArm, reward);
       }
       await api.markNodeComplete(nodeId);
+      speakIfUltra("Walkthrough complete.", "walkthrough complete");
     } catch (error) {
       console.error("[Overlay] Intent submission failed:", error);
       setErrorMessage(messageFromError(error));
@@ -687,7 +721,7 @@ const OverlayApp: React.FC = () => {
           fallbackAvailable: true,
           targets: [],
           microTask:
-            "AI vision is unavailable right now. You can still use Controlled Demo or pick a target manually.",
+            "AI vision unavailable. Use controlled demo, pick target manually, or check backend.",
           app: "Unavailable",
           confidenceThreshold: DEFAULT_CONFIDENCE_THRESHOLD,
         });
@@ -719,10 +753,12 @@ const OverlayApp: React.FC = () => {
         setRealAppNotice("No clear target found. Pick a target manually.");
         setIsManualTargetPicking(true);
       } else if ((bestTarget.confidence ?? 0) < threshold) {
+        speakIfUltra(`I found a possible target: ${bestTarget.label}. Confirm it before we start.`, "target found");
         setRealAppNotice(
           "Low confidence. Confirm one target or pick manually.",
         );
       } else {
+        speakIfUltra(`Target found: ${bestTarget.label}. Confirm it before we start.`, "target found");
         setRealAppNotice("Confirm the target before the ghost starts.");
       }
     } catch (error) {
@@ -800,6 +836,7 @@ const OverlayApp: React.FC = () => {
     const target = normalizedRealAppTarget(selectedRealAppTarget);
     const workflowInput = {
       intent: realAppIntent || intent || DEFAULT_REAL_APP_PROMPT,
+      mode,
       microTask:
         realAppTargets?.microTask || "First, I will teach one visible action.",
       source: target.source,
@@ -814,6 +851,7 @@ const OverlayApp: React.FC = () => {
     setLoadingMessage("Starting real-app walkthrough...");
 
     try {
+      console.log("[MODE] current mode", { mode, flow: "real-app" });
       const workflow = await api.createRealAppWorkflow(workflowInput);
       const nodeId = workflow?.nodeId;
       if (!nodeId)
@@ -825,14 +863,17 @@ const OverlayApp: React.FC = () => {
         x: target.x,
         y: target.y,
         source: target.source,
+        mode,
       });
 
       setLastNodeId(nodeId);
       setIntent(workflow?.intent || workflowInput.intent);
+      speakIfUltra(`Starting walkthrough for ${target.label}.`, "starting walkthrough");
       setReplayMode("walkthrough");
       setReplayState("running");
       await api.walkthrough(nodeId);
       await api.markNodeComplete(nodeId);
+      speakIfUltra("Walkthrough complete.", "walkthrough complete");
       setRealAppTargets(null);
       setSelectedRealAppTarget(null);
       setRealAppNotice("");
@@ -854,11 +895,30 @@ const OverlayApp: React.FC = () => {
       const center = diagnostics?.toScreenPoint50_50 || {};
       const scale = diagnostics?.primaryDisplay?.scaleFactor;
       setCalibrationMessage(
-        `Mouse ${formatCoordinate(percent.x)}, ${formatCoordinate(percent.y)} percent. Center maps to ${center.x ?? "?"}, ${center.y ?? "?"}. Scale ${scale ?? "?"}.`,
+        `Mouse ${formatCoordinate(percent.x)}, ${formatCoordinate(percent.y)} percent. Center maps to ${center.x ?? "?"}, ${center.y ?? "?"}. Scale ${scale ?? "?"}. Mode ${diagnostics?.coordinateMode || "unknown"}.`,
       );
     } catch (error) {
       console.error("[Overlay] Coordinate diagnostics failed:", error);
       setErrorMessage(messageFromError(error));
+    }
+  };
+
+  const checkAIBackend = async () => {
+    setErrorMessage("");
+    setAiHealthMessage("Checking AI backend...");
+
+    try {
+      const health = await api.checkAIBackend();
+      console.log("[AI_BACKEND] health check", health);
+      setAiHealthMessage(formatAIHealthStatus(health));
+      if (!health?.anthropic?.testRequest?.pass) {
+        setRealAppNotice(
+          "AI vision unavailable. Use controlled demo, pick target manually, or check backend.",
+        );
+      }
+    } catch (error) {
+      console.error("[AI_BACKEND] health check failed:", error);
+      setAiHealthMessage(`AI backend check failed: ${messageFromError(error)}`);
     }
   };
 
@@ -1310,7 +1370,7 @@ const OverlayApp: React.FC = () => {
                       </div>
                       <div className="specter-workflow-title">
                         {showFallbackWorkflow
-                          ? "AI vision is unavailable right now. You can still use Controlled Demo or pick a target manually."
+                          ? "AI vision unavailable. Use controlled demo, pick target manually, or check backend."
                           : realAppTargets?.microTask ||
                             "First, I will teach one visible action."}
                       </div>
@@ -1552,6 +1612,24 @@ const OverlayApp: React.FC = () => {
                       Log calibration
                     </button>
                     <button
+                      disabled={isLoading}
+                      onClick={checkAIBackend}
+                      style={{
+                        flex: 1,
+                        minWidth: "130px",
+                        border: "1px solid rgba(255,255,255,0.12)",
+                        borderRadius: "10px",
+                        padding: "8px",
+                        color: "white",
+                        background: "rgba(255,204,0,0.14)",
+                        fontSize: "11px",
+                        fontWeight: 700,
+                        cursor: "pointer",
+                      }}
+                    >
+                      Check AI Backend
+                    </button>
+                    <button
                       disabled={isLoading || !intent}
                       onClick={() => runLegacyPlannerFlow(intent)}
                       style={{
@@ -1611,6 +1689,18 @@ const OverlayApp: React.FC = () => {
                       }}
                     >
                       {calibrationMessage}
+                    </div>
+                  )}
+                  {aiHealthMessage && (
+                    <div
+                      style={{
+                        color: "rgba(255,255,255,0.58)",
+                        fontSize: "10px",
+                        lineHeight: 1.45,
+                        whiteSpace: "pre-line",
+                      }}
+                    >
+                      {aiHealthMessage}
                     </div>
                   )}
                 </div>

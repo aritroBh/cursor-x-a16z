@@ -1,4 +1,5 @@
 import { BanditState } from '../session/types'
+import { safeLog } from '../logger'
 
 export const ARM_A = 'show_once'
 export const ARM_B = 'show_twice'
@@ -96,7 +97,7 @@ export function recordReward(bandtState: BanditState, arm: keyof BanditState, re
   }
 
   const winningStyle = getCurrentStyle(updated)
-  console.log('[Specter] Teaching style currently winning:', winningStyle)
+  safeLog('[Specter] Teaching style currently winning:', winningStyle)
   return updated as BanditState
 }
 

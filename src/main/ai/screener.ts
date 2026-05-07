@@ -1,4 +1,4 @@
-import { createAnthropicClient, getAnthropicVisionModel } from './config'
+import { classifyAnthropicError, createAnthropicClient, getAnthropicVisionModel } from './config'
 import { safeLog, safeWarn, safeError } from '../logger'
 
 const CLAUDE_VISION_MODEL = getAnthropicVisionModel()
@@ -255,6 +255,7 @@ export async function detectScreenTargets(base64PNG?: string, prompt = ''): Prom
 
     return fallbackScreenTargets(normalizedPrompt)
   } catch (error: any) {
+    const summary = classifyAnthropicError(error)
     const errorMessage = error?.message || String(error)
     const causeMessage = error?.cause?.message || ''
     if (errorMessage.includes('11434') || causeMessage.includes('11434')) {
@@ -262,7 +263,7 @@ export async function detectScreenTargets(base64PNG?: string, prompt = ''): Prom
         '[AI_BACKEND] Refusing localhost:11434 Anthropic route because USE_LOCAL_MODEL is not true. Check ANTHROPIC_BASE_URL / proxy env.'
       )
     }
-    safeError('[AI_BACKEND] Anthropic unavailable; using fallback')
+    safeError('[AI_BACKEND] Anthropic unavailable; using fallback', summary)
     return fallbackScreenTargets(normalizedPrompt, 'AI_BACKEND_UNAVAILABLE')
   }
 }
@@ -328,6 +329,7 @@ export async function analyzeScreen(base64PNG?: string): Promise<ScreenState> {
     }
     return fallbackScreenState()
   } catch (error: any) {
+    const summary = classifyAnthropicError(error)
     const errorMessage = error?.message || String(error)
     const causeMessage = error?.cause?.message || ''
     if (errorMessage.includes('11434') || causeMessage.includes('11434')) {
@@ -335,7 +337,7 @@ export async function analyzeScreen(base64PNG?: string): Promise<ScreenState> {
         '[AI_BACKEND] Refusing localhost:11434 Anthropic route because USE_LOCAL_MODEL is not true. Check ANTHROPIC_BASE_URL / proxy env.'
       )
     }
-    safeError('[AI_BACKEND] Anthropic unavailable; using fallback')
+    safeError('[AI_BACKEND] Anthropic unavailable; using fallback', summary)
     return fallbackScreenState('AI_BACKEND_UNAVAILABLE')
   }
 }

@@ -1,7 +1,8 @@
 import { mouse } from '@nut-tree-fork/nut-js'
 import { uIOhook } from 'uiohook-napi'
 import type { UiohookMouseEvent } from 'uiohook-napi'
-import { getPrimaryDisplayMetrics, screenPointToPercent, toScreenPoint } from './screenCoordinates'
+import { COORDINATE_MODE, getPrimaryDisplayMetrics, screenPointToPercent, toScreenPoint } from './screenCoordinates'
+import { safeLog, safeWarn } from './logger'
 
 type TargetWaitResult = 'correct' | 'timeout' | 'cancelled'
 
@@ -16,7 +17,7 @@ function userCursorPermissionError(error: unknown): Error {
   )
 }
 
-export async function getPhysicalMousePosition(): Promise<{ x: number; y: number }> {
+export async function getMousePosition(): Promise<{ x: number; y: number }> {
   try {
     const pos = await mouse.getPosition()
     return { x: pos.x, y: pos.y }
@@ -25,7 +26,7 @@ export async function getPhysicalMousePosition(): Promise<{ x: number; y: number
   }
 }
 
-export async function getPhysicalMousePercent(): Promise<{ x: number; y: number }> {
+export async function getMousePercent(): Promise<{ x: number; y: number }> {
   try {
     const pos = await mouse.getPosition()
     return screenPointToPercent(pos.x, pos.y)
@@ -50,10 +51,14 @@ export async function getCoordinateCalibrationDiagnostics(): Promise<any> {
         x: centerTarget.x,
         y: centerTarget.y
       },
-      coordinateMode: 'percent * primary logical size * primary scaleFactor'
+      expectedCenter: {
+        x: Math.round(metrics.activeDisplay.bounds.x + metrics.activeDisplay.bounds.width / 2),
+        y: Math.round(metrics.activeDisplay.bounds.y + metrics.activeDisplay.bounds.height / 2)
+      },
+      coordinateMode: COORDINATE_MODE
     }
 
-    console.log('[COORD_CALIBRATION]', diagnostics)
+    safeLog('[COORD_CALIBRATION]', diagnostics)
     return diagnostics
   } catch (error) {
     throw userCursorPermissionError(error)
@@ -78,7 +83,7 @@ export async function waitForMouseAtTarget(
       const dy = pos.y - target.y
 
       if (Math.hypot(dx, dy) <= tolerancePx) {
-        console.log('[USER_CURSOR] entered target tolerance', {
+        safeLog('[USER_CURSOR] entered target tolerance', {
           targetPercentX,
           targetPercentY,
           tolerancePx,
@@ -89,7 +94,7 @@ export async function waitForMouseAtTarget(
       }
       await sleep(100)
     }
-    console.warn('[USER_CURSOR] target tolerance wait timed out', { targetPercentX, targetPercentY, tolerancePx, timeoutMs })
+    safeWarn('[USER_CURSOR] target tolerance wait timed out', { targetPercentX, targetPercentY, tolerancePx, timeoutMs })
     return 'timeout'
   } catch (error) {
     throw userCursorPermissionError(error)
@@ -126,7 +131,7 @@ export async function waitForUserClickAtTarget(
         uIOhook.off('click', onClick)
         signal?.removeEventListener('abort', onAbort)
         if (result === 'timeout') {
-          console.warn('[CLICK_DETECT] timed out waiting for user click', {
+          safeWarn('[CLICK_DETECT] timed out waiting for user click', {
             targetPercentX,
             targetPercentY,
             tolerancePx,
@@ -143,7 +148,7 @@ export async function waitForUserClickAtTarget(
             const dx = pos.x - target.x
             const dy = pos.y - target.y
             const distancePx = Math.hypot(dx, dy)
-            console.log('[CLICK_DETECT] click observed', {
+            safeLog('[CLICK_DETECT] click observed', {
               targetPercentX,
               targetPercentY,
               tolerancePx,
@@ -152,7 +157,7 @@ export async function waitForUserClickAtTarget(
               distancePx
             })
             if (distancePx <= tolerancePx) {
-              console.log('[CLICK_DETECT] click detected inside target tolerance', {
+              safeLog('[CLICK_DETECT] click detected inside target tolerance', {
                 targetPercentX,
                 targetPercentY,
                 tolerancePx
@@ -168,7 +173,7 @@ export async function waitForUserClickAtTarget(
         return
       }
 
-      console.log('[CLICK_DETECT] armed user click detector', { targetPercentX, targetPercentY, tolerancePx, timeoutMs })
+      safeLog('[CLICK_DETECT] armed user click detector', { targetPercentX, targetPercentY, tolerancePx, timeoutMs })
       signal?.addEventListener('abort', onAbort, { once: true })
       uIOhook.on('click', onClick)
     })

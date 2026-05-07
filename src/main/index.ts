@@ -12,11 +12,12 @@ import {
   executeRealMouseSteps,
   moveRealMouse
 } from './cursor'
-import { getCoordinateCalibrationDiagnostics, getPhysicalMousePercent, getPhysicalMousePosition, waitForMouseAtTarget } from './userCursor'
+import { getCoordinateCalibrationDiagnostics, getMousePercent, getMousePosition, waitForMouseAtTarget } from './userCursor'
 import { analyzeScreen, detectScreenTargets, fallbackScreenState, fallbackScreenTargets } from './ai/screener'
 import { planSteps, converse } from './ai/planner'
 import { speak, stopSpeaking } from './ai/tts'
 import { transcribe } from './ai/whisper'
+import { checkAIHealth } from './ai/health'
 import { selectArm, recordReward, getCurrentStyle } from './ai/bandit'
 import { loadGraph, saveGraph } from './session/storage'
 import {
@@ -40,6 +41,25 @@ const REAL_APP_CONFIDENCE_THRESHOLD = 0.65
 
 let mainWindow: BrowserWindow | null = null
 let overlayWindow: BrowserWindow | null = null
+
+function bufferFromAudioData(audioData: any): Buffer {
+  if (!audioData) return Buffer.alloc(0)
+  if (Buffer.isBuffer(audioData)) return audioData
+  if (audioData instanceof ArrayBuffer) {
+    return Buffer.from(new Uint8Array(audioData))
+  }
+  if (ArrayBuffer.isView(audioData)) {
+    return Buffer.from(audioData.buffer, audioData.byteOffset, audioData.byteLength)
+  }
+  return Buffer.from(audioData)
+}
+
+function byteLengthOfAudioData(audioData: any): number {
+  if (!audioData) return 0
+  if (typeof audioData.byteLength === 'number') return audioData.byteLength
+  if (typeof audioData.length === 'number') return audioData.length
+  return 0
+}
 
 function displaySummary(display: Display): {
   id: number
@@ -399,8 +419,8 @@ app.whenReady().then(async () => {
     safeWarn('[AUTO_REAL_MOUSE] LOUD WARNING: REAL OS automation steps triggered from IPC', { count: steps?.length })
     return executeRealMouseSteps(steps)
   })
-  ipcMain.handle('cursor:getPosition', async () => getPhysicalMousePosition())
-  ipcMain.handle('cursor:getPositionPercent', async () => getPhysicalMousePercent())
+  ipcMain.handle('cursor:getPosition', async () => getMousePosition())
+  ipcMain.handle('cursor:getPositionPercent', async () => getMousePercent())
   ipcMain.handle('cursor:diagnostics', async () => getCoordinateCalibrationDiagnostics())
   ipcMain.handle('cursor:moveCenter', async () => {
     safeLog('[COORD_CALIBRATION] explicit center move requested')
@@ -518,6 +538,8 @@ app.whenReady().then(async () => {
 
   ipcMain.handle('realApp:createWorkflow', async (_event, input) => {
     const target = input && typeof input === 'object' ? input.target : null
+    const mode = input?.mode === 'ultra' ? 'ultra' : 'silent'
+    safeLog('[MODE] current mode', { mode, flow: 'real-app-workflow' })
     const source: 'vision' | 'manual' = target?.source === 'manual' || input?.source === 'manual' ? 'manual' : 'vision'
     const step = createRealAppStep(target, source)
     const nodeId = realAppNodeId(input, step.targetLabel || step.title || 'Selected target')
@@ -547,6 +569,7 @@ app.whenReady().then(async () => {
       totalSteps: 1,
       label: step.targetLabel,
       source,
+      mode,
       confidence: targetConfidence
     })
 
@@ -567,6 +590,8 @@ app.whenReady().then(async () => {
   ipcMain.handle('planner:converse', async (_event, userMessage, screenState, conversationHistory) =>
     converse(userMessage, screenState, conversationHistory)
   )
+
+  ipcMain.handle('ai:healthCheck', async () => checkAIHealth())
 
   ipcMain.handle('session:save', async (_event, graph) => {
     if (isLearningGraph(graph)) {
@@ -696,8 +721,11 @@ app.whenReady().then(async () => {
   ipcMain.handle('tts:stop', async () => stopSpeaking())
 
   ipcMain.handle('whisper:transcribe', async (_event, audioData) => {
-    safeLog('[IPC] whisper:transcribe', { size: audioData?.byteLength })
-    const buffer = Buffer.from(audioData)
+    const buffer = bufferFromAudioData(audioData)
+    safeLog('[IPC] whisper:transcribe', {
+      byteLength: byteLengthOfAudioData(audioData),
+      convertedBufferLength: buffer.length
+    })
     return transcribe(buffer)
   })
 

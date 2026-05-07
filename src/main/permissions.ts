@@ -1,5 +1,6 @@
 import { shell, desktopCapturer, dialog, app } from 'electron'
 import pkg from 'node-mac-permissions'
+import { safeLog } from './logger'
 
 const { getAuthStatus, askForAccessibilityAccess } = pkg
 
@@ -76,14 +77,14 @@ export async function checkPermissions(): Promise<boolean> {
     if (screenStatus !== 'authorized') missing.push('screen')
     if (accessibilityStatus !== 'authorized') missing.push('accessibility')
 
-    console.log('[PERMISSIONS] Status check:', {
+    safeLog('[PERMISSIONS] Status check:', {
       screen: screenStatus,
       accessibility: accessibilityStatus,
       missing
     })
 
     if (missing.length === 0) {
-      console.log('[PERMISSIONS] All required permissions granted.')
+      safeLog('[PERMISSIONS] All required permissions granted.')
       return true
     }
 

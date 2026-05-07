@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useRef, useState } from "react";
 import { MicRecorder } from "./MicRecorder";
 
 const recorder = new MicRecorder();
@@ -77,12 +77,18 @@ export const InputBar: React.FC<InputBarProps> = ({
 }) => {
   const [value, setValue] = useState("");
   const [isRecording, setIsRecording] = useState(false);
+  const [micMessage, setMicMessage] = useState("");
+  const inputRef = useRef<HTMLInputElement | null>(null);
+  const recordingActiveRef = useRef(false);
+  const recordingStartRef = useRef<Promise<void> | null>(null);
+  const stoppingRef = useRef(false);
   const canSubmit = Boolean(value.trim()) && !disabled;
 
   const submitValue = () => {
     if (!canSubmit) return;
     onSubmit(value.trim());
     setValue("");
+    setMicMessage("");
   };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
@@ -100,31 +106,55 @@ export const InputBar: React.FC<InputBarProps> = ({
   const startRecording = async (
     event: React.PointerEvent<HTMLButtonElement>,
   ) => {
-    if (disabled || isRecording) return;
+    if (disabled || recordingActiveRef.current) return;
     event.currentTarget.setPointerCapture(event.pointerId);
+    setMicMessage("");
+    recordingActiveRef.current = true;
     setIsRecording(true);
 
+    recordingStartRef.current = recorder.start();
     try {
-      await recorder.start();
+      await recordingStartRef.current;
     } catch (error) {
       console.error("[InputBar] Microphone recording failed:", error);
+      recordingActiveRef.current = false;
       setIsRecording(false);
+      setMicMessage("Microphone unavailable. Check permission and try again.");
     }
   };
 
   const stopRecording = async () => {
-    if (disabled || !isRecording) return;
+    if (disabled || !recordingActiveRef.current || stoppingRef.current) return;
+    stoppingRef.current = true;
+    recordingActiveRef.current = false;
     setIsRecording(false);
 
     try {
+      await recordingStartRef.current;
       const buffer = await recorder.stop();
+      if (!buffer.byteLength) {
+        setMicMessage("No audio captured. Hold the mic a little longer.");
+        return;
+      }
+
+      console.log("[MIC] sent to whisper", { size: buffer.byteLength });
       const text = await (window as any).api.transcribe(buffer);
-      if (text) {
-        onSubmit(text);
-        setValue("");
+      console.log("[MIC] transcription received", {
+        length: typeof text === "string" ? text.length : 0,
+      });
+      if (typeof text === "string" && text.trim()) {
+        setValue(text.trim());
+        setMicMessage("");
+        window.setTimeout(() => inputRef.current?.focus(), 0);
+      } else {
+        setMicMessage("No transcription returned. Try holding the mic longer.");
       }
     } catch (error) {
       console.error("[InputBar] Microphone transcription failed:", error);
+      setMicMessage("Voice transcription failed. You can type instead.");
+    } finally {
+      recordingStartRef.current = null;
+      stoppingRef.current = false;
     }
   };
 
@@ -134,6 +164,7 @@ export const InputBar: React.FC<InputBarProps> = ({
         <SpecterMarkIcon />
       </div>
       <input
+        ref={inputRef}
         autoFocus
         className="input-bar-field"
         type="text"
@@ -155,6 +186,7 @@ export const InputBar: React.FC<InputBarProps> = ({
           onPointerDown={startRecording}
           onPointerUp={stopRecording}
           onPointerCancel={stopRecording}
+          onPointerLeave={stopRecording}
           aria-label={
             isRecording ? "Release to stop recording" : "Record voice input"
           }
@@ -188,6 +220,7 @@ export const InputBar: React.FC<InputBarProps> = ({
           <SendArrowIcon />
         </button>
       </div>
+      {micMessage && <div className="input-bar-mic-message">{micMessage}</div>}
     </div>
   );
 };

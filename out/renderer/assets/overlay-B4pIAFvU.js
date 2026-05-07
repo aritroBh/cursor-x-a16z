@@ -2,32 +2,85 @@ import { r as reactExports, j as jsxRuntimeExports, c as client } from "./client
 const api = window.api;
 class MicRecorder {
   mediaRecorder = null;
+  stream = null;
   chunks = [];
+  mimeType = "audio/webm";
+  startedAt = 0;
   isRecording = false;
+  chooseMimeType() {
+    if (typeof MediaRecorder.isTypeSupported !== "function") return void 0;
+    for (const mimeType of ["audio/webm;codecs=opus", "audio/webm"]) {
+      if (MediaRecorder.isTypeSupported(mimeType)) return mimeType;
+    }
+    return void 0;
+  }
+  stopTracks() {
+    this.stream?.getTracks().forEach((track) => track.stop());
+    this.stream = null;
+  }
   async start() {
+    console.log("[MIC] start requested");
+    if (!navigator.mediaDevices?.getUserMedia) {
+      throw new Error("Microphone capture is not available in this browser context.");
+    }
     const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    console.log("[MIC] permission granted");
+    const mimeType = this.chooseMimeType();
+    const options = mimeType ? { mimeType } : void 0;
     this.chunks = [];
-    this.mediaRecorder = new MediaRecorder(stream, { mimeType: "audio/webm;codecs=opus" });
+    this.stream = stream;
+    try {
+      this.mediaRecorder = new MediaRecorder(stream, options);
+    } catch (error) {
+      this.stopTracks();
+      throw error;
+    }
+    this.mimeType = this.mediaRecorder.mimeType || mimeType || "audio/webm";
     this.mediaRecorder.ondataavailable = (e) => {
+      console.log("[MIC] data chunk received", { size: e.data.size });
       if (e.data.size > 0) this.chunks.push(e.data);
     };
-    this.mediaRecorder.start();
+    this.mediaRecorder.onerror = (event) => {
+      console.error("[MIC] recorder error", event);
+    };
+    this.mediaRecorder.start(250);
+    this.startedAt = Date.now();
     this.isRecording = true;
   }
-  stop() {
+  async stop() {
+    console.log("[MIC] stop requested");
+    const recorder2 = this.mediaRecorder;
+    if (!recorder2) {
+      this.isRecording = false;
+      this.stopTracks();
+      return new ArrayBuffer(0);
+    }
+    const elapsedMs = Date.now() - this.startedAt;
+    if (elapsedMs < 300) {
+      await new Promise((resolve) => window.setTimeout(resolve, 300 - elapsedMs));
+    }
     return new Promise((resolve) => {
-      if (!this.mediaRecorder) {
-        resolve(new ArrayBuffer(0));
-        return;
-      }
-      this.mediaRecorder.onstop = async () => {
-        const blob = new Blob(this.chunks, { type: "audio/webm" });
+      const finish = async () => {
+        const blob = new Blob(this.chunks, { type: this.mimeType });
+        console.log("[MIC] final blob size", { size: blob.size });
         const buffer = await blob.arrayBuffer();
         this.isRecording = false;
+        this.mediaRecorder = null;
+        this.chunks = [];
+        this.stopTracks();
         resolve(buffer);
       };
-      this.mediaRecorder.stop();
-      this.mediaRecorder.stream.getTracks().forEach((t) => t.stop());
+      recorder2.onstop = finish;
+      if (recorder2.state === "inactive") {
+        void finish();
+        return;
+      }
+      try {
+        recorder2.requestData();
+      } catch (error) {
+        console.warn("[MIC] requestData failed before stop", error);
+      }
+      recorder2.stop();
     });
   }
 }
@@ -97,11 +150,17 @@ const InputBar = ({
 }) => {
   const [value, setValue] = reactExports.useState("");
   const [isRecording, setIsRecording] = reactExports.useState(false);
+  const [micMessage, setMicMessage] = reactExports.useState("");
+  const inputRef = reactExports.useRef(null);
+  const recordingActiveRef = reactExports.useRef(false);
+  const recordingStartRef = reactExports.useRef(null);
+  const stoppingRef = reactExports.useRef(false);
   const canSubmit = Boolean(value.trim()) && !disabled;
   const submitValue = () => {
     if (!canSubmit) return;
     onSubmit(value.trim());
     setValue("");
+    setMicMessage("");
   };
   const handleKeyDown = (e) => {
     if (e.key === "Enter") {
@@ -114,28 +173,51 @@ const InputBar = ({
     onNewChat?.();
   };
   const startRecording = async (event) => {
-    if (disabled || isRecording) return;
+    if (disabled || recordingActiveRef.current) return;
     event.currentTarget.setPointerCapture(event.pointerId);
+    setMicMessage("");
+    recordingActiveRef.current = true;
     setIsRecording(true);
+    recordingStartRef.current = recorder.start();
     try {
-      await recorder.start();
+      await recordingStartRef.current;
     } catch (error) {
       console.error("[InputBar] Microphone recording failed:", error);
+      recordingActiveRef.current = false;
       setIsRecording(false);
+      setMicMessage("Microphone unavailable. Check permission and try again.");
     }
   };
   const stopRecording = async () => {
-    if (disabled || !isRecording) return;
+    if (disabled || !recordingActiveRef.current || stoppingRef.current) return;
+    stoppingRef.current = true;
+    recordingActiveRef.current = false;
     setIsRecording(false);
     try {
+      await recordingStartRef.current;
       const buffer = await recorder.stop();
+      if (!buffer.byteLength) {
+        setMicMessage("No audio captured. Hold the mic a little longer.");
+        return;
+      }
+      console.log("[MIC] sent to whisper", { size: buffer.byteLength });
       const text = await window.api.transcribe(buffer);
-      if (text) {
-        onSubmit(text);
-        setValue("");
+      console.log("[MIC] transcription received", {
+        length: typeof text === "string" ? text.length : 0
+      });
+      if (typeof text === "string" && text.trim()) {
+        setValue(text.trim());
+        setMicMessage("");
+        window.setTimeout(() => inputRef.current?.focus(), 0);
+      } else {
+        setMicMessage("No transcription returned. Try holding the mic longer.");
       }
     } catch (error) {
       console.error("[InputBar] Microphone transcription failed:", error);
+      setMicMessage("Voice transcription failed. You can type instead.");
+    } finally {
+      recordingStartRef.current = null;
+      stoppingRef.current = false;
     }
   };
   return /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: `input-bar ${disabled ? "is-disabled" : ""}`, children: [
@@ -143,6 +225,7 @@ const InputBar = ({
     /* @__PURE__ */ jsxRuntimeExports.jsx(
       "input",
       {
+        ref: inputRef,
         autoFocus: true,
         className: "input-bar-field",
         type: "text",
@@ -165,6 +248,7 @@ const InputBar = ({
           onPointerDown: startRecording,
           onPointerUp: stopRecording,
           onPointerCancel: stopRecording,
+          onPointerLeave: stopRecording,
           "aria-label": isRecording ? "Release to stop recording" : "Record voice input",
           title: isRecording ? "Release to stop recording" : "Record voice input",
           children: /* @__PURE__ */ jsxRuntimeExports.jsx(MicrophoneIcon, {})
@@ -197,7 +281,8 @@ const InputBar = ({
           children: /* @__PURE__ */ jsxRuntimeExports.jsx(SendArrowIcon, {})
         }
       )
-    ] })
+    ] }),
+    micMessage && /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "input-bar-mic-message", children: micMessage })
   ] });
 };
 const DEMO_LOOP_MS = 1700;
@@ -560,6 +645,25 @@ function confidencePercent(value) {
   if (typeof value !== "number" || !Number.isFinite(value)) return "n/a";
   return `${Math.round(Math.min(1, Math.max(0, value)) * 100)}%`;
 }
+function formatAIHealthStatus(health) {
+  const anthropic = health?.anthropic || {};
+  const anthropicKey = anthropic.key || {};
+  const testRequest = anthropic.testRequest || {};
+  const openai = health?.openai || {};
+  const openaiKey = openai.key || {};
+  const claudeStatus = testRequest.pass ? "Claude health: pass" : `Claude health: failed (${testRequest.category || "unknown"})`;
+  const reason = testRequest.reason ? `
+Reason: ${testRequest.reason}` : "";
+  return [
+    `Claude configured: ${anthropic.configured ? "true" : "false"}`,
+    claudeStatus,
+    `ANTHROPIC_API_KEY present: ${anthropicKey.present ? "true" : "false"}, length: ${anthropicKey.keyLength || 0}, placeholder: ${anthropicKey.placeholderDetected ? "true" : "false"}`,
+    `Local model: ${anthropic.useLocalModel ? "enabled" : "disabled"}, base: ${anthropic.baseURLKind || "unknown"}`,
+    `Planner: ${anthropic.plannerModel || "unknown"}, Vision: ${anthropic.visionModel || "unknown"}`,
+    `OPENAI_API_KEY present: ${openaiKey.present ? "true" : "false"}, length: ${openaiKey.keyLength || 0}, placeholder: ${openaiKey.placeholderDetected ? "true" : "false"}`,
+    `Whisper configured: ${openai.whisperConfigured ? "true" : "false"}${reason}`
+  ].join("\n");
+}
 function realAppInstruction(target) {
   const label = target.label || "target";
   if (target.action === "type") return `Move to ${label}.`;
@@ -614,6 +718,7 @@ const OverlayApp = () => {
   const [isManualTargetPicking, setIsManualTargetPicking] = reactExports.useState(false);
   const [realAppNotice, setRealAppNotice] = reactExports.useState("");
   const [showDebugTools, setShowDebugTools] = reactExports.useState(false);
+  const [aiHealthMessage, setAiHealthMessage] = reactExports.useState("");
   const [screenState, setScreenState] = reactExports.useState(null);
   const [isInputFocused, setIsInputFocused] = reactExports.useState(false);
   const [isClickThrough, setIsClickThrough] = reactExports.useState(true);
@@ -631,6 +736,20 @@ const OverlayApp = () => {
     const next = !interactive;
     setIsClickThrough(next);
     void api.setOverlayClickThrough(next);
+  };
+  const speakIfUltra = (text, moment) => {
+    console.log("[MODE] current mode", { mode, moment });
+    if (mode === "ultra") {
+      console.log("[ULTRA] speaking...", { moment });
+      void api.speak(text).catch((error) => {
+        console.error("[TTS] error fallback", error);
+      });
+      return;
+    }
+    console.log("[ULTRA] skipped because silent mode", { moment });
+    if (api.stopSpeaking) {
+      void api.stopSpeaking().catch(() => void 0);
+    }
   };
   reactExports.useEffect(() => {
     isInputFocusedRef.current = isInputFocused;
@@ -877,7 +996,7 @@ const OverlayApp = () => {
       });
       if (res?.error === "AI_BACKEND_UNAVAILABLE") {
         setErrorMessage(
-          "AI vision is unavailable right now. You can still use Controlled Demo or pick a target manually."
+          "AI vision unavailable. Use controlled demo, pick target manually, or check backend."
         );
         setIsLoading(false);
         return;
@@ -894,13 +1013,7 @@ const OverlayApp = () => {
       setLastNodeId(nodeId);
       setLoadingMessage("Saving the workflow...");
       await api.saveNode(nodeId, plan.steps);
-      if (mode === "ultra") {
-        void api.speak(`Starting: ${nodeId}`).catch((error) => {
-          console.error("[Overlay] TTS failed:", error);
-        });
-      } else if (api.stopSpeaking) {
-        void api.stopSpeaking().catch(() => void 0);
-      }
+      speakIfUltra(`Starting: ${nodeId}`, "starting walkthrough");
       try {
         selectedArm = await api.selectStyle();
       } catch (error) {
@@ -916,6 +1029,7 @@ const OverlayApp = () => {
         await api.recordReward(selectedArm, reward);
       }
       await api.markNodeComplete(nodeId);
+      speakIfUltra("Walkthrough complete.", "walkthrough complete");
     } catch (error) {
       console.error("[Overlay] Intent submission failed:", error);
       setErrorMessage(messageFromError(error));
@@ -1003,7 +1117,7 @@ const OverlayApp = () => {
           error: "AI_BACKEND_UNAVAILABLE",
           fallbackAvailable: true,
           targets: [],
-          microTask: "AI vision is unavailable right now. You can still use Controlled Demo or pick a target manually.",
+          microTask: "AI vision unavailable. Use controlled demo, pick target manually, or check backend.",
           app: "Unavailable",
           confidenceThreshold: DEFAULT_CONFIDENCE_THRESHOLD
         });
@@ -1027,10 +1141,12 @@ const OverlayApp = () => {
         setRealAppNotice("No clear target found. Pick a target manually.");
         setIsManualTargetPicking(true);
       } else if ((bestTarget.confidence ?? 0) < threshold) {
+        speakIfUltra(`I found a possible target: ${bestTarget.label}. Confirm it before we start.`, "target found");
         setRealAppNotice(
           "Low confidence. Confirm one target or pick manually."
         );
       } else {
+        speakIfUltra(`Target found: ${bestTarget.label}. Confirm it before we start.`, "target found");
         setRealAppNotice("Confirm the target before the ghost starts.");
       }
     } catch (error) {
@@ -1101,6 +1217,7 @@ const OverlayApp = () => {
     const target = normalizedRealAppTarget(selectedRealAppTarget);
     const workflowInput = {
       intent: realAppIntent || intent || DEFAULT_REAL_APP_PROMPT,
+      mode,
       microTask: realAppTargets?.microTask || "First, I will teach one visible action.",
       source: target.source,
       target: {
@@ -1112,6 +1229,7 @@ const OverlayApp = () => {
     setIsLoading(true);
     setLoadingMessage("Starting real-app walkthrough...");
     try {
+      console.log("[MODE] current mode", { mode, flow: "real-app" });
       const workflow = await api.createRealAppWorkflow(workflowInput);
       const nodeId = workflow?.nodeId;
       if (!nodeId)
@@ -1121,14 +1239,17 @@ const OverlayApp = () => {
         label: target.label,
         x: target.x,
         y: target.y,
-        source: target.source
+        source: target.source,
+        mode
       });
       setLastNodeId(nodeId);
       setIntent(workflow?.intent || workflowInput.intent);
+      speakIfUltra(`Starting walkthrough for ${target.label}.`, "starting walkthrough");
       setReplayMode("walkthrough");
       setReplayState("running");
       await api.walkthrough(nodeId);
       await api.markNodeComplete(nodeId);
+      speakIfUltra("Walkthrough complete.", "walkthrough complete");
       setRealAppTargets(null);
       setSelectedRealAppTarget(null);
       setRealAppNotice("");
@@ -1149,11 +1270,28 @@ const OverlayApp = () => {
       const center = diagnostics?.toScreenPoint50_50 || {};
       const scale = diagnostics?.primaryDisplay?.scaleFactor;
       setCalibrationMessage(
-        `Mouse ${formatCoordinate(percent.x)}, ${formatCoordinate(percent.y)} percent. Center maps to ${center.x ?? "?"}, ${center.y ?? "?"}. Scale ${scale ?? "?"}.`
+        `Mouse ${formatCoordinate(percent.x)}, ${formatCoordinate(percent.y)} percent. Center maps to ${center.x ?? "?"}, ${center.y ?? "?"}. Scale ${scale ?? "?"}. Mode ${diagnostics?.coordinateMode || "unknown"}.`
       );
     } catch (error) {
       console.error("[Overlay] Coordinate diagnostics failed:", error);
       setErrorMessage(messageFromError(error));
+    }
+  };
+  const checkAIBackend = async () => {
+    setErrorMessage("");
+    setAiHealthMessage("Checking AI backend...");
+    try {
+      const health = await api.checkAIBackend();
+      console.log("[AI_BACKEND] health check", health);
+      setAiHealthMessage(formatAIHealthStatus(health));
+      if (!health?.anthropic?.testRequest?.pass) {
+        setRealAppNotice(
+          "AI vision unavailable. Use controlled demo, pick target manually, or check backend."
+        );
+      }
+    } catch (error) {
+      console.error("[AI_BACKEND] health check failed:", error);
+      setAiHealthMessage(`AI backend check failed: ${messageFromError(error)}`);
     }
   };
   const moveCursorToScreenCenter = async () => {
@@ -1504,7 +1642,7 @@ const OverlayApp = () => {
                     /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "specter-workflow-header", children: [
                       /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { children: [
                         /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "specter-kicker", children: showFallbackWorkflow ? "Fallback" : "Guided Workspace" }),
-                        /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "specter-workflow-title", children: showFallbackWorkflow ? "AI vision is unavailable right now. You can still use Controlled Demo or pick a target manually." : realAppTargets?.microTask || "First, I will teach one visible action." })
+                        /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "specter-workflow-title", children: showFallbackWorkflow ? "AI vision unavailable. Use controlled demo, pick target manually, or check backend." : realAppTargets?.microTask || "First, I will teach one visible action." })
                       ] }),
                       /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "specter-workflow-meta", children: showFallbackWorkflow ? "Local demo safe" : realAppTargets?.app || "Real app" })
                     ] }),
@@ -1757,6 +1895,26 @@ const OverlayApp = () => {
                           /* @__PURE__ */ jsxRuntimeExports.jsx(
                             "button",
                             {
+                              disabled: isLoading,
+                              onClick: checkAIBackend,
+                              style: {
+                                flex: 1,
+                                minWidth: "130px",
+                                border: "1px solid rgba(255,255,255,0.12)",
+                                borderRadius: "10px",
+                                padding: "8px",
+                                color: "white",
+                                background: "rgba(255,204,0,0.14)",
+                                fontSize: "11px",
+                                fontWeight: 700,
+                                cursor: "pointer"
+                              },
+                              children: "Check AI Backend"
+                            }
+                          ),
+                          /* @__PURE__ */ jsxRuntimeExports.jsx(
+                            "button",
+                            {
                               disabled: isLoading || !intent,
                               onClick: () => runLegacyPlannerFlow(intent),
                               style: {
@@ -1822,6 +1980,18 @@ const OverlayApp = () => {
                           fontSize: "10px"
                         },
                         children: calibrationMessage
+                      }
+                    ),
+                    aiHealthMessage && /* @__PURE__ */ jsxRuntimeExports.jsx(
+                      "div",
+                      {
+                        style: {
+                          color: "rgba(255,255,255,0.58)",
+                          fontSize: "10px",
+                          lineHeight: 1.45,
+                          whiteSpace: "pre-line"
+                        },
+                        children: aiHealthMessage
                       }
                     )
                   ]

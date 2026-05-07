@@ -48,6 +48,17 @@ async function main() {
     return fs.readFileSync(filePath(p), 'utf-8')
   }
 
+  function listFiles(dir: string): string[] {
+    const absolute = filePath(dir)
+    if (!fs.existsSync(absolute)) return []
+
+    return fs.readdirSync(absolute, { withFileTypes: true }).flatMap((entry) => {
+      const child = path.join(dir, entry.name)
+      if (entry.isDirectory()) return listFiles(child)
+      return [child]
+    })
+  }
+
   function cssSelectorRuleContains(source: string, selector: string, declaration: RegExp): boolean {
     return Array.from(source.matchAll(/([^{}]+)\{([^{}]*)\}/g)).some((match) => {
       const selectors = match[1].split(',').map((entry) => entry.trim())
@@ -71,9 +82,12 @@ async function main() {
     'src/main/cursor.ts',
     'src/main/capture.ts',
     'src/main/permissions.ts',
+    'src/main/ai/config.ts',
+    'src/main/ai/health.ts',
     'src/main/ai/planner.ts',
     'src/main/ai/screener.ts',
     'src/main/ai/tts.ts',
+    'src/main/ai/whisper.ts',
     'src/main/session/types.ts',
     'src/main/session/graph.ts',
     'src/main/session/storage.ts',
@@ -89,6 +103,7 @@ async function main() {
     'src/renderer/src/OverlayApp.tsx',
     'src/renderer/overlay/GhostCursor.tsx',
     'src/renderer/overlay/InputBar.tsx',
+    'src/renderer/overlay/MicRecorder.ts',
     'src/renderer/overlay/ModeToggle.tsx',
     'src/renderer/overlay/SessionPanel.tsx',
     'src/renderer/src/assets/overlay.css',
@@ -103,7 +118,23 @@ async function main() {
 
   const envPath = filePath('.env')
   const envContent = fs.existsSync(envPath) ? fs.readFileSync(envPath, 'utf-8') : ''
+  const gitignore = fileExists('.gitignore') ? readFile('.gitignore') : ''
+  const sourceFiles = listFiles('src').filter((file) => /\.(ts|tsx)$/.test(file))
+  const rendererFilesReadingOpenAIKey = sourceFiles.filter(
+    (file) =>
+      (file.includes('/renderer/') || file.includes('/preload/')) &&
+      /process\.env\.OPENAI_API_KEY|import\.meta\.env\.[A-Z0-9_]*OPENAI_API_KEY/.test(readFile(file))
+  )
+
   warnIf(fs.existsSync(envPath), '.env exists at project root')
+  check(
+    gitignore
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .includes('.env'),
+    '.env is listed in .gitignore'
+  )
+  check(rendererFilesReadingOpenAIKey.length === 0, 'OPENAI_API_KEY is not read from renderer/preload code')
 
   for (const key of ['ANTHROPIC_API_KEY', 'ELEVENLABS_API_KEY', 'OPENAI_API_KEY']) {
     const match = envContent.match(new RegExp('^' + key + '=(.+)$', 'm'))
@@ -146,8 +177,10 @@ async function main() {
   check(overlayApp.includes('setErrorMessage('), 'OverlayApp can show a visible error message')
   check(overlayApp.includes('Walk me through') || overlayApp.includes('onWalkthrough'), 'renderer exposes walkthrough replay UI')
   check(overlayApp.includes('Do it for me') || overlayApp.includes('onAutoExecute'), 'renderer exposes auto-execute replay UI')
-  check(overlayApp.includes("mode === 'ultra'") && overlayApp.includes('api.speak'), 'Ultra mode is the only submit path that starts TTS')
+  check(overlayApp.includes('mode === "ultra"') && overlayApp.includes('speakIfUltra') && overlayApp.includes('api.speak'), 'Ultra mode conditionally starts TTS through speakIfUltra')
   check(overlayApp.includes('api.stopSpeaking'), 'Silent mode stops/avoids speech')
+  check(overlayApp.includes('[ULTRA] skipped because silent mode'), 'Silent mode logs skipped TTS')
+  check(overlayApp.includes('mode,') && overlayApp.includes('real-app'), 'real-app workflow preserves the current mode')
   check(
     overlayApp.includes('SHOW_WALKTHROUGH_DEBUG') && overlayApp.includes('walkthrough-debug-pill'),
     'OverlayApp has dev-only walkthrough step/coordinate debug pill'
@@ -163,6 +196,7 @@ async function main() {
     'clickRealMouse',
     'executeRealMouseSteps',
     'planSteps',
+    'checkAIBackend',
     'walkthrough',
     'autoExecute',
     'stopReplay',
@@ -171,6 +205,26 @@ async function main() {
   ]) {
     check(preload.includes(exposed), `preload exposes ${exposed}`)
   }
+
+  printHeader('Whisper and Mic')
+
+  const whisper = readFile('src/main/ai/whisper.ts')
+  const micRecorder = readFile('src/renderer/overlay/MicRecorder.ts')
+  const inputBar = readFile('src/renderer/overlay/InputBar.tsx')
+  const mainIndexForWhisper = readFile('src/main/index.ts')
+  const transcribeBody = exportedFunctionBody(whisper, 'transcribe')
+  const openAICallIndex = transcribeBody.indexOf('openai.audio.transcriptions.create')
+  const emptyBufferGuardIndex = transcribeBody.indexOf('audioBuffer.length === 0')
+
+  check(!/new\s+File\s*\(/.test(whisper), 'whisper.ts does not use global File')
+  check(whisper.includes("from 'openai/uploads'") && whisper.includes('toFile('), 'whisper.ts uses toFile from openai/uploads')
+  check(emptyBufferGuardIndex !== -1 && (openAICallIndex === -1 || emptyBufferGuardIndex < openAICallIndex), 'Whisper returns before OpenAI when buffer length is 0')
+  check(mainIndexForWhisper.includes('bufferFromAudioData') && mainIndexForWhisper.includes('convertedBufferLength'), 'whisper IPC robustly converts ArrayBuffer and logs converted length')
+  check(micRecorder.includes('MediaRecorder.isTypeSupported') && micRecorder.includes('audio/webm;codecs=opus'), 'MicRecorder chooses supported mime type with fallback')
+  check(micRecorder.includes('start(250)') && micRecorder.includes('requestData()'), 'MicRecorder starts with timeslice and requests final data before stop')
+  check(micRecorder.includes('[MIC] final blob size') && inputBar.includes('No audio captured. Hold the mic a little longer.'), 'MicRecorder/InputBar handle zero-byte recordings without Whisper')
+  check(inputBar.includes('onPointerCancel={stopRecording}') && inputBar.includes('onPointerLeave={stopRecording}'), 'InputBar safely stops recording on pointer cancel/leave')
+  check(inputBar.includes('setValue(text.trim())') && !inputBar.includes('onSubmit(text)'), 'transcription populates input instead of submitting empty/implicit text')
 
   printHeader('Planner and Screener Safety')
 
@@ -276,7 +330,8 @@ async function main() {
   )
   check(config.includes('isLocalhostUrl'), 'config.ts has localhost URL guard')
   check(
-    config.includes("baseURL: 'https://api.anthropic.com'") || config.includes('baseURL: "https://api.anthropic.com"'),
+    config.includes("OFFICIAL_ANTHROPIC_BASE_URL = 'https://api.anthropic.com'") ||
+      config.includes('OFFICIAL_ANTHROPIC_BASE_URL = "https://api.anthropic.com"'),
     'config.ts explicitly forces official Anthropic baseURL in non-local mode'
   )
   check(
@@ -287,6 +342,19 @@ async function main() {
     !config.includes('console.log') && !config.includes('console.warn') && !config.includes('console.error'),
     'config.ts does not use raw console.log/console.warn/console.error'
   )
+  check(config.includes('classifyAnthropicError'), 'config.ts classifies Anthropic failures into safe categories')
+
+  printHeader('AI Backend Health')
+
+  const health = readFile('src/main/ai/health.ts')
+  check(mainIndex.includes("'ai:healthCheck'") || mainIndex.includes('"ai:healthCheck"'), 'index.ts registers ai:healthCheck IPC')
+  check(preload.includes('checkAIBackend') && preload.includes('ai:healthCheck'), 'preload exposes checkAIBackend without exposing keys')
+  check(overlayApp.includes('Check AI Backend'), 'Debug UI exposes Check AI Backend')
+  check(health.includes('keyLength') && health.includes('placeholderDetected'), 'AI health reports key length and placeholder status')
+  check(!/slice\s*\(/.test(health), 'AI health does not expose API key prefixes')
+  check(!/console\.(log|warn|error)/.test(health), 'AI health uses safe logging only')
+  check(health.includes('Return OK') && health.includes('max_tokens: 8'), 'AI health uses a tiny text-only Anthropic test request')
+  check(health.includes('OPENAI_API_KEY') && health.includes('whisperConfigured'), 'AI health reports OpenAI Whisper configuration')
 
   printHeader('Logger Safety')
 
@@ -295,14 +363,25 @@ async function main() {
   check(logger.includes('export function safeLog'), 'logger.ts exports safeLog')
   check(logger.includes('export function safeWarn'), 'logger.ts exports safeWarn')
   check(logger.includes('export function safeError'), 'logger.ts exports safeError')
+  check(logger.includes('REDACTED') && logger.includes('OPENAI_API_KEY'), 'logger redacts secret-shaped values before printing')
   check(mainIndex.includes("from './logger'") || mainIndex.includes("from '../logger'"), 'index.ts imports safe logger')
   check(mainIndex.includes('safeLog') && mainIndex.includes('safeWarn') && mainIndex.includes('safeError'), 'index.ts uses safeLog/safeWarn/safeError')
+  const tts = readFile('src/main/ai/tts.ts')
+  check(tts.includes('[TTS] speak called') && tts.includes('[TTS] error fallback'), 'TTS logs speak attempts and safe fallback errors')
 
   printHeader('Window Routing')
 
   const screenCoordinates = readFile('src/main/screenCoordinates.ts')
   const capture = readFile('src/main/capture.ts')
   const stressChecklist = readFile('docs/manual-stress-test-checklist.md')
+  const toScreenPointBody = screenCoordinates.slice(
+    screenCoordinates.indexOf('export async function toScreenPoint'),
+    screenCoordinates.indexOf('export function screenPointToPercent')
+  )
+  const screenPointToPercentBody = screenCoordinates.slice(
+    screenCoordinates.indexOf('export function screenPointToPercent'),
+    screenCoordinates.indexOf('export function logicalPointToPercent')
+  )
 
   check(mainIndex.includes('[WINDOW_ROUTING] overlay summon request'), 'double-shift summon logs window routing request')
   check(mainIndex.includes('screen.getCursorScreenPoint()'), 'double-shift routing samples the current cursor point')
@@ -314,6 +393,11 @@ async function main() {
   check(mainIndex.includes('[STRESS_TEST]'), 'main process has stress-test lifecycle logs')
   check(mainIndex.includes('SPECTER_OPEN_DEVTOOLS'), 'devtools are opt-in for cleaner demo flow')
   check(screenCoordinates.includes('setActiveCoordinateDisplay'), 'coordinate conversion tracks the routed active display')
+  check(screenCoordinates.includes("COORDINATE_MODE = 'electron logical display bounds'"), 'coordinate mode says electron logical display bounds')
+  check(toScreenPointBody.includes('display.bounds.width') && toScreenPointBody.includes('display.bounds.height'), 'toScreenPoint maps percent into active display bounds')
+  check(!/logical[XY]\s*\*\s*(scale|display\.scaleFactor)|display\.bounds\.\w+\s*\*\s*display\.scaleFactor/.test(toScreenPointBody), 'toScreenPoint does not multiply percent coordinates by scaleFactor')
+  check(!screenCoordinates.includes('physicalBoundsForDisplay'), 'screenCoordinates no longer uses physicalBoundsForDisplay for default percent mapping')
+  check(screenPointToPercentBody.includes('display.bounds'), 'screenPointToPercent uses the same logical display bounds')
   check(capture.includes('getActiveCoordinateDisplay'), 'screen capture follows the routed active display')
   check(stressChecklist.includes('## A. Overlay Toggling') && stressChecklist.includes('## H. Window Lifecycle'), 'manual stress-test checklist covers A through H')
 
@@ -333,6 +417,13 @@ async function main() {
     !overlayAppBody.includes('api.analyzeScreen()') || !/useEffect\(\s*\(\)\s*=>\s*{[\s\S]*?api\.analyzeScreen\(\)/.test(overlayAppBody),
     'OverlayApp does not unconditionally call api.analyzeScreen() inside a useEffect tied to isVisible'
   )
+
+  printHeader('Ultra Mode')
+
+  check(overlayAppBody.includes('speakIfUltra') && overlayAppBody.includes('mode === "ultra"'), 'renderer gates speech on ultra mode')
+  check(overlayAppBody.includes('[ULTRA] speaking...') && overlayAppBody.includes('[ULTRA] skipped because silent mode'), 'renderer logs ultra speech and silent skips')
+  check(overlayAppBody.includes('mode,') && mainIndex.includes('[MODE] current mode'), 'real-app flow passes and logs current mode')
+  check(readFile('src/main/ai/tts.ts').includes('[TTS] speak called'), 'TTS speak path logs speak calls')
 
   printHeader('AI Backend Fallback Safety')
 

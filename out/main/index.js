@@ -11,6 +11,7 @@ const child_process = require("child_process");
 const promises = require("fs/promises");
 const os = require("os");
 const OpenAI = require("openai");
+const uploads = require("openai/uploads");
 const fs = require("fs");
 const crypto = require("crypto");
 function _interopNamespaceDefault(e) {
@@ -31,6 +32,56 @@ function _interopNamespaceDefault(e) {
 }
 const path__namespace = /* @__PURE__ */ _interopNamespaceDefault(path);
 const fs__namespace = /* @__PURE__ */ _interopNamespaceDefault(fs);
+const SECRET_PATTERNS = [
+  /sk-ant-[A-Za-z0-9._-]{8,}/g,
+  /sk-proj-[A-Za-z0-9._-]{8,}/g,
+  /sk-[A-Za-z0-9._-]{8,}/g,
+  /(OPENAI_API_KEY|ANTHROPIC_API_KEY|ELEVENLABS_API_KEY)\s*=\s*["']?[^"'\s]+/gi,
+  /(x-api-key|authorization)\s*:\s*["']?[^"',\s}]+/gi
+];
+function redactString(value) {
+  return SECRET_PATTERNS.reduce((current, pattern) => current.replace(pattern, "[REDACTED]"), value);
+}
+function sanitize(value, depth = 0, seen = /* @__PURE__ */ new WeakSet()) {
+  if (typeof value === "string") return redactString(value);
+  if (typeof value !== "object" || value === null) return value;
+  if (depth > 4) return "[Object]";
+  if (value instanceof Error) {
+    return {
+      name: value.name,
+      message: redactString(value.message)
+    };
+  }
+  if (seen.has(value)) return "[Circular]";
+  seen.add(value);
+  if (Array.isArray(value)) {
+    return value.map((item) => sanitize(item, depth + 1, seen));
+  }
+  return Object.fromEntries(
+    Object.entries(value).map(([key, entry]) => [
+      key,
+      /key|token|secret|authorization/i.test(key) && typeof entry === "string" ? "[REDACTED]" : sanitize(entry, depth + 1, seen)
+    ])
+  );
+}
+function safeLog(...args) {
+  try {
+    console.log(...args.map((arg) => sanitize(arg)));
+  } catch {
+  }
+}
+function safeWarn(...args) {
+  try {
+    console.warn(...args.map((arg) => sanitize(arg)));
+  } catch {
+  }
+}
+function safeError(...args) {
+  try {
+    console.error(...args.map((arg) => sanitize(arg)));
+  } catch {
+  }
+}
 const { getAuthStatus, askForAccessibilityAccess } = pkg;
 const ACCESSIBILITY_SETTINGS_URL = "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility";
 function sleep$3(ms) {
@@ -84,13 +135,13 @@ async function checkPermissions() {
     const missing = [];
     if (screenStatus !== "authorized") missing.push("screen");
     if (accessibilityStatus !== "authorized") missing.push("accessibility");
-    console.log("[PERMISSIONS] Status check:", {
+    safeLog("[PERMISSIONS] Status check:", {
       screen: screenStatus,
       accessibility: accessibilityStatus,
       missing
     });
     if (missing.length === 0) {
-      console.log("[PERMISSIONS] All required permissions granted.");
+      safeLog("[PERMISSIONS] All required permissions granted.");
       return true;
     }
     if (missing.includes("accessibility")) {
@@ -110,24 +161,7 @@ function isPermissionError(err) {
   }
   return false;
 }
-function safeLog(...args) {
-  try {
-    console.log(...args);
-  } catch {
-  }
-}
-function safeWarn(...args) {
-  try {
-    console.warn(...args);
-  } catch {
-  }
-}
-function safeError(...args) {
-  try {
-    console.error(...args);
-  } catch {
-  }
-}
+const COORDINATE_MODE = "electron logical display bounds";
 let activeCoordinateDisplayId = null;
 function clampPercent$1(value) {
   return Math.min(100, Math.max(0, value));
@@ -144,20 +178,12 @@ function getDisplayById(displayId) {
   if (displayId === null) return null;
   return electron.screen.getAllDisplays().find((display) => display.id === displayId) || null;
 }
-function physicalBoundsForDisplay(display) {
-  return {
-    x: Math.round(display.bounds.x * display.scaleFactor),
-    y: Math.round(display.bounds.y * display.scaleFactor),
-    width: Math.round(display.bounds.width * display.scaleFactor),
-    height: Math.round(display.bounds.height * display.scaleFactor)
-  };
-}
-function displayContainsPhysicalPoint(display, x, y) {
-  const bounds = physicalBoundsForDisplay(display);
+function displayContainsScreenPoint(display, x, y) {
+  const bounds = display.bounds;
   return x >= bounds.x && x <= bounds.x + bounds.width && y >= bounds.y && y <= bounds.y + bounds.height;
 }
-function displayForPhysicalPoint(x, y) {
-  return electron.screen.getAllDisplays().find((display) => displayContainsPhysicalPoint(display, x, y)) || getActiveCoordinateDisplay();
+function displayForScreenPoint(x, y) {
+  return electron.screen.getAllDisplays().find((display) => displayContainsScreenPoint(display, x, y)) || getActiveCoordinateDisplay();
 }
 function setActiveCoordinateDisplay(displayId) {
   activeCoordinateDisplayId = displayId;
@@ -171,7 +197,7 @@ function getActiveCoordinateDisplay() {
 function getPrimaryDisplayMetrics() {
   const primary = electron.screen.getPrimaryDisplay();
   const active = getActiveCoordinateDisplay();
-  const metrics = {
+  const metrics2 = {
     id: primary.id,
     scaleFactor: primary.scaleFactor,
     bounds: rectSnapshot(primary.bounds),
@@ -187,30 +213,38 @@ function getPrimaryDisplayMetrics() {
       height: primary.size.height
     }
   };
-  safeLog("[COORD_CALIBRATION] Primary display metrics retrieved", metrics);
-  return metrics;
+  safeLog("[COORD_CALIBRATION] Primary display metrics retrieved", {
+    coordinateMode: COORDINATE_MODE,
+    ...metrics2
+  });
+  return metrics2;
 }
 async function toScreenPoint(x, y) {
   const display = getActiveCoordinateDisplay();
-  const scale = display.scaleFactor;
   const logicalX = display.bounds.x + clampPercent$1(x) / 100 * display.bounds.width;
   const logicalY = display.bounds.y + clampPercent$1(y) / 100 * display.bounds.height;
-  const pixelX = Math.round(logicalX * scale);
-  const pixelY = Math.round(logicalY * scale);
+  const screenX = Math.round(logicalX);
+  const screenY = Math.round(logicalY);
+  const expectedCenter = {
+    x: Math.round(display.bounds.x + display.bounds.width / 2),
+    y: Math.round(display.bounds.y + display.bounds.height / 2)
+  };
   safeLog("[COORD_CALIBRATION] Mapping percent to screen point", {
+    coordinateMode: COORDINATE_MODE,
     input: { x, y },
     display: {
       id: display.id,
       bounds: rectSnapshot(display.bounds),
-      scale
+      scaleFactor: display.scaleFactor
     },
-    output: { pixelX, pixelY }
+    expectedCenter,
+    output: { x: screenX, y: screenY }
   });
-  return new nutJs.Point(pixelX, pixelY);
+  return new nutJs.Point(screenX, screenY);
 }
 function screenPointToPercent(x, y) {
-  const display = displayForPhysicalPoint(x, y);
-  const bounds = physicalBoundsForDisplay(display);
+  const display = displayForScreenPoint(x, y);
+  const bounds = display.bounds;
   return {
     x: clampPercent$1((x - bounds.x) / bounds.width * 100),
     y: clampPercent$1((y - bounds.y) / bounds.height * 100)
@@ -264,10 +298,10 @@ function cursorPermissionError(error) {
   );
 }
 async function moveRealMouse(x, y, durationMs = DEFAULT_MOVE_DURATION_MS) {
-  console.log("[AUTO_REAL_MOUSE] moveRealMouse invoked REAL OS cursor automation", { x, y, durationMs });
+  safeLog("[AUTO_REAL_MOUSE] moveRealMouse invoked REAL OS cursor automation", { x, y, durationMs });
   try {
     const target = await toScreenPoint(x, y);
-    console.log("[AUTO_REAL_MOUSE] physical target pixels", { x: target.x, y: target.y });
+    safeLog("[AUTO_REAL_MOUSE] target screen point", { x: target.x, y: target.y });
     const current = await nutJs.mouse.getPosition();
     const distance = Math.max(1, Math.hypot(target.x - current.x, target.y - current.y));
     const previousSpeed = nutJs.mouse.config.mouseSpeed;
@@ -275,29 +309,29 @@ async function moveRealMouse(x, y, durationMs = DEFAULT_MOVE_DURATION_MS) {
     nutJs.mouse.config.mouseSpeed = Math.max(200, distance / durationSeconds);
     try {
       await nutJs.mouse.move(nutJs.straightTo(target), easeInOutCubic);
-      console.log("[AUTO_REAL_MOUSE] nut-js REAL OS move complete");
+      safeLog("[AUTO_REAL_MOUSE] nut-js REAL OS move complete");
     } finally {
       nutJs.mouse.config.mouseSpeed = previousSpeed;
     }
   } catch (error) {
-    console.error("[AUTO_REAL_MOUSE] nut-js REAL OS automation error:", error);
+    safeError("[AUTO_REAL_MOUSE] nut-js REAL OS automation error:", error);
     throw cursorPermissionError(error);
   }
 }
 async function clickRealMouse(x, y) {
   try {
-    console.log("[AUTO_REAL_MOUSE] clickRealMouse invoked REAL OS cursor automation", { x, y });
+    safeLog("[AUTO_REAL_MOUSE] clickRealMouse invoked REAL OS cursor automation", { x, y });
     await moveRealMouse(x, y);
     await nutJs.mouse.click(nutJs.Button.LEFT);
-    console.log("[AUTO_REAL_MOUSE] nut-js REAL OS click complete", { x, y });
+    safeLog("[AUTO_REAL_MOUSE] nut-js REAL OS click complete", { x, y });
   } catch (error) {
     throw cursorPermissionError(error);
   }
 }
 async function executeRealMouseSteps(steps) {
-  console.log("[AUTO_REAL_MOUSE] executeRealMouseSteps invoked REAL OS automation", { totalSteps: steps.length });
+  safeLog("[AUTO_REAL_MOUSE] executeRealMouseSteps invoked REAL OS automation", { totalSteps: steps.length });
   for (const [index, step] of steps.entries()) {
-    console.log("[AUTO_REAL_MOUSE] executing real cursor step", {
+    safeLog("[AUTO_REAL_MOUSE] executing real cursor step", {
       index,
       action: step.action,
       x: step.x,
@@ -336,7 +370,7 @@ function userCursorPermissionError(error) {
     `Specter could not monitor the macOS cursor. Grant Accessibility and Input Monitoring permissions to this app in System Settings > Privacy & Security, then retry. Original error: ${detail}`
   );
 }
-async function getPhysicalMousePosition() {
+async function getMousePosition() {
   try {
     const pos = await nutJs.mouse.getPosition();
     return { x: pos.x, y: pos.y };
@@ -344,7 +378,7 @@ async function getPhysicalMousePosition() {
     throw userCursorPermissionError(error);
   }
 }
-async function getPhysicalMousePercent() {
+async function getMousePercent() {
   try {
     const pos = await nutJs.mouse.getPosition();
     return screenPointToPercent(pos.x, pos.y);
@@ -368,9 +402,13 @@ async function getCoordinateCalibrationDiagnostics() {
         x: centerTarget.x,
         y: centerTarget.y
       },
-      coordinateMode: "percent * primary logical size * primary scaleFactor"
+      expectedCenter: {
+        x: Math.round(metrics.activeDisplay.bounds.x + metrics.activeDisplay.bounds.width / 2),
+        y: Math.round(metrics.activeDisplay.bounds.y + metrics.activeDisplay.bounds.height / 2)
+      },
+      coordinateMode: COORDINATE_MODE
     };
-    console.log("[COORD_CALIBRATION]", diagnostics);
+    safeLog("[COORD_CALIBRATION]", diagnostics);
     return diagnostics;
   } catch (error) {
     throw userCursorPermissionError(error);
@@ -386,7 +424,7 @@ async function waitForMouseAtTarget(targetPercentX, targetPercentY, tolerancePx,
       const dx = pos.x - target.x;
       const dy = pos.y - target.y;
       if (Math.hypot(dx, dy) <= tolerancePx) {
-        console.log("[USER_CURSOR] entered target tolerance", {
+        safeLog("[USER_CURSOR] entered target tolerance", {
           targetPercentX,
           targetPercentY,
           tolerancePx,
@@ -397,7 +435,7 @@ async function waitForMouseAtTarget(targetPercentX, targetPercentY, tolerancePx,
       }
       await sleep$1(100);
     }
-    console.warn("[USER_CURSOR] target tolerance wait timed out", { targetPercentX, targetPercentY, tolerancePx, timeoutMs });
+    safeWarn("[USER_CURSOR] target tolerance wait timed out", { targetPercentX, targetPercentY, tolerancePx, timeoutMs });
     return "timeout";
   } catch (error) {
     throw userCursorPermissionError(error);
@@ -424,7 +462,7 @@ async function waitForUserClickAtTarget(targetPercentX, targetPercentY, toleranc
         uiohookNapi.uIOhook.off("click", onClick);
         signal?.removeEventListener("abort", onAbort);
         if (result === "timeout") {
-          console.warn("[CLICK_DETECT] timed out waiting for user click", {
+          safeWarn("[CLICK_DETECT] timed out waiting for user click", {
             targetPercentX,
             targetPercentY,
             tolerancePx,
@@ -439,7 +477,7 @@ async function waitForUserClickAtTarget(targetPercentX, targetPercentY, toleranc
           const dx = pos.x - target.x;
           const dy = pos.y - target.y;
           const distancePx = Math.hypot(dx, dy);
-          console.log("[CLICK_DETECT] click observed", {
+          safeLog("[CLICK_DETECT] click observed", {
             targetPercentX,
             targetPercentY,
             tolerancePx,
@@ -448,7 +486,7 @@ async function waitForUserClickAtTarget(targetPercentX, targetPercentY, toleranc
             distancePx
           });
           if (distancePx <= tolerancePx) {
-            console.log("[CLICK_DETECT] click detected inside target tolerance", {
+            safeLog("[CLICK_DETECT] click detected inside target tolerance", {
               targetPercentX,
               targetPercentY,
               tolerancePx
@@ -461,7 +499,7 @@ async function waitForUserClickAtTarget(targetPercentX, targetPercentY, toleranc
         settle("cancelled");
         return;
       }
-      console.log("[CLICK_DETECT] armed user click detector", { targetPercentX, targetPercentY, tolerancePx, timeoutMs });
+      safeLog("[CLICK_DETECT] armed user click detector", { targetPercentX, targetPercentY, tolerancePx, timeoutMs });
       signal?.addEventListener("abort", onAbort, { once: true });
       uiohookNapi.uIOhook.on("click", onClick);
     });
@@ -469,6 +507,7 @@ async function waitForUserClickAtTarget(targetPercentX, targetPercentY, toleranc
     throw userCursorPermissionError(error);
   }
 }
+const OFFICIAL_ANTHROPIC_BASE_URL = "https://api.anthropic.com";
 function getAnthropicApiKey() {
   return process.env.ANTHROPIC_API_KEY;
 }
@@ -496,6 +535,32 @@ function isLocalhostUrl(url) {
     return false;
   }
 }
+function getAnthropicBaseUrlForMode() {
+  if (getUseLocalModel()) {
+    return getLocalModelBaseUrl() || OFFICIAL_ANTHROPIC_BASE_URL;
+  }
+  return OFFICIAL_ANTHROPIC_BASE_URL;
+}
+function classifyAnthropicError(error) {
+  const status = typeof error?.status === "number" ? error.status : typeof error?.response?.status === "number" ? error.response.status : void 0;
+  const name = typeof error?.name === "string" ? error.name : void 0;
+  const message = typeof error?.message === "string" ? error.message : String(error || "");
+  const causeMessage = typeof error?.cause?.message === "string" ? error.cause.message : "";
+  const combined = `${name || ""} ${message} ${causeMessage}`.toLowerCase();
+  if (status === 401 || status === 403 || /auth|unauthorized|forbidden|api key|invalid x-api-key/.test(combined)) {
+    return { category: "auth_error", status, name, message };
+  }
+  if (status === 429 || /rate limit|too many requests/.test(combined)) {
+    return { category: "rate_limit", status, name, message };
+  }
+  if (status === 404 || status === 400 && /model/.test(combined) || /model.*not found|model.*access|unsupported model|invalid model/.test(combined)) {
+    return { category: "model_error", status, name, message };
+  }
+  if (/network|fetch|connection|econn|enotfound|etimedout|timeout|socket|dns|offline|11434/.test(combined) || name === "APIConnectionError") {
+    return { category: "network_error", status, name, message };
+  }
+  return { category: "unknown", status, name, message };
+}
 function createAnthropicClient() {
   const apiKey = getAnthropicApiKey();
   if (!apiKey) {
@@ -507,7 +572,7 @@ function createAnthropicClient() {
     if (envBaseUrl && isLocalhostUrl(envBaseUrl)) {
       safeWarn("[AI_BACKEND] Ignoring localhost Anthropic base URL because USE_LOCAL_MODEL is not true");
     }
-    return new Anthropic({ apiKey, baseURL: "https://api.anthropic.com" });
+    return new Anthropic({ apiKey, baseURL: OFFICIAL_ANTHROPIC_BASE_URL });
   }
   const localBaseUrl = getLocalModelBaseUrl();
   if (localBaseUrl) {
@@ -515,7 +580,7 @@ function createAnthropicClient() {
     return new Anthropic({ apiKey, baseURL: localBaseUrl });
   }
   safeWarn("[AI_BACKEND] USE_LOCAL_MODEL is true but no local base URL is set; falling back to official Anthropic API");
-  return new Anthropic({ apiKey, baseURL: "https://api.anthropic.com" });
+  return new Anthropic({ apiKey, baseURL: OFFICIAL_ANTHROPIC_BASE_URL });
 }
 const CLAUDE_VISION_MODEL = getAnthropicVisionModel();
 function fallbackScreenState(error) {
@@ -693,6 +758,7 @@ async function detectScreenTargets(base64PNG, prompt = "") {
     }
     return fallbackScreenTargets(normalizedPrompt);
   } catch (error) {
+    const summary = classifyAnthropicError(error);
     const errorMessage = error?.message || String(error);
     const causeMessage = error?.cause?.message || "";
     if (errorMessage.includes("11434") || causeMessage.includes("11434")) {
@@ -700,7 +766,7 @@ async function detectScreenTargets(base64PNG, prompt = "") {
         "[AI_BACKEND] Refusing localhost:11434 Anthropic route because USE_LOCAL_MODEL is not true. Check ANTHROPIC_BASE_URL / proxy env."
       );
     }
-    safeError("[AI_BACKEND] Anthropic unavailable; using fallback");
+    safeError("[AI_BACKEND] Anthropic unavailable; using fallback", summary);
     return fallbackScreenTargets(normalizedPrompt, "AI_BACKEND_UNAVAILABLE");
   }
 }
@@ -756,6 +822,7 @@ async function analyzeScreen(base64PNG) {
     }
     return fallbackScreenState();
   } catch (error) {
+    const summary = classifyAnthropicError(error);
     const errorMessage = error?.message || String(error);
     const causeMessage = error?.cause?.message || "";
     if (errorMessage.includes("11434") || causeMessage.includes("11434")) {
@@ -763,7 +830,7 @@ async function analyzeScreen(base64PNG) {
         "[AI_BACKEND] Refusing localhost:11434 Anthropic route because USE_LOCAL_MODEL is not true. Check ANTHROPIC_BASE_URL / proxy env."
       );
     }
-    safeError("[AI_BACKEND] Anthropic unavailable; using fallback");
+    safeError("[AI_BACKEND] Anthropic unavailable; using fallback", summary);
     return fallbackScreenState("AI_BACKEND_UNAVAILABLE");
   }
 }
@@ -972,6 +1039,7 @@ async function planSteps(userIntent, screenState, sessionHistory, mode) {
     const steps = normalizeSequence(extractJson(rawText), fallback);
     return steps;
   } catch (error) {
+    const summary = classifyAnthropicError(error);
     const errorMessage = error?.message || String(error);
     const causeMessage = error?.cause?.message || "";
     if (errorMessage.includes("11434") || causeMessage.includes("11434")) {
@@ -979,7 +1047,7 @@ async function planSteps(userIntent, screenState, sessionHistory, mode) {
         "[AI_BACKEND] Refusing localhost:11434 Anthropic route because USE_LOCAL_MODEL is not true. Check ANTHROPIC_BASE_URL / proxy env."
       );
     }
-    safeError("[AI_BACKEND] Anthropic unavailable; using fallback. AI_BACKEND_UNAVAILABLE");
+    safeError("[AI_BACKEND] Anthropic unavailable; using fallback. AI_BACKEND_UNAVAILABLE", summary);
     return fallback;
   }
 }
@@ -1015,6 +1083,7 @@ async function converse(userMessage, screenState, conversationHistory) {
     const text = message.content.flatMap((part) => part.type === "text" && "text" in part && typeof part.text === "string" ? [part.text] : []).join("\n").trim();
     return text || "Yes. Keep going with the next highlighted step.";
   } catch (error) {
+    const summary = classifyAnthropicError(error);
     const errorMessage = error?.message || String(error);
     const causeMessage = error?.cause?.message || "";
     if (errorMessage.includes("11434") || causeMessage.includes("11434")) {
@@ -1022,7 +1091,7 @@ async function converse(userMessage, screenState, conversationHistory) {
         "[AI_BACKEND] Refusing localhost:11434 Anthropic route because USE_LOCAL_MODEL is not true. Check ANTHROPIC_BASE_URL / proxy env."
       );
     }
-    safeError("[AI_BACKEND] Anthropic unavailable; using fallback");
+    safeError("[AI_BACKEND] Anthropic unavailable; using fallback", summary);
     return "I hit a temporary issue answering that. Keep going with the highlighted next step.";
   }
 }
@@ -1079,19 +1148,19 @@ async function speakFallback(text) {
   }
 }
 async function speak(text) {
-  console.log("[TTS] speak() called with:", text?.slice(0, 50));
+  safeLog("[TTS] speak called", { preview: text?.slice(0, 50) });
   await stopSpeaking();
   if (!text.trim()) return;
   const runId = speechRunId;
   const apiKey = process.env.ELEVENLABS_API_KEY;
   if (!apiKey) {
-    console.warn("[Specter] ELEVENLABS_API_KEY missing; using macOS say fallback.");
+    safeWarn("[TTS] ELEVENLABS_API_KEY missing; using macOS say fallback.");
     await speakFallback(text);
     return;
   }
   let request = null;
   try {
-    console.log("[TTS] Calling ElevenLabs...");
+    safeLog("[TTS] Calling ElevenLabs...");
     request = new AbortController();
     activeRequest = request;
     const response = await fetch(`${ELEVENLABS_API_URL}/${RACHEL_VOICE_ID}`, {
@@ -1132,38 +1201,159 @@ async function speak(text) {
       promises.unlink(outputPath).catch(() => void 0);
       return;
     }
-    console.log("[TTS] Audio received, playing...");
+    safeLog("[TTS] Audio received, playing...");
     await playAudioFile(outputPath);
   } catch (error) {
     if (activeRequest === request) {
       activeRequest = null;
     }
     if (runId !== speechRunId) return;
-    console.error("[TTS] Error:", error);
+    safeError("[TTS] error fallback", error);
     await speakFallback(text);
   }
 }
 async function transcribe(audioBuffer) {
   const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
-  console.log("[WHISPER] transcribe called, buffer size:", audioBuffer?.length);
+  safeLog("[WHISPER] transcribe called", { bufferSize: audioBuffer?.length || 0 });
+  if (!audioBuffer || audioBuffer.length === 0) {
+    safeWarn("[WHISPER] empty audio buffer");
+    return "";
+  }
   if (!OPENAI_API_KEY) {
-    console.error("OPENAI_API_KEY not set in environment");
+    safeWarn("[WHISPER] OPENAI_API_KEY missing; transcription unavailable");
     return "";
   }
   try {
-    console.log("[WHISPER] Calling OpenAI...");
+    safeLog("[WHISPER] Calling OpenAI...");
     const openai = new OpenAI({ apiKey: OPENAI_API_KEY });
-    const file = new File([new Uint8Array(audioBuffer)], "audio.webm", { type: "audio/webm" });
+    const file = await uploads.toFile(audioBuffer, "audio.webm", {
+      type: "audio/webm"
+    });
     const response = await openai.audio.transcriptions.create({
       file,
       model: "whisper-1"
     });
-    console.log("[WHISPER] Result:", response.text);
+    safeLog("[WHISPER] transcription received", { length: response.text?.length || 0 });
     return response.text || "";
   } catch (error) {
-    console.error("[WHISPER] Error:", error);
+    safeError("[WHISPER] Error:", error);
     return "";
   }
+}
+function keyHealth(value) {
+  const trimmed = value?.trim() || "";
+  const placeholderDetected = !trimmed ? false : /placeholder|changeme|change_me|replace|your[_-]?key|xxx|sk-xxx|test[_-]?key/i.test(trimmed);
+  return {
+    present: Boolean(trimmed),
+    keyLength: trimmed.length,
+    placeholderDetected
+  };
+}
+function baseURLKind(baseURL, useLocalModel) {
+  if (baseURL === OFFICIAL_ANTHROPIC_BASE_URL) return "official";
+  if (useLocalModel || isLocalhostUrl(baseURL)) return "local";
+  return "custom";
+}
+function friendlyAnthropicReason(category, status) {
+  if (category === "auth_error") return "Anthropic authentication failed. Check ANTHROPIC_API_KEY.";
+  if (category === "network_error") return "Anthropic could not be reached from this machine.";
+  if (category === "model_error") return "The selected Anthropic model is unavailable for this key.";
+  if (category === "rate_limit") return "Anthropic rate limit reached.";
+  if (category === "api_key_missing") return "ANTHROPIC_API_KEY is missing.";
+  return status ? `Anthropic request failed with status ${status}.` : "Anthropic request failed.";
+}
+async function checkAIHealth() {
+  const anthropicKey = keyHealth(getAnthropicApiKey());
+  const openaiKey = keyHealth(process.env.OPENAI_API_KEY);
+  const useLocalModel = getUseLocalModel();
+  const baseURL = getAnthropicBaseUrlForMode();
+  const result = {
+    ok: false,
+    anthropic: {
+      key: anthropicKey,
+      configured: anthropicKey.present && !anthropicKey.placeholderDetected,
+      useLocalModel,
+      baseURLKind: baseURLKind(baseURL, useLocalModel),
+      baseURLOfficial: baseURL === OFFICIAL_ANTHROPIC_BASE_URL,
+      plannerModel: getAnthropicModel(),
+      visionModel: getAnthropicVisionModel(),
+      testRequest: {
+        attempted: false,
+        pass: false
+      }
+    },
+    openai: {
+      key: openaiKey,
+      whisperConfigured: openaiKey.present && !openaiKey.placeholderDetected
+    }
+  };
+  if (!result.anthropic.configured) {
+    result.anthropic.testRequest = {
+      attempted: false,
+      pass: false,
+      category: anthropicKey.present ? "auth_error" : "api_key_missing",
+      reason: anthropicKey.present ? "Anthropic key looks like placeholder text." : "ANTHROPIC_API_KEY is missing."
+    };
+  } else {
+    const client = createAnthropicClient();
+    if (!client) {
+      result.anthropic.testRequest = {
+        attempted: false,
+        pass: false,
+        category: "api_key_missing",
+        reason: "ANTHROPIC_API_KEY is missing."
+      };
+    } else {
+      result.anthropic.testRequest.attempted = true;
+      try {
+        const message = await client.messages.create({
+          model: getAnthropicModel(),
+          max_tokens: 8,
+          messages: [
+            {
+              role: "user",
+              content: "Return OK"
+            }
+          ]
+        });
+        const text = message.content.flatMap((part) => part.type === "text" && "text" in part && typeof part.text === "string" ? [part.text] : []).join("\n").trim();
+        result.anthropic.testRequest.pass = /^ok\.?$/i.test(text) || /ok/i.test(text);
+        if (!result.anthropic.testRequest.pass) {
+          result.anthropic.testRequest.category = "unknown";
+          result.anthropic.testRequest.reason = "Anthropic responded, but not with OK.";
+        }
+      } catch (error) {
+        const summary = classifyAnthropicError(error);
+        result.anthropic.testRequest.pass = false;
+        result.anthropic.testRequest.category = summary.category;
+        result.anthropic.testRequest.status = summary.status;
+        result.anthropic.testRequest.reason = friendlyAnthropicReason(summary.category, summary.status);
+      }
+    }
+  }
+  result.ok = result.anthropic.testRequest.pass && result.openai.whisperConfigured;
+  safeLog("[AI_BACKEND] health check result", {
+    ok: result.ok,
+    anthropic: {
+      keyPresent: result.anthropic.key.present,
+      keyLength: result.anthropic.key.keyLength,
+      placeholderDetected: result.anthropic.key.placeholderDetected,
+      configured: result.anthropic.configured,
+      useLocalModel: result.anthropic.useLocalModel,
+      baseURLKind: result.anthropic.baseURLKind,
+      baseURLOfficial: result.anthropic.baseURLOfficial,
+      plannerModel: result.anthropic.plannerModel,
+      visionModel: result.anthropic.visionModel,
+      testRequest: result.anthropic.testRequest
+    },
+    openai: {
+      keyPresent: result.openai.key.present,
+      keyLength: result.openai.key.keyLength,
+      placeholderDetected: result.openai.key.placeholderDetected,
+      whisperConfigured: result.openai.whisperConfigured
+    }
+  });
+  return result;
 }
 const ARM_A = "show_once";
 const ARM_B = "show_twice";
@@ -1246,7 +1436,7 @@ function recordReward(bandtState, arm, reward) {
     [arm]: [alpha + reward, beta + (1 - reward)]
   };
   const winningStyle = getCurrentStyle(updated);
-  console.log("[Specter] Teaching style currently winning:", winningStyle);
+  safeLog("[Specter] Teaching style currently winning:", winningStyle);
   return updated;
 }
 function getCurrentStyle(bandtState) {
@@ -1381,7 +1571,7 @@ function loadGraph(appName = DEFAULT_APP_NAME$1) {
     const parsed = JSON.parse(fs.readFileSync(filePath, "utf8"));
     return normalizeGraph(parsed, appName);
   } catch (error) {
-    console.error("[Specter] Failed to load learning graph:", error);
+    safeError("[Specter] Failed to load learning graph:", error);
     return createDefaultGraph(appName);
   }
 }
@@ -1785,9 +1975,9 @@ function fallbackGhostStart(step, previousTarget) {
 }
 async function ghostStartForStep(step, previousTarget) {
   try {
-    return await getPhysicalMousePercent();
+    return await getMousePercent();
   } catch (error) {
-    safeWarn("[GHOST] could not read physical cursor for ghost start; using fallback", error);
+    safeWarn("[GHOST] could not read cursor for ghost start; using fallback", error);
     return fallbackGhostStart(step, previousTarget);
   }
 }
@@ -2120,6 +2310,23 @@ const DEFAULT_APP_NAME = "Specter";
 const REAL_APP_CONFIDENCE_THRESHOLD = 0.65;
 let mainWindow = null;
 let overlayWindow = null;
+function bufferFromAudioData(audioData) {
+  if (!audioData) return Buffer.alloc(0);
+  if (Buffer.isBuffer(audioData)) return audioData;
+  if (audioData instanceof ArrayBuffer) {
+    return Buffer.from(new Uint8Array(audioData));
+  }
+  if (ArrayBuffer.isView(audioData)) {
+    return Buffer.from(audioData.buffer, audioData.byteOffset, audioData.byteLength);
+  }
+  return Buffer.from(audioData);
+}
+function byteLengthOfAudioData(audioData) {
+  if (!audioData) return 0;
+  if (typeof audioData.byteLength === "number") return audioData.byteLength;
+  if (typeof audioData.length === "number") return audioData.length;
+  return 0;
+}
 function displaySummary(display) {
   return {
     id: display.id,
@@ -2405,8 +2612,8 @@ electron.app.whenReady().then(async () => {
     safeWarn("[AUTO_REAL_MOUSE] LOUD WARNING: REAL OS automation steps triggered from IPC", { count: steps?.length });
     return executeRealMouseSteps(steps);
   });
-  electron.ipcMain.handle("cursor:getPosition", async () => getPhysicalMousePosition());
-  electron.ipcMain.handle("cursor:getPositionPercent", async () => getPhysicalMousePercent());
+  electron.ipcMain.handle("cursor:getPosition", async () => getMousePosition());
+  electron.ipcMain.handle("cursor:getPositionPercent", async () => getMousePercent());
   electron.ipcMain.handle("cursor:diagnostics", async () => getCoordinateCalibrationDiagnostics());
   electron.ipcMain.handle("cursor:moveCenter", async () => {
     safeLog("[COORD_CALIBRATION] explicit center move requested");
@@ -2514,6 +2721,8 @@ electron.app.whenReady().then(async () => {
   });
   electron.ipcMain.handle("realApp:createWorkflow", async (_event, input) => {
     const target = input && typeof input === "object" ? input.target : null;
+    const mode = input?.mode === "ultra" ? "ultra" : "silent";
+    safeLog("[MODE] current mode", { mode, flow: "real-app-workflow" });
     const source = target?.source === "manual" || input?.source === "manual" ? "manual" : "vision";
     const step = createRealAppStep(target, source);
     const nodeId = realAppNodeId(input, step.targetLabel || step.title || "Selected target");
@@ -2541,6 +2750,7 @@ electron.app.whenReady().then(async () => {
       totalSteps: 1,
       label: step.targetLabel,
       source,
+      mode,
       confidence: targetConfidence
     });
     return {
@@ -2559,6 +2769,7 @@ electron.app.whenReady().then(async () => {
     "planner:converse",
     async (_event, userMessage, screenState, conversationHistory) => converse(userMessage, screenState, conversationHistory)
   );
+  electron.ipcMain.handle("ai:healthCheck", async () => checkAIHealth());
   electron.ipcMain.handle("session:save", async (_event, graph) => {
     if (isLearningGraph(graph)) {
       saveGraph(graph);
@@ -2669,8 +2880,11 @@ electron.app.whenReady().then(async () => {
   });
   electron.ipcMain.handle("tts:stop", async () => stopSpeaking());
   electron.ipcMain.handle("whisper:transcribe", async (_event, audioData) => {
-    safeLog("[IPC] whisper:transcribe", { size: audioData?.byteLength });
-    const buffer = Buffer.from(audioData);
+    const buffer = bufferFromAudioData(audioData);
+    safeLog("[IPC] whisper:transcribe", {
+      byteLength: byteLengthOfAudioData(audioData),
+      convertedBufferLength: buffer.length
+    });
     return transcribe(buffer);
   });
   registerReplayIpc(electron.ipcMain, () => overlayWindow);

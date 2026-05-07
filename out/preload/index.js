@@ -33,6 +33,7 @@ const api = {
   // Planner
   planSteps: (userIntent, screenState, sessionHistory, mode) => electron.ipcRenderer.invoke("planner:plan", userIntent, screenState, sessionHistory, mode),
   converse: (userMessage, screenState, conversationHistory) => electron.ipcRenderer.invoke("planner:converse", userMessage, screenState, conversationHistory),
+  checkAIBackend: () => electron.ipcRenderer.invoke("ai:healthCheck"),
   // Session
   saveSession: (graph) => electron.ipcRenderer.invoke("session:save", graph),
   loadSession: (appName) => electron.ipcRenderer.invoke("session:load", appName),

@@ -3,6 +3,7 @@ import { join, dirname } from 'path'
 import { homedir } from 'os'
 import { LearningGraph, Node, Edge, Branch, Step, Session } from './types'
 import { createDefaultBandtState, normalizeBandtState } from '../ai/bandit'
+import { safeError } from '../logger'
 
 const DEFAULT_APP_NAME = 'Specter'
 const STEP_ACTIONS = ['click', 'type', 'scroll', 'wait']
@@ -159,7 +160,7 @@ export function loadGraph(appName = DEFAULT_APP_NAME): LearningGraph {
     const parsed = JSON.parse(readFileSync(filePath, 'utf8'))
     return normalizeGraph(parsed, appName)
   } catch (error) {
-    console.error('[Specter] Failed to load learning graph:', error)
+    safeError('[Specter] Failed to load learning graph:', error)
     return createDefaultGraph(appName)
   }
 }

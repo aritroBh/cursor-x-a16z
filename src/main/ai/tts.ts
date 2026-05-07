@@ -3,6 +3,7 @@ import { mkdir, writeFile, unlink } from 'fs/promises'
 import { join } from 'path'
 import { tmpdir } from 'os'
 import { shell } from 'electron'
+import { safeLog, safeWarn, safeError } from '../logger'
 
 const ELEVENLABS_API_URL = 'https://api.elevenlabs.io/v1/text-to-speech'
 const RACHEL_VOICE_ID = '21m00Tcm4TlvDq8ikWAM'
@@ -64,7 +65,7 @@ async function speakFallback(text: string): Promise<void> {
 }
 
 export async function speak(text: string): Promise<void> {
-  console.log('[TTS] speak() called with:', text?.slice(0, 50))
+  safeLog('[TTS] speak called', { preview: text?.slice(0, 50) })
   await stopSpeaking()
   if (!text.trim()) return
 
@@ -72,14 +73,14 @@ export async function speak(text: string): Promise<void> {
   const apiKey = process.env.ELEVENLABS_API_KEY
 
   if (!apiKey) {
-    console.warn('[Specter] ELEVENLABS_API_KEY missing; using macOS say fallback.')
+    safeWarn('[TTS] ELEVENLABS_API_KEY missing; using macOS say fallback.')
     await speakFallback(text)
     return
   }
 
   let request: AbortController | null = null
   try {
-    console.log('[TTS] Calling ElevenLabs...')
+    safeLog('[TTS] Calling ElevenLabs...')
     request = new AbortController()
     activeRequest = request
 
@@ -129,14 +130,14 @@ export async function speak(text: string): Promise<void> {
       return
     }
 
-    console.log('[TTS] Audio received, playing...')
+    safeLog('[TTS] Audio received, playing...')
     await playAudioFile(outputPath)
   } catch (error) {
     if (activeRequest === request) {
       activeRequest = null
     }
     if (runId !== speechRunId) return
-    console.error('[TTS] Error:', error)
+    safeError('[TTS] error fallback', error)
     await speakFallback(text)
   }
 }

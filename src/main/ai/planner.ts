@@ -1,4 +1,4 @@
-import { createAnthropicClient, getAnthropicModel } from './config'
+import { classifyAnthropicError, createAnthropicClient, getAnthropicModel } from './config'
 import { safeLog, safeWarn, safeError } from '../logger'
 
 const CLAUDE_MODEL = getAnthropicModel()
@@ -264,6 +264,7 @@ export async function planSteps(userIntent: string, screenState: any, sessionHis
     const steps = normalizeSequence(extractJson(rawText), fallback)
     return steps
   } catch (error: any) {
+    const summary = classifyAnthropicError(error)
     const errorMessage = error?.message || String(error)
     const causeMessage = error?.cause?.message || ''
     if (errorMessage.includes('11434') || causeMessage.includes('11434')) {
@@ -271,7 +272,7 @@ export async function planSteps(userIntent: string, screenState: any, sessionHis
         '[AI_BACKEND] Refusing localhost:11434 Anthropic route because USE_LOCAL_MODEL is not true. Check ANTHROPIC_BASE_URL / proxy env.'
       )
     }
-    safeError('[AI_BACKEND] Anthropic unavailable; using fallback. AI_BACKEND_UNAVAILABLE')
+    safeError('[AI_BACKEND] Anthropic unavailable; using fallback. AI_BACKEND_UNAVAILABLE', summary)
     return fallback
   }
 }
@@ -316,6 +317,7 @@ export async function converse(userMessage: string, screenState: any, conversati
 
     return text || 'Yes. Keep going with the next highlighted step.'
   } catch (error: any) {
+    const summary = classifyAnthropicError(error)
     const errorMessage = error?.message || String(error)
     const causeMessage = error?.cause?.message || ''
     if (errorMessage.includes('11434') || causeMessage.includes('11434')) {
@@ -323,7 +325,7 @@ export async function converse(userMessage: string, screenState: any, conversati
         '[AI_BACKEND] Refusing localhost:11434 Anthropic route because USE_LOCAL_MODEL is not true. Check ANTHROPIC_BASE_URL / proxy env.'
       )
     }
-    safeError('[AI_BACKEND] Anthropic unavailable; using fallback')
+    safeError('[AI_BACKEND] Anthropic unavailable; using fallback', summary)
     return 'I hit a temporary issue answering that. Keep going with the highlighted next step.'
   }
 }

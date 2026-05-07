@@ -55,6 +55,7 @@ function averageStepTime(steps: Step[]): number {
 function normalizeRecordedStep(step: any): Step {
   return {
     id: typeof step.id === 'string' ? step.id : undefined,
+    title: typeof step.title === 'string' ? step.title : undefined,
     instruction: typeof step.instruction === 'string' ? step.instruction : undefined,
     targetLabel: typeof step.targetLabel === 'string' ? step.targetLabel : undefined,
     x: Number.isFinite(step.x) ? Math.min(100, Math.max(0, step.x)) : 50,

@@ -12,7 +12,7 @@ import {
   moveRealMouse
 } from './cursor'
 import { getCoordinateCalibrationDiagnostics, getPhysicalMousePosition, waitForMouseAtTarget } from './userCursor'
-import { analyzeScreen, fallbackScreenState } from './ai/screener'
+import { analyzeScreen, detectScreenTargets, fallbackScreenState, fallbackScreenTargets } from './ai/screener'
 import { planSteps, converse } from './ai/planner'
 import { speak, stopSpeaking } from './ai/tts'
 import { transcribe } from './ai/whisper'
@@ -28,13 +28,66 @@ import {
 import { startRecording, recordStep, stopRecording, saveToNode } from './session/recorder'
 import { registerReplayIpc, replayWalkthrough } from './session/replay'
 import { hasActiveReplay, stopReplay } from './session/replayController'
-import { createControlledDemoWorkflow } from './session/demoWorkflow'
+import { CONTROLLED_DEMO_HEIGHT, CONTROLLED_DEMO_WIDTH, createControlledDemoWorkflow } from './session/demoWorkflow'
+import type { Step } from './session/types'
 
 const icon = join(__dirname, '../../resources/icon.png')
 const DEFAULT_APP_NAME = 'Specter'
+const REAL_APP_CONFIDENCE_THRESHOLD = 0.65
 
 let mainWindow: BrowserWindow | null = null
 let overlayWindow: BrowserWindow | null = null
+
+function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms))
+}
+
+function clampPercent(value: any, fallback = 50): number {
+  return typeof value === 'number' && Number.isFinite(value) ? Math.min(100, Math.max(0, value)) : fallback
+}
+
+function confidenceValue(value: any, fallback = 0): number {
+  if (typeof value !== 'number' || !Number.isFinite(value)) return fallback
+  const normalized = value > 1 ? value / 100 : value
+  return Math.min(1, Math.max(0, normalized))
+}
+
+function realAppAction(value: any): Step['action'] {
+  return ['click', 'type', 'scroll', 'wait'].includes(value) ? value : 'click'
+}
+
+function safeLabel(value: any, fallback = 'Selected target'): string {
+  return typeof value === 'string' && value.trim() ? value.trim() : fallback
+}
+
+function instructionForTarget(label: string, action: Step['action']): string {
+  if (action === 'type') return `Move to ${label}.`
+  if (action === 'scroll') return `Scroll near ${label}.`
+  if (action === 'wait') return `Watch ${label}.`
+  return `Click ${label}.`
+}
+
+function createRealAppStep(target: any, source: 'vision' | 'manual'): Step {
+  const label = safeLabel(target?.label, source === 'manual' ? 'Manual target' : 'Selected target')
+  const action = realAppAction(target?.action)
+
+  return {
+    id: source === 'manual' ? 'manual-real-app-target' : safeLabel(target?.id, 'real-app-target'),
+    title: source === 'manual' ? 'Manual target' : label,
+    instruction: instructionForTarget(label, action),
+    targetLabel: label,
+    action,
+    x: clampPercent(target?.x),
+    y: clampPercent(target?.y)
+  }
+}
+
+function realAppNodeId(input: any, label: string): string {
+  const microTask = safeLabel(input?.microTask, '')
+  const intent = safeLabel(input?.intent, '')
+  const title = microTask || intent || `Click ${label}`
+  return `Real App Test: ${title}`.slice(0, 120)
+}
 
 function isLearningGraph(value: any): boolean {
   return Boolean(
@@ -57,10 +110,12 @@ function toggleOverlay(): void {
     return
   }
   if (overlayWindow.isVisible()) {
+    console.log('[OVERLAY_INTERACTION] hiding overlay, enabled click-through')
     overlayWindow.setIgnoreMouseEvents(true, { forward: true })
     overlayWindow.hide()
   } else {
-    overlayWindow.setIgnoreMouseEvents(false)
+    console.log('[OVERLAY_INTERACTION] showing overlay, enabled click-through (ignore mouse: true)')
+    overlayWindow.setIgnoreMouseEvents(true, { forward: true })
     overlayWindow.show()
   }
   overlayWindow.webContents.send('overlay:toggle')
@@ -88,8 +143,10 @@ uIOhook.on('keydown', (e) => {
 
 function createWindow(): void {
   mainWindow = new BrowserWindow({
-    width: 400,
-    height: 600,
+    width: CONTROLLED_DEMO_WIDTH,
+    height: CONTROLLED_DEMO_HEIGHT,
+    minWidth: 760,
+    minHeight: 560,
     show: false,
     autoHideMenuBar: true,
     ...(process.platform === 'linux' ? { icon } : {}),
@@ -203,7 +260,10 @@ app.whenReady().then(async () => {
   })
 
   ipcMain.handle('cursor:click', async (_event, x, y) => clickRealMouse(x, y))
-  ipcMain.handle('cursor:replay', async (_event, steps) => executeRealMouseSteps(steps))
+  ipcMain.handle('cursor:replay', async (_event, steps) => {
+    console.warn('[AUTO_REAL_MOUSE] LOUD WARNING: REAL OS automation steps triggered from IPC', { count: steps?.length })
+    return executeRealMouseSteps(steps)
+  })
   ipcMain.handle('cursor:getPosition', async () => getPhysicalMousePosition())
   ipcMain.handle('cursor:diagnostics', async () => getCoordinateCalibrationDiagnostics())
   ipcMain.handle('cursor:moveCenter', async () => {
@@ -217,6 +277,7 @@ app.whenReady().then(async () => {
 
   ipcMain.handle('overlay:setClickThrough', async (_event, clickThrough) => {
     if (!overlayWindow || overlayWindow.isDestroyed()) return
+    console.log(`[OVERLAY_INTERACTION] ${clickThrough ? 'enabled click-through' : 'enabled interactive zone'}`)
     overlayWindow.setIgnoreMouseEvents(clickThrough, { forward: true })
   })
 
@@ -243,6 +304,102 @@ app.whenReady().then(async () => {
       }
       console.error('[Specter] Screen analysis failed; using fallback screen state:', err)
       return fallbackScreenState()
+    }
+  })
+
+  ipcMain.handle('realApp:detectTargets', async (event, userIntent = '') => {
+    const prompt = typeof userIntent === 'string' && userIntent.trim() ? userIntent.trim() : 'Teach one visible action'
+    console.log('[REAL_APP_TEST] capture requested', { prompt })
+
+    const wasOverlayVisible = Boolean(overlayWindow && !overlayWindow.isDestroyed() && overlayWindow.isVisible())
+
+    try {
+      if (wasOverlayVisible && overlayWindow) {
+        overlayWindow.setIgnoreMouseEvents(true, { forward: true })
+        overlayWindow.hide()
+        await delay(160)
+      }
+
+      const screenshot = await captureScreenBase64()
+      console.log('[SCREEN_TARGETS] captured real app screen', {
+        prompt,
+        bytesBase64: screenshot.length
+      })
+
+      if (wasOverlayVisible && overlayWindow && !overlayWindow.isDestroyed()) {
+        overlayWindow.show()
+        overlayWindow.setIgnoreMouseEvents(false)
+      }
+
+      const result = await detectScreenTargets(screenshot, prompt)
+      console.log('[SCREEN_TARGETS] targets returned', {
+        prompt,
+        app: result.app,
+        count: result.targets.length,
+        threshold: REAL_APP_CONFIDENCE_THRESHOLD,
+        topConfidence: result.targets[0]?.confidence ?? null
+      })
+      return {
+        ...result,
+        confidenceThreshold: REAL_APP_CONFIDENCE_THRESHOLD
+      }
+    } catch (err: any) {
+      if (isPermissionError(err) || err.code === 'SCREEN_PERMISSION_DENIED') {
+        event.sender.send('permissions:screen-denied')
+      }
+      console.error('[REAL_APP_TEST] target detection failed:', err)
+      return {
+        ...fallbackScreenTargets(prompt),
+        confidenceThreshold: REAL_APP_CONFIDENCE_THRESHOLD
+      }
+    } finally {
+      if (wasOverlayVisible && overlayWindow && !overlayWindow.isDestroyed()) {
+        overlayWindow.show()
+        overlayWindow.setIgnoreMouseEvents(false)
+      }
+    }
+  })
+
+  ipcMain.handle('realApp:createWorkflow', async (_event, input) => {
+    const target = input && typeof input === 'object' ? input.target : null
+    const source: 'vision' | 'manual' = target?.source === 'manual' || input?.source === 'manual' ? 'manual' : 'vision'
+    const step = createRealAppStep(target, source)
+    const nodeId = realAppNodeId(input, step.targetLabel || step.title || 'Selected target')
+    const targetConfidence = confidenceValue(target?.confidence, source === 'manual' ? 1 : 0)
+
+    if (source === 'manual') {
+      console.log('[MANUAL_TARGET] saving manual real-app target', {
+        nodeId,
+        label: step.targetLabel,
+        x: step.x,
+        y: step.y
+      })
+    } else {
+      console.log('[TARGET_CONFIRM] saving confirmed real-app target', {
+        nodeId,
+        label: step.targetLabel,
+        x: step.x,
+        y: step.y,
+        confidence: targetConfidence
+      })
+    }
+
+    const graph = saveToNode(loadGraph(DEFAULT_APP_NAME), nodeId, [step])
+    saveGraph(graph)
+    console.log('[REAL_APP_WALKTHROUGH] workflow ready', {
+      nodeId,
+      totalSteps: 1,
+      label: step.targetLabel,
+      source,
+      confidence: targetConfidence
+    })
+
+    return {
+      nodeId,
+      steps: [step],
+      intent: safeLabel(input?.intent, step.targetLabel || 'Real App Test'),
+      source,
+      confidence: targetConfidence
     }
   })
 
@@ -280,8 +437,12 @@ app.whenReady().then(async () => {
   })
 
   ipcMain.handle('demo:controlledWorkflow', async () => {
-    mainWindow?.show()
-    mainWindow?.focus()
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.setContentSize(CONTROLLED_DEMO_WIDTH, CONTROLLED_DEMO_HEIGHT)
+      mainWindow.center()
+      mainWindow.show()
+      mainWindow.focus()
+    }
     const workflow = createControlledDemoWorkflow(mainWindow)
     const graph = saveToNode(loadGraph(DEFAULT_APP_NAME), workflow.nodeId, workflow.steps)
     saveGraph(graph)

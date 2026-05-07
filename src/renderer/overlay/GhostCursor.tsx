@@ -20,16 +20,30 @@ function fallbackStart(step: any): { x: number; y: number } {
 }
 
 export const GhostCursor: React.FC<GhostCursorProps> = ({ step }) => {
-  if (!step || typeof step.x !== 'number' || typeof step.y !== 'number') return null
+  // If no step, we are in an "idle" state
+  const isIdle = !step || step.type === 'idle'
+  
+  // Default idle position: bottom-right of center, near where the input card usually ends
+  const idleX = 65
+  const idleY = 70
+  
+  const displayX = isIdle ? idleX : step.x
+  const displayY = isIdle ? idleY : step.y
 
-  const bubbleOnLeft = step.x > 70
-  const fallback = fallbackStart(step)
-  const startX = typeof step.ghostStartX === 'number' ? step.ghostStartX : fallback.x
-  const startY = typeof step.ghostStartY === 'number' ? step.ghostStartY : fallback.y
-  const fromX = clampPercent(startX) - clampPercent(step.x)
-  const fromY = clampPercent(startY) - clampPercent(step.y)
-  const shouldLoop = step.ghostLoop !== false && step.action !== 'wait' && !step.ghostLocked
-  const hasHint = Boolean(step.instruction || step.targetLabel)
+  if (typeof displayX !== 'number' || typeof displayY !== 'number') return null
+
+  const bubbleOnLeft = displayX > 70
+  const fallback = !isIdle ? fallbackStart(step) : { x: idleX, y: idleY }
+  const startX = !isIdle && typeof step.ghostStartX === 'number' ? step.ghostStartX : fallback.x
+  const startY = !isIdle && typeof step.ghostStartY === 'number' ? step.ghostStartY : fallback.y
+  
+  const fromX = clampPercent(startX) - clampPercent(displayX)
+  const fromY = clampPercent(startY) - clampPercent(displayY)
+  
+  const shouldLoop = !isIdle && step.ghostLoop !== false && step.action !== 'wait' && !step.ghostLocked
+  const hasHint = !isIdle && Boolean(step.instruction || step.targetLabel)
+  const isLocked = !isIdle && step.ghostLocked
+
   const motionStyle = {
     '--ghost-from-x': `${fromX}vw`,
     '--ghost-from-y': `${fromY}vh`,
@@ -42,27 +56,29 @@ export const GhostCursor: React.FC<GhostCursorProps> = ({ step }) => {
   return (
     <div className="ghost-cursor-container" style={{
       position: 'absolute',
-      left: `${step.x}%`,
-      top: `${step.y}%`,
+      left: `${displayX}%`,
+      top: `${displayY}%`,
       transform: 'translate(-2px, -2px)',
       pointerEvents: 'none',
       zIndex: 9999,
-      transition: 'left 0.24s ease, top 0.24s ease'
+      transition: isIdle ? 'left 0.8s ease, top 0.8s ease, opacity 0.5s ease' : 'left 0.24s ease, top 0.24s ease',
+      opacity: isIdle ? 0.55 : 1
     }}>
       <div className="ghost-cursor-ring" style={{
         position: 'absolute',
-        width: step.ghostLocked ? '48px' : '42px',
-        height: step.ghostLocked ? '48px' : '42px',
+        width: isLocked ? '48px' : '42px',
+        height: isLocked ? '48px' : '42px',
         borderRadius: '50%',
-        border: step.ghostLocked ? '2px solid rgba(48, 209, 88, 0.72)' : '2px solid rgba(10, 132, 255, 0.45)',
-        background: step.ghostLocked ? 'rgba(48, 209, 88, 0.14)' : 'rgba(10, 132, 255, 0.10)',
-        animation: step.ghostLocked ? undefined : 'ghost-ring-pulse 1.8s infinite',
-        left: step.ghostLocked ? '-23px' : '-20px',
-        top: step.ghostLocked ? '-23px' : '-20px',
-        transition: 'all 0.18s ease'
+        border: isLocked ? '2px solid rgba(48, 209, 88, 0.72)' : '2px solid rgba(10, 132, 255, 0.45)',
+        background: isLocked ? 'rgba(48, 209, 88, 0.14)' : 'rgba(10, 132, 255, 0.10)',
+        animation: isLocked || isIdle ? undefined : 'ghost-ring-pulse 1.8s infinite',
+        left: isLocked ? '-23px' : '-20px',
+        top: isLocked ? '-23px' : '-20px',
+        transition: 'all 0.18s ease',
+        opacity: isIdle ? 0 : 1
       }} />
       <div
-        key={step.ghostReplayKey || `${step.index ?? 'step'}:${step.x}:${step.y}`}
+        key={isIdle ? 'idle' : (step.ghostReplayKey || `${step.index ?? 'step'}:${step.x}:${step.y}`)}
         className="ghost-cursor-motion"
         style={motionStyle}
       >
@@ -74,7 +90,7 @@ export const GhostCursor: React.FC<GhostCursorProps> = ({ step }) => {
           aria-hidden="true"
           style={{
             display: 'block',
-            opacity: step.ghostLocked ? 0.88 : 0.72,
+            opacity: isLocked ? 0.88 : 0.72,
             filter: 'drop-shadow(0 3px 5px rgba(0,0,0,0.38))',
             transition: 'opacity 0.18s ease'
           }}

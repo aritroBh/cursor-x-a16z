@@ -3,60 +3,61 @@ import ReactDOM from 'react-dom/client'
 import './assets/main.css'
 
 const DemoApp: React.FC = () => {
-  const [buttonOneDone, setButtonOneDone] = React.useState(false)
-  const [buttonTwoDone, setButtonTwoDone] = React.useState(false)
-  const [text, setText] = React.useState('')
-  const [confirmed, setConfirmed] = React.useState(false)
+  const [settingsOpen, setSettingsOpen] = React.useState(false)
+  const [templateSelected, setTemplateSelected] = React.useState(false)
+  const [projectName, setProjectName] = React.useState('')
+  const [created, setCreated] = React.useState(false)
 
   const reset = () => {
-    setButtonOneDone(false)
-    setButtonTwoDone(false)
-    setText('')
-    setConfirmed(false)
+    setSettingsOpen(false)
+    setTemplateSelected(false)
+    setProjectName('')
+    setCreated(false)
   }
 
   return (
     <div className="main-window">
       <div className="demo-stage">
         <div className="demo-header">
-          <h1>Specter</h1>
-          <p>Controlled demo target</p>
+          <p className="demo-eyebrow">Practice Workspace</p>
+          <h1>Project Setup</h1>
+          <p>Use Specter to follow a small, predictable software flow.</p>
         </div>
 
         <button
-          className={`demo-target demo-button-one ${buttonOneDone ? 'is-done' : ''}`}
-          onClick={() => setButtonOneDone(true)}
+          className={`demo-target demo-button-one ${settingsOpen ? 'is-done' : ''}`}
+          onClick={() => setSettingsOpen(true)}
         >
-          {buttonOneDone ? 'Button 1 done' : 'Button 1'}
+          {settingsOpen ? 'Settings Opened' : 'Open Settings'}
         </button>
 
         <button
-          className={`demo-target demo-button-two ${buttonTwoDone ? 'is-done' : ''}`}
-          onClick={() => setButtonTwoDone(true)}
+          className={`demo-target demo-button-two ${templateSelected ? 'is-done' : ''}`}
+          onClick={() => setTemplateSelected(true)}
         >
-          {buttonTwoDone ? 'Button 2 done' : 'Button 2'}
+          {templateSelected ? 'Template Chosen' : 'Choose Template'}
         </button>
 
         <input
           className="demo-target demo-input"
-          value={text}
-          onChange={(event) => setText(event.target.value)}
-          placeholder="Text input"
-          aria-label="Text input"
+          value={projectName}
+          onChange={(event) => setProjectName(event.target.value)}
+          placeholder="Project name"
+          aria-label="Project name"
         />
 
         <button
-          className={`demo-target demo-confirm ${confirmed ? 'is-done' : ''}`}
-          onClick={() => setConfirmed(true)}
+          className={`demo-target demo-confirm ${created ? 'is-done' : ''}`}
+          onClick={() => setCreated(true)}
         >
-          {confirmed ? 'Confirmed' : 'Confirm'}
+          {created ? 'Created' : 'Create'}
         </button>
 
         <div className="demo-status" aria-live="polite">
-          <span className={buttonOneDone ? 'is-done' : ''}>1</span>
-          <span className={buttonTwoDone ? 'is-done' : ''}>2</span>
-          <span className={text.trim() ? 'is-done' : ''}>3</span>
-          <span className={confirmed ? 'is-done' : ''}>4</span>
+          <span className={settingsOpen ? 'is-done' : ''}>1</span>
+          <span className={templateSelected ? 'is-done' : ''}>2</span>
+          <span className={projectName.trim() ? 'is-done' : ''}>3</span>
+          <span className={created ? 'is-done' : ''}>4</span>
         </div>
 
         <button className="demo-reset" onClick={reset}>

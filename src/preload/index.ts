@@ -32,6 +32,10 @@ const api = {
   analyzeScreen: (base64PNG?: string) => ipcRenderer.invoke('screen:analyze', base64PNG),
   onScreenPermissionDenied: (callback: () => void) => onIpc('permissions:screen-denied', callback),
 
+  // Real App Test
+  detectRealAppTargets: (userIntent: string) => ipcRenderer.invoke('realApp:detectTargets', userIntent),
+  createRealAppWorkflow: (input: any) => ipcRenderer.invoke('realApp:createWorkflow', input),
+
   // Planner
   planSteps: (userIntent: string, screenState: any, sessionHistory: any[], mode: string) =>
     ipcRenderer.invoke('planner:plan', userIntent, screenState, sessionHistory, mode),

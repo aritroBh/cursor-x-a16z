@@ -4,6 +4,8 @@ import type { Step } from './types'
 
 export const CONTROLLED_DEMO_NODE_ID = 'Specter Controlled Demo'
 export const CONTROLLED_DEMO_INTENT = 'Controlled Specter demo'
+export const CONTROLLED_DEMO_WIDTH = 900
+export const CONTROLLED_DEMO_HEIGHT = 650
 
 const DEMO_TARGETS = {
   buttonOne: { x: 0.28, y: 0.32 },
@@ -38,33 +40,33 @@ export function createControlledDemoWorkflow(window: BrowserWindow | null): {
     steps: [
       {
         id: 'demo-button-1',
-        instruction: 'Click Button 1.',
-        targetLabel: 'Button 1',
+        instruction: 'Open settings.',
+        targetLabel: 'Open Settings',
         x: buttonOne.x,
         y: buttonOne.y,
         action: 'click'
       },
       {
         id: 'demo-button-2',
-        instruction: 'Click Button 2.',
-        targetLabel: 'Button 2',
+        instruction: 'Choose template.',
+        targetLabel: 'Choose Template',
         x: buttonTwo.x,
         y: buttonTwo.y,
         action: 'click'
       },
       {
         id: 'demo-type-text',
-        instruction: 'Type Specter demo.',
-        targetLabel: 'Text input',
+        instruction: 'Name the project.',
+        targetLabel: 'Project name',
         x: textInput.x,
         y: textInput.y,
         action: 'type',
-        typeText: 'Specter demo'
+        typeText: 'Specter Launch'
       },
       {
         id: 'demo-final-confirm',
-        instruction: 'Click Confirm.',
-        targetLabel: 'Final confirm',
+        instruction: 'Create project.',
+        targetLabel: 'Create',
         x: finalConfirm.x,
         y: finalConfirm.y,
         action: 'click'

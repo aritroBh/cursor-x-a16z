@@ -35,7 +35,7 @@ interface GhostStart {
 let pendingManualConfirm: (() => void) | null = null
 
 function stepTitle(step: Step): string {
-  return step.instruction || step.targetLabel || step.id || 'Untitled step'
+  return step.instruction || step.targetLabel || step.title || step.id || 'Untitled step'
 }
 
 function stepWaitMs(step: Step): number {
@@ -303,11 +303,12 @@ export async function replayWalkthrough(steps: Step[], onStep: (step: Step, inde
             })
             result = await waitForUserClickOnTarget(step, controller)
             if (result === 'correct') {
-              console.log('[CLICK_DETECT] click detected', { index, x: step.x, y: step.y })
+              console.log('[CLICK_DETECT] Success: User click detected at target', { index, x: step.x, y: step.y })
             } else if (result === 'timeout' && isActive(controller)) {
+              console.warn('[CLICK_DETECT] Failed: Click not detected within timeout. Activating Space/Enter fallback.')
               result = await waitForManualStepConfirmation(step, index, steps.length, controller)
               if (result === 'correct') {
-                console.log('[CLICK_DETECT] step advanced by Space/Enter fallback', { index, x: step.x, y: step.y })
+                console.log('[CLICK_DETECT] Step advanced by Space/Enter manual confirmation', { index, x: step.x, y: step.y })
               }
             }
           }

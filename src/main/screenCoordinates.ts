@@ -18,7 +18,7 @@ function rectSnapshot(rect: Rectangle): Rectangle {
 export function getPrimaryDisplayMetrics() {
   const primary = screen.getPrimaryDisplay()
 
-  return {
+  const metrics = {
     id: primary.id,
     scaleFactor: primary.scaleFactor,
     bounds: rectSnapshot(primary.bounds),
@@ -28,6 +28,9 @@ export function getPrimaryDisplayMetrics() {
       height: primary.size.height
     }
   }
+
+  console.log('[COORD_CALIBRATION] Primary display metrics retrieved', metrics)
+  return metrics
 }
 
 export async function toScreenPoint(x: number, y: number): Promise<Point> {
@@ -37,6 +40,12 @@ export async function toScreenPoint(x: number, y: number): Promise<Point> {
 
   const pixelX = Math.round((clampPercent(x) / 100) * logicalW * scale)
   const pixelY = Math.round((clampPercent(y) / 100) * logicalH * scale)
+
+  console.log('[COORD_CALIBRATION] Mapping percent to screen point', {
+    input: { x, y },
+    display: { logicalW, logicalH, scale },
+    output: { pixelX, pixelY }
+  })
 
   return new Point(pixelX, pixelY)
 }

@@ -1,5 +1,6 @@
 export interface Step {
   id?: string;
+  title?: string;
   instruction?: string;
   targetLabel?: string;
   x: number;

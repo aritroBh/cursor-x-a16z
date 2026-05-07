@@ -84,14 +84,20 @@ async function checkPermissions() {
     const missing = [];
     if (screenStatus !== "authorized") missing.push("screen");
     if (accessibilityStatus !== "authorized") missing.push("accessibility");
+    console.log("[PERMISSIONS] Status check:", {
+      screen: screenStatus,
+      accessibility: accessibilityStatus,
+      missing
+    });
     if (missing.length === 0) {
+      console.log("[PERMISSIONS] All required permissions granted.");
       return true;
     }
     if (missing.includes("accessibility")) {
       electron.shell.openExternal(ACCESSIBILITY_SETTINGS_URL);
     }
-    const action = showPermissionDialog(missing);
-    if (action === "quit") {
+    const action2 = showPermissionDialog(missing);
+    if (action2 === "quit") {
       electron.app.quit();
       return false;
     }
@@ -127,7 +133,7 @@ async function captureScreenBase64() {
   }
   return source.thumbnail.toPNG().toString("base64");
 }
-function clampPercent(value) {
+function clampPercent$1(value) {
   return Math.min(100, Math.max(0, value));
 }
 function rectSnapshot(rect) {
@@ -140,7 +146,7 @@ function rectSnapshot(rect) {
 }
 function getPrimaryDisplayMetrics() {
   const primary = electron.screen.getPrimaryDisplay();
-  return {
+  const metrics = {
     id: primary.id,
     scaleFactor: primary.scaleFactor,
     bounds: rectSnapshot(primary.bounds),
@@ -150,13 +156,20 @@ function getPrimaryDisplayMetrics() {
       height: primary.size.height
     }
   };
+  console.log("[COORD_CALIBRATION] Primary display metrics retrieved", metrics);
+  return metrics;
 }
 async function toScreenPoint(x, y) {
   const primary = electron.screen.getPrimaryDisplay();
   const { width: logicalW, height: logicalH } = primary.size;
   const scale = primary.scaleFactor;
-  const pixelX = Math.round(clampPercent(x) / 100 * logicalW * scale);
-  const pixelY = Math.round(clampPercent(y) / 100 * logicalH * scale);
+  const pixelX = Math.round(clampPercent$1(x) / 100 * logicalW * scale);
+  const pixelY = Math.round(clampPercent$1(y) / 100 * logicalH * scale);
+  console.log("[COORD_CALIBRATION] Mapping percent to screen point", {
+    input: { x, y },
+    display: { logicalW, logicalH, scale },
+    output: { pixelX, pixelY }
+  });
   return new nutJs.Point(pixelX, pixelY);
 }
 function screenPointToPercent(x, y) {
@@ -164,15 +177,15 @@ function screenPointToPercent(x, y) {
   const { width: logicalW, height: logicalH } = primary.size;
   const scale = primary.scaleFactor;
   return {
-    x: clampPercent(x / (logicalW * scale) * 100),
-    y: clampPercent(y / (logicalH * scale) * 100)
+    x: clampPercent$1(x / (logicalW * scale) * 100),
+    y: clampPercent$1(y / (logicalH * scale) * 100)
   };
 }
 function logicalPointToPercent(x, y) {
   const primary = electron.screen.getPrimaryDisplay();
   return {
-    x: clampPercent((x - primary.bounds.x) / primary.bounds.width * 100),
-    y: clampPercent((y - primary.bounds.y) / primary.bounds.height * 100)
+    x: clampPercent$1((x - primary.bounds.x) / primary.bounds.width * 100),
+    y: clampPercent$1((y - primary.bounds.y) / primary.bounds.height * 100)
   };
 }
 const DEFAULT_MOVE_DURATION_MS = 650;
@@ -411,6 +424,20 @@ function fallbackScreenState() {
 function percent(value, fallback = 50) {
   return typeof value === "number" && Number.isFinite(value) ? Math.min(100, Math.max(0, value)) : fallback;
 }
+function confidence(value, fallback = 0.5) {
+  if (typeof value !== "number" || !Number.isFinite(value)) return fallback;
+  const normalized = value > 1 ? value / 100 : value;
+  return Math.min(1, Math.max(0, normalized));
+}
+function action(value) {
+  return ["click", "type", "scroll", "wait"].includes(value) ? value : "click";
+}
+function extractJson$1(text) {
+  const cleanJson = text.replace(/```json/g, "").replace(/```/g, "").trim();
+  const jsonMatch = cleanJson.match(/\{[\s\S]*\}/);
+  if (!jsonMatch) return null;
+  return JSON.parse(jsonMatch[0]);
+}
 function normalizeScreenState(value) {
   if (!value || typeof value !== "object") {
     return fallbackScreenState();
@@ -418,12 +445,150 @@ function normalizeScreenState(value) {
   const coordinates = Array.isArray(value.coordinates) ? value.coordinates.filter((item) => item && typeof item === "object").map((item) => ({
     label: typeof item.label === "string" && item.label.trim() ? item.label : "Untitled target",
     x: percent(item.x ?? item.targetX),
-    y: percent(item.y ?? item.targetY)
+    y: percent(item.y ?? item.targetY),
+    confidence: confidence(item.confidence, 0.5)
   })) : [];
   return {
     app: typeof value.app === "string" && value.app.trim() ? value.app : "Unknown",
     coordinates
   };
+}
+function normalizeScreenTargets(value, prompt) {
+  if (!value || typeof value !== "object") {
+    return {
+      app: "Unknown",
+      prompt,
+      microTask: "First, I will teach one visible action.",
+      targets: [],
+      needsConfirmation: true,
+      reason: "No target JSON returned.",
+      capturedAt: (/* @__PURE__ */ new Date()).toISOString()
+    };
+  }
+  const rawTargets = Array.isArray(value.targets) ? value.targets : Array.isArray(value.coordinates) ? value.coordinates : [];
+  const targets = rawTargets.filter((item) => item && typeof item === "object").map(
+    (item, index) => ({
+      id: typeof item.id === "string" && item.id.trim() ? item.id : `target-${index + 1}`,
+      label: typeof item.label === "string" && item.label.trim() ? item.label.trim() : typeof item.name === "string" && item.name.trim() ? item.name.trim() : `Target ${index + 1}`,
+      description: typeof item.description === "string" && item.description.trim() ? item.description.trim() : void 0,
+      x: percent(item.x ?? item.targetX),
+      y: percent(item.y ?? item.targetY),
+      confidence: confidence(item.confidence, 0.45),
+      action: action(item.action),
+      source: "vision"
+    })
+  ).sort((a, b) => b.confidence - a.confidence).slice(0, 12);
+  return {
+    app: typeof value.app === "string" && value.app.trim() ? value.app.trim() : "Unknown",
+    prompt,
+    microTask: typeof value.microTask === "string" && value.microTask.trim() ? value.microTask.trim() : "First, I will teach one visible action.",
+    targets,
+    needsConfirmation: value.needsConfirmation !== false,
+    reason: typeof value.reason === "string" && value.reason.trim() ? value.reason.trim() : void 0,
+    capturedAt: (/* @__PURE__ */ new Date()).toISOString()
+  };
+}
+function fallbackScreenTargets(prompt = "") {
+  return {
+    app: "Unknown",
+    prompt,
+    microTask: "First, I will teach one visible action.",
+    targets: [],
+    needsConfirmation: true,
+    reason: "No visible targets were detected.",
+    capturedAt: (/* @__PURE__ */ new Date()).toISOString()
+  };
+}
+async function detectScreenTargets(base64PNG, prompt = "") {
+  const anthropic = anthropicClient$1();
+  const normalizedPrompt = typeof prompt === "string" && prompt.trim() ? prompt.trim() : "Teach one visible action";
+  console.log("[SCREEN_TARGETS] detect request", {
+    hasBase64: Boolean(base64PNG),
+    prompt: normalizedPrompt
+  });
+  if (!base64PNG) {
+    console.warn("[SCREEN_TARGETS] no screenshot provided; returning empty target set");
+    return fallbackScreenTargets(normalizedPrompt);
+  }
+  if (!anthropic) {
+    console.warn("[SCREEN_TARGETS] ANTHROPIC_API_KEY missing; returning empty target set");
+    return fallbackScreenTargets(normalizedPrompt);
+  }
+  try {
+    console.log("[SCREEN_TARGETS] calling Claude Vision...", {
+      model: CLAUDE_VISION_MODEL
+    });
+    const message = await anthropic.messages.create({
+      model: CLAUDE_VISION_MODEL,
+      max_tokens: 4096,
+      system: "You are a real-app UI target detector for Specter, a visual software tutor. Return ONLY valid JSON. Identify visible clickable UI targets in the screenshot. Coordinates must be percentages from 0-100 of the full screenshot width and height. Include confidence from 0-1. If the user asks for a broad tutorial, reduce it to one visible micro-task and return at most 12 likely targets. Do not invent hidden menu items or off-screen steps.",
+      messages: [
+        {
+          role: "user",
+          content: [
+            {
+              type: "image",
+              source: {
+                type: "base64",
+                media_type: "image/png",
+                data: base64PNG
+              }
+            },
+            {
+              type: "text",
+              text: JSON.stringify(
+                {
+                  userPrompt: normalizedPrompt,
+                  requiredShape: {
+                    app: "detected app or web page",
+                    microTask: "First, I will teach one visible action.",
+                    needsConfirmation: true,
+                    reason: "short uncertainty note if useful",
+                    targets: [
+                      {
+                        id: "target-1",
+                        label: "Text tool",
+                        description: "visible T icon in toolbar",
+                        x: 12.5,
+                        y: 8.2,
+                        confidence: 0.86,
+                        action: "click"
+                      }
+                    ]
+                  }
+                },
+                null,
+                2
+              )
+            }
+          ]
+        }
+      ]
+    });
+    const textParts = message.content.flatMap((part) => part.type === "text" && "text" in part && typeof part.text === "string" ? [part.text] : []).join("\n");
+    if (textParts) {
+      console.log("[SCREEN_TARGETS] raw response:", textParts);
+      const parsed = extractJson$1(textParts);
+      if (parsed) {
+        const normalized = normalizeScreenTargets(parsed, normalizedPrompt);
+        console.log("[SCREEN_TARGETS] normalized targets", {
+          app: normalized.app,
+          count: normalized.targets.length,
+          topTarget: normalized.targets[0] ? {
+            label: normalized.targets[0].label,
+            x: normalized.targets[0].x,
+            y: normalized.targets[0].y,
+            confidence: normalized.targets[0].confidence
+          } : null
+        });
+        return normalized;
+      }
+    }
+    return fallbackScreenTargets(normalizedPrompt);
+  } catch (error) {
+    console.error("[SCREEN_TARGETS] error:", error);
+    return fallbackScreenTargets(normalizedPrompt);
+  }
 }
 async function analyzeScreen(base64PNG) {
   console.log("[SCREENER] Got base64, length:", base64PNG?.length);
@@ -437,7 +602,9 @@ async function analyzeScreen(base64PNG) {
     return fallbackScreenState();
   }
   try {
-    console.log("[SCREENER] Calling Claude Vision...", { model: CLAUDE_VISION_MODEL });
+    console.log("[SCREENER] Calling Claude Vision...", {
+      model: CLAUDE_VISION_MODEL
+    });
     const message = await anthropic.messages.create({
       model: CLAUDE_VISION_MODEL,
       max_tokens: 4096,
@@ -1038,6 +1205,7 @@ function normalizeStep(value) {
   const step = isRecord(value) ? value : {};
   return {
     id: typeof step.id === "string" ? step.id : void 0,
+    title: typeof step.title === "string" ? step.title : void 0,
     instruction: typeof step.instruction === "string" ? step.instruction : void 0,
     targetLabel: typeof step.targetLabel === "string" ? step.targetLabel : void 0,
     x: percentNumber(step.x ?? step.targetX),
@@ -1239,6 +1407,7 @@ function averageStepTime(steps) {
 function normalizeRecordedStep(step) {
   return {
     id: typeof step.id === "string" ? step.id : void 0,
+    title: typeof step.title === "string" ? step.title : void 0,
     instruction: typeof step.instruction === "string" ? step.instruction : void 0,
     targetLabel: typeof step.targetLabel === "string" ? step.targetLabel : void 0,
     x: Number.isFinite(step.x) ? Math.min(100, Math.max(0, step.x)) : 50,
@@ -1469,7 +1638,7 @@ const TARGET_CLICK_TOLERANCE_PX = 60;
 const MANUAL_CONFIRM_TIMEOUT_MS = 3e4;
 let pendingManualConfirm = null;
 function stepTitle(step) {
-  return step.instruction || step.targetLabel || step.id || "Untitled step";
+  return step.instruction || step.targetLabel || step.title || step.id || "Untitled step";
 }
 function stepWaitMs(step) {
   return step.waitForMs || step.delayMs || DEFAULT_WAIT_STEP_MS;
@@ -1681,11 +1850,12 @@ async function replayWalkthrough(steps, onStep) {
             });
             result = await waitForUserClickOnTarget(step, controller);
             if (result === "correct") {
-              console.log("[CLICK_DETECT] click detected", { index, x: step.x, y: step.y });
+              console.log("[CLICK_DETECT] Success: User click detected at target", { index, x: step.x, y: step.y });
             } else if (result === "timeout" && isActive(controller)) {
+              console.warn("[CLICK_DETECT] Failed: Click not detected within timeout. Activating Space/Enter fallback.");
               result = await waitForManualStepConfirmation(step, index, steps.length, controller);
               if (result === "correct") {
-                console.log("[CLICK_DETECT] step advanced by Space/Enter fallback", { index, x: step.x, y: step.y });
+                console.log("[CLICK_DETECT] Step advanced by Space/Enter manual confirmation", { index, x: step.x, y: step.y });
               }
             }
           }
@@ -1752,6 +1922,8 @@ function registerReplayIpc(ipcMain, windowProvider, appName = "Specter") {
 }
 const CONTROLLED_DEMO_NODE_ID = "Specter Controlled Demo";
 const CONTROLLED_DEMO_INTENT = "Controlled Specter demo";
+const CONTROLLED_DEMO_WIDTH = 900;
+const CONTROLLED_DEMO_HEIGHT = 650;
 const DEMO_TARGETS = {
   buttonOne: { x: 0.28, y: 0.32 },
   buttonTwo: { x: 0.72, y: 0.32 },
@@ -1777,33 +1949,33 @@ function createControlledDemoWorkflow(window) {
     steps: [
       {
         id: "demo-button-1",
-        instruction: "Click Button 1.",
-        targetLabel: "Button 1",
+        instruction: "Open settings.",
+        targetLabel: "Open Settings",
         x: buttonOne.x,
         y: buttonOne.y,
         action: "click"
       },
       {
         id: "demo-button-2",
-        instruction: "Click Button 2.",
-        targetLabel: "Button 2",
+        instruction: "Choose template.",
+        targetLabel: "Choose Template",
         x: buttonTwo.x,
         y: buttonTwo.y,
         action: "click"
       },
       {
         id: "demo-type-text",
-        instruction: "Type Specter demo.",
-        targetLabel: "Text input",
+        instruction: "Name the project.",
+        targetLabel: "Project name",
         x: textInput.x,
         y: textInput.y,
         action: "type",
-        typeText: "Specter demo"
+        typeText: "Specter Launch"
       },
       {
         id: "demo-final-confirm",
-        instruction: "Click Confirm.",
-        targetLabel: "Final confirm",
+        instruction: "Create project.",
+        targetLabel: "Create",
         x: finalConfirm.x,
         y: finalConfirm.y,
         action: "click"
@@ -1813,8 +1985,51 @@ function createControlledDemoWorkflow(window) {
 }
 const icon = path.join(__dirname, "../../resources/icon.png");
 const DEFAULT_APP_NAME = "Specter";
+const REAL_APP_CONFIDENCE_THRESHOLD = 0.65;
 let mainWindow = null;
 let overlayWindow = null;
+function delay(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+function clampPercent(value, fallback = 50) {
+  return typeof value === "number" && Number.isFinite(value) ? Math.min(100, Math.max(0, value)) : fallback;
+}
+function confidenceValue(value, fallback = 0) {
+  if (typeof value !== "number" || !Number.isFinite(value)) return fallback;
+  const normalized = value > 1 ? value / 100 : value;
+  return Math.min(1, Math.max(0, normalized));
+}
+function realAppAction(value) {
+  return ["click", "type", "scroll", "wait"].includes(value) ? value : "click";
+}
+function safeLabel(value, fallback = "Selected target") {
+  return typeof value === "string" && value.trim() ? value.trim() : fallback;
+}
+function instructionForTarget(label, action2) {
+  if (action2 === "type") return `Move to ${label}.`;
+  if (action2 === "scroll") return `Scroll near ${label}.`;
+  if (action2 === "wait") return `Watch ${label}.`;
+  return `Click ${label}.`;
+}
+function createRealAppStep(target, source) {
+  const label = safeLabel(target?.label, source === "manual" ? "Manual target" : "Selected target");
+  const action2 = realAppAction(target?.action);
+  return {
+    id: source === "manual" ? "manual-real-app-target" : safeLabel(target?.id, "real-app-target"),
+    title: source === "manual" ? "Manual target" : label,
+    instruction: instructionForTarget(label, action2),
+    targetLabel: label,
+    action: action2,
+    x: clampPercent(target?.x),
+    y: clampPercent(target?.y)
+  };
+}
+function realAppNodeId(input, label) {
+  const microTask = safeLabel(input?.microTask, "");
+  const intent = safeLabel(input?.intent, "");
+  const title = microTask || intent || `Click ${label}`;
+  return `Real App Test: ${title}`.slice(0, 120);
+}
 function isLearningGraph(value) {
   return Boolean(
     value && typeof value === "object" && "userId" in value && "app" in value && "nodes" in value && "sessions" in value && "bandtState" in value
@@ -1829,10 +2044,12 @@ function toggleOverlay() {
     return;
   }
   if (overlayWindow.isVisible()) {
+    console.log("[OVERLAY_INTERACTION] hiding overlay, enabled click-through");
     overlayWindow.setIgnoreMouseEvents(true, { forward: true });
     overlayWindow.hide();
   } else {
-    overlayWindow.setIgnoreMouseEvents(false);
+    console.log("[OVERLAY_INTERACTION] showing overlay, enabled click-through (ignore mouse: true)");
+    overlayWindow.setIgnoreMouseEvents(true, { forward: true });
     overlayWindow.show();
   }
   overlayWindow.webContents.send("overlay:toggle");
@@ -1857,8 +2074,10 @@ uiohookNapi.uIOhook.on("keydown", (e) => {
 });
 function createWindow() {
   mainWindow = new electron.BrowserWindow({
-    width: 400,
-    height: 600,
+    width: CONTROLLED_DEMO_WIDTH,
+    height: CONTROLLED_DEMO_HEIGHT,
+    minWidth: 760,
+    minHeight: 560,
     show: false,
     autoHideMenuBar: true,
     ...process.platform === "linux" ? { icon } : {},
@@ -1951,7 +2170,10 @@ electron.app.whenReady().then(async () => {
     return moveRealMouse(x, y, durationMs);
   });
   electron.ipcMain.handle("cursor:click", async (_event, x, y) => clickRealMouse(x, y));
-  electron.ipcMain.handle("cursor:replay", async (_event, steps) => executeRealMouseSteps(steps));
+  electron.ipcMain.handle("cursor:replay", async (_event, steps) => {
+    console.warn("[AUTO_REAL_MOUSE] LOUD WARNING: REAL OS automation steps triggered from IPC", { count: steps?.length });
+    return executeRealMouseSteps(steps);
+  });
   electron.ipcMain.handle("cursor:getPosition", async () => getPhysicalMousePosition());
   electron.ipcMain.handle("cursor:diagnostics", async () => getCoordinateCalibrationDiagnostics());
   electron.ipcMain.handle("cursor:moveCenter", async () => {
@@ -1964,6 +2186,7 @@ electron.app.whenReady().then(async () => {
   });
   electron.ipcMain.handle("overlay:setClickThrough", async (_event, clickThrough) => {
     if (!overlayWindow || overlayWindow.isDestroyed()) return;
+    console.log(`[OVERLAY_INTERACTION] ${clickThrough ? "enabled click-through" : "enabled interactive zone"}`);
     overlayWindow.setIgnoreMouseEvents(clickThrough, { forward: true });
   });
   electron.ipcMain.handle("screen:capture", async (event) => {
@@ -1989,6 +2212,92 @@ electron.app.whenReady().then(async () => {
       console.error("[Specter] Screen analysis failed; using fallback screen state:", err);
       return fallbackScreenState();
     }
+  });
+  electron.ipcMain.handle("realApp:detectTargets", async (event, userIntent = "") => {
+    const prompt = typeof userIntent === "string" && userIntent.trim() ? userIntent.trim() : "Teach one visible action";
+    console.log("[REAL_APP_TEST] capture requested", { prompt });
+    const wasOverlayVisible = Boolean(overlayWindow && !overlayWindow.isDestroyed() && overlayWindow.isVisible());
+    try {
+      if (wasOverlayVisible && overlayWindow) {
+        overlayWindow.setIgnoreMouseEvents(true, { forward: true });
+        overlayWindow.hide();
+        await delay(160);
+      }
+      const screenshot = await captureScreenBase64();
+      console.log("[SCREEN_TARGETS] captured real app screen", {
+        prompt,
+        bytesBase64: screenshot.length
+      });
+      if (wasOverlayVisible && overlayWindow && !overlayWindow.isDestroyed()) {
+        overlayWindow.show();
+        overlayWindow.setIgnoreMouseEvents(false);
+      }
+      const result = await detectScreenTargets(screenshot, prompt);
+      console.log("[SCREEN_TARGETS] targets returned", {
+        prompt,
+        app: result.app,
+        count: result.targets.length,
+        threshold: REAL_APP_CONFIDENCE_THRESHOLD,
+        topConfidence: result.targets[0]?.confidence ?? null
+      });
+      return {
+        ...result,
+        confidenceThreshold: REAL_APP_CONFIDENCE_THRESHOLD
+      };
+    } catch (err) {
+      if (isPermissionError(err) || err.code === "SCREEN_PERMISSION_DENIED") {
+        event.sender.send("permissions:screen-denied");
+      }
+      console.error("[REAL_APP_TEST] target detection failed:", err);
+      return {
+        ...fallbackScreenTargets(prompt),
+        confidenceThreshold: REAL_APP_CONFIDENCE_THRESHOLD
+      };
+    } finally {
+      if (wasOverlayVisible && overlayWindow && !overlayWindow.isDestroyed()) {
+        overlayWindow.show();
+        overlayWindow.setIgnoreMouseEvents(false);
+      }
+    }
+  });
+  electron.ipcMain.handle("realApp:createWorkflow", async (_event, input) => {
+    const target = input && typeof input === "object" ? input.target : null;
+    const source = target?.source === "manual" || input?.source === "manual" ? "manual" : "vision";
+    const step = createRealAppStep(target, source);
+    const nodeId = realAppNodeId(input, step.targetLabel || step.title || "Selected target");
+    const targetConfidence = confidenceValue(target?.confidence, source === "manual" ? 1 : 0);
+    if (source === "manual") {
+      console.log("[MANUAL_TARGET] saving manual real-app target", {
+        nodeId,
+        label: step.targetLabel,
+        x: step.x,
+        y: step.y
+      });
+    } else {
+      console.log("[TARGET_CONFIRM] saving confirmed real-app target", {
+        nodeId,
+        label: step.targetLabel,
+        x: step.x,
+        y: step.y,
+        confidence: targetConfidence
+      });
+    }
+    const graph = saveToNode(loadGraph(DEFAULT_APP_NAME), nodeId, [step]);
+    saveGraph(graph);
+    console.log("[REAL_APP_WALKTHROUGH] workflow ready", {
+      nodeId,
+      totalSteps: 1,
+      label: step.targetLabel,
+      source,
+      confidence: targetConfidence
+    });
+    return {
+      nodeId,
+      steps: [step],
+      intent: safeLabel(input?.intent, step.targetLabel || "Real App Test"),
+      source,
+      confidence: targetConfidence
+    };
   });
   electron.ipcMain.handle("planner:plan", async (_event, userIntent, screenState, sessionHistory, mode) => {
     console.log("[IPC] planner:plan", { userIntent, mode });
@@ -2019,8 +2328,12 @@ electron.app.whenReady().then(async () => {
     return graph;
   });
   electron.ipcMain.handle("demo:controlledWorkflow", async () => {
-    mainWindow?.show();
-    mainWindow?.focus();
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.setContentSize(CONTROLLED_DEMO_WIDTH, CONTROLLED_DEMO_HEIGHT);
+      mainWindow.center();
+      mainWindow.show();
+      mainWindow.focus();
+    }
     const workflow = createControlledDemoWorkflow(mainWindow);
     const graph = saveToNode(loadGraph(DEFAULT_APP_NAME), workflow.nodeId, workflow.steps);
     saveGraph(graph);

@@ -93,6 +93,7 @@ function normalizeStep(value: any): Step {
   const step = isRecord(value) ? value : {}
   return {
     id: typeof step.id === 'string' ? step.id : undefined,
+    title: typeof step.title === 'string' ? step.title : undefined,
     instruction: typeof step.instruction === 'string' ? step.instruction : undefined,
     targetLabel: typeof step.targetLabel === 'string' ? step.targetLabel : undefined,
     x: percentNumber(step.x ?? step.targetX),

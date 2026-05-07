@@ -26,6 +26,9 @@ const api = {
   captureScreen: () => electron.ipcRenderer.invoke("screen:capture"),
   analyzeScreen: (base64PNG) => electron.ipcRenderer.invoke("screen:analyze", base64PNG),
   onScreenPermissionDenied: (callback) => onIpc("permissions:screen-denied", callback),
+  // Real App Test
+  detectRealAppTargets: (userIntent) => electron.ipcRenderer.invoke("realApp:detectTargets", userIntent),
+  createRealAppWorkflow: (input) => electron.ipcRenderer.invoke("realApp:createWorkflow", input),
   // Planner
   planSteps: (userIntent, screenState, sessionHistory, mode) => electron.ipcRenderer.invoke("planner:plan", userIntent, screenState, sessionHistory, mode),
   converse: (userMessage, screenState, conversationHistory) => electron.ipcRenderer.invoke("planner:converse", userMessage, screenState, conversationHistory),

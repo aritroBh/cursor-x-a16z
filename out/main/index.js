@@ -110,9 +110,122 @@ function isPermissionError(err) {
   }
   return false;
 }
+function safeLog(...args) {
+  try {
+    console.log(...args);
+  } catch {
+  }
+}
+function safeWarn(...args) {
+  try {
+    console.warn(...args);
+  } catch {
+  }
+}
+function safeError(...args) {
+  try {
+    console.error(...args);
+  } catch {
+  }
+}
+let activeCoordinateDisplayId = null;
+function clampPercent$1(value) {
+  return Math.min(100, Math.max(0, value));
+}
+function rectSnapshot(rect) {
+  return {
+    x: rect.x,
+    y: rect.y,
+    width: rect.width,
+    height: rect.height
+  };
+}
+function getDisplayById(displayId) {
+  if (displayId === null) return null;
+  return electron.screen.getAllDisplays().find((display) => display.id === displayId) || null;
+}
+function physicalBoundsForDisplay(display) {
+  return {
+    x: Math.round(display.bounds.x * display.scaleFactor),
+    y: Math.round(display.bounds.y * display.scaleFactor),
+    width: Math.round(display.bounds.width * display.scaleFactor),
+    height: Math.round(display.bounds.height * display.scaleFactor)
+  };
+}
+function displayContainsPhysicalPoint(display, x, y) {
+  const bounds = physicalBoundsForDisplay(display);
+  return x >= bounds.x && x <= bounds.x + bounds.width && y >= bounds.y && y <= bounds.y + bounds.height;
+}
+function displayForPhysicalPoint(x, y) {
+  return electron.screen.getAllDisplays().find((display) => displayContainsPhysicalPoint(display, x, y)) || getActiveCoordinateDisplay();
+}
+function setActiveCoordinateDisplay(displayId) {
+  activeCoordinateDisplayId = displayId;
+  safeLog("[WINDOW_ROUTING] active coordinate display set", { displayId });
+}
+function getActiveCoordinateDisplay() {
+  const pinned = getDisplayById(activeCoordinateDisplayId);
+  if (pinned) return pinned;
+  return electron.screen.getDisplayNearestPoint(electron.screen.getCursorScreenPoint()) || electron.screen.getPrimaryDisplay();
+}
+function getPrimaryDisplayMetrics() {
+  const primary = electron.screen.getPrimaryDisplay();
+  const active = getActiveCoordinateDisplay();
+  const metrics = {
+    id: primary.id,
+    scaleFactor: primary.scaleFactor,
+    bounds: rectSnapshot(primary.bounds),
+    workArea: rectSnapshot(primary.workArea),
+    activeDisplay: {
+      id: active.id,
+      scaleFactor: active.scaleFactor,
+      bounds: rectSnapshot(active.bounds),
+      workArea: rectSnapshot(active.workArea)
+    },
+    size: {
+      width: primary.size.width,
+      height: primary.size.height
+    }
+  };
+  safeLog("[COORD_CALIBRATION] Primary display metrics retrieved", metrics);
+  return metrics;
+}
+async function toScreenPoint(x, y) {
+  const display = getActiveCoordinateDisplay();
+  const scale = display.scaleFactor;
+  const logicalX = display.bounds.x + clampPercent$1(x) / 100 * display.bounds.width;
+  const logicalY = display.bounds.y + clampPercent$1(y) / 100 * display.bounds.height;
+  const pixelX = Math.round(logicalX * scale);
+  const pixelY = Math.round(logicalY * scale);
+  safeLog("[COORD_CALIBRATION] Mapping percent to screen point", {
+    input: { x, y },
+    display: {
+      id: display.id,
+      bounds: rectSnapshot(display.bounds),
+      scale
+    },
+    output: { pixelX, pixelY }
+  });
+  return new nutJs.Point(pixelX, pixelY);
+}
+function screenPointToPercent(x, y) {
+  const display = displayForPhysicalPoint(x, y);
+  const bounds = physicalBoundsForDisplay(display);
+  return {
+    x: clampPercent$1((x - bounds.x) / bounds.width * 100),
+    y: clampPercent$1((y - bounds.y) / bounds.height * 100)
+  };
+}
+function logicalPointToPercent(x, y) {
+  const display = getDisplayById(activeCoordinateDisplayId) || electron.screen.getDisplayNearestPoint({ x, y });
+  return {
+    x: clampPercent$1((x - display.bounds.x) / display.bounds.width * 100),
+    y: clampPercent$1((y - display.bounds.y) / display.bounds.height * 100)
+  };
+}
 async function captureScreenBase64() {
-  const primaryDisplay = electron.screen.getPrimaryDisplay();
-  const { width, height } = primaryDisplay.size;
+  const activeDisplay = getActiveCoordinateDisplay();
+  const { width, height } = activeDisplay.size;
   let sources;
   try {
     sources = await electron.desktopCapturer.getSources({
@@ -125,68 +238,17 @@ async function captureScreenBase64() {
     wrapped.cause = err;
     throw wrapped;
   }
-  const source = sources.find((s) => s.display_id === String(primaryDisplay.id)) ?? sources[0];
+  const source = sources.find((s) => s.display_id === String(activeDisplay.id)) ?? sources[0];
   if (!source || source.thumbnail.isEmpty()) {
     const err = new Error("Screen Recording permission denied. Grant access in System Settings, then retry.");
     err.code = "SCREEN_PERMISSION_DENIED";
     throw err;
   }
-  return source.thumbnail.toPNG().toString("base64");
-}
-function clampPercent$1(value) {
-  return Math.min(100, Math.max(0, value));
-}
-function rectSnapshot(rect) {
-  return {
-    x: rect.x,
-    y: rect.y,
-    width: rect.width,
-    height: rect.height
-  };
-}
-function getPrimaryDisplayMetrics() {
-  const primary = electron.screen.getPrimaryDisplay();
-  const metrics = {
-    id: primary.id,
-    scaleFactor: primary.scaleFactor,
-    bounds: rectSnapshot(primary.bounds),
-    workArea: rectSnapshot(primary.workArea),
-    size: {
-      width: primary.size.width,
-      height: primary.size.height
-    }
-  };
-  console.log("[COORD_CALIBRATION] Primary display metrics retrieved", metrics);
-  return metrics;
-}
-async function toScreenPoint(x, y) {
-  const primary = electron.screen.getPrimaryDisplay();
-  const { width: logicalW, height: logicalH } = primary.size;
-  const scale = primary.scaleFactor;
-  const pixelX = Math.round(clampPercent$1(x) / 100 * logicalW * scale);
-  const pixelY = Math.round(clampPercent$1(y) / 100 * logicalH * scale);
-  console.log("[COORD_CALIBRATION] Mapping percent to screen point", {
-    input: { x, y },
-    display: { logicalW, logicalH, scale },
-    output: { pixelX, pixelY }
+  safeLog("[WINDOW_ROUTING] screen capture display selected", {
+    displayId: activeDisplay.id,
+    bounds: activeDisplay.bounds
   });
-  return new nutJs.Point(pixelX, pixelY);
-}
-function screenPointToPercent(x, y) {
-  const primary = electron.screen.getPrimaryDisplay();
-  const { width: logicalW, height: logicalH } = primary.size;
-  const scale = primary.scaleFactor;
-  return {
-    x: clampPercent$1(x / (logicalW * scale) * 100),
-    y: clampPercent$1(y / (logicalH * scale) * 100)
-  };
-}
-function logicalPointToPercent(x, y) {
-  const primary = electron.screen.getPrimaryDisplay();
-  return {
-    x: clampPercent$1((x - primary.bounds.x) / primary.bounds.width * 100),
-    y: clampPercent$1((y - primary.bounds.y) / primary.bounds.height * 100)
-  };
+  return source.thumbnail.toPNG().toString("base64");
 }
 const DEFAULT_MOVE_DURATION_MS = 650;
 function sleep$2(ms) {
@@ -405,24 +467,6 @@ async function waitForUserClickAtTarget(targetPercentX, targetPercentY, toleranc
     });
   } catch (error) {
     throw userCursorPermissionError(error);
-  }
-}
-function safeLog(...args) {
-  try {
-    console.log(...args);
-  } catch {
-  }
-}
-function safeWarn(...args) {
-  try {
-    console.warn(...args);
-  } catch {
-  }
-}
-function safeError(...args) {
-  try {
-    console.error(...args);
-  } catch {
   }
 }
 function getAnthropicApiKey() {
@@ -2076,6 +2120,81 @@ const DEFAULT_APP_NAME = "Specter";
 const REAL_APP_CONFIDENCE_THRESHOLD = 0.65;
 let mainWindow = null;
 let overlayWindow = null;
+function displaySummary(display) {
+  return {
+    id: display.id,
+    scaleFactor: display.scaleFactor,
+    bounds: display.bounds,
+    workArea: display.workArea
+  };
+}
+function getSummonDisplay() {
+  safeLog("[WINDOW_ROUTING] overlay summon request");
+  const cursorPoint = electron.screen.getCursorScreenPoint();
+  const display = electron.screen.getDisplayNearestPoint(cursorPoint);
+  safeLog("[WINDOW_ROUTING] cursor point", cursorPoint);
+  safeLog("[WINDOW_ROUTING] selected display id / bounds", displaySummary(display));
+  setActiveCoordinateDisplay(display.id);
+  return { cursorPoint, display };
+}
+function enableOverlayWorkspaceBehavior() {
+  if (!overlayWindow || overlayWindow.isDestroyed()) return;
+  overlayWindow.setAlwaysOnTop(true, "screen-saver", 1);
+  overlayWindow.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
+  if (process.platform === "darwin") {
+    overlayWindow.setFullScreenable(false);
+  }
+  safeLog("[WINDOW_ROUTING] visible on all workspaces enabled", {
+    displayId: electron.screen.getDisplayMatching(overlayWindow.getBounds()).id,
+    platform: process.platform
+  });
+}
+function moveOverlayToDisplay(display) {
+  if (!overlayWindow || overlayWindow.isDestroyed()) return;
+  overlayWindow.setBounds(display.bounds);
+  enableOverlayWorkspaceBehavior();
+  safeLog("[WINDOW_ROUTING] moved overlay to display", displaySummary(display));
+}
+function centerContentBounds(display, width, height) {
+  const workArea = display.workArea;
+  return {
+    x: Math.round(workArea.x + (workArea.width - width) / 2),
+    y: Math.round(workArea.y + (workArea.height - height) / 2),
+    width,
+    height
+  };
+}
+function movePracticeWindowToDisplay(display, showWindow) {
+  if (!mainWindow || mainWindow.isDestroyed()) return;
+  mainWindow.setContentBounds(centerContentBounds(display, CONTROLLED_DEMO_WIDTH, CONTROLLED_DEMO_HEIGHT));
+  safeLog("[WINDOW_ROUTING] moved practice window to display", displaySummary(display));
+  if (showWindow) {
+    mainWindow.show();
+    mainWindow.focus();
+  }
+}
+function overlayIsOnDisplay(display) {
+  if (!overlayWindow || overlayWindow.isDestroyed()) return false;
+  return electron.screen.getDisplayMatching(overlayWindow.getBounds()).id === display.id;
+}
+function routeVisibleWindowsToDisplay(display) {
+  moveOverlayToDisplay(display);
+  if (mainWindow && !mainWindow.isDestroyed() && mainWindow.isVisible()) {
+    movePracticeWindowToDisplay(display, false);
+  }
+}
+function registerWindowRoutingListeners() {
+  const refreshVisibleOverlayRoute = (reason) => {
+    if (!overlayWindow || overlayWindow.isDestroyed() || !overlayWindow.isVisible()) return;
+    safeLog("[WINDOW_ROUTING] refreshing visible overlay route", { reason });
+    safeLog("[STRESS_TEST] display topology changed while overlay was visible", { reason });
+    const { display } = getSummonDisplay();
+    routeVisibleWindowsToDisplay(display);
+  };
+  electron.screen.on("display-metrics-changed", () => refreshVisibleOverlayRoute("display-metrics-changed"));
+  electron.screen.on("display-added", () => refreshVisibleOverlayRoute("display-added"));
+  electron.screen.on("display-removed", () => refreshVisibleOverlayRoute("display-removed"));
+}
 function delay(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
@@ -2131,14 +2250,29 @@ function toggleOverlay() {
     stopReplay();
     return;
   }
+  const { display } = getSummonDisplay();
   if (overlayWindow.isVisible()) {
+    if (!overlayIsOnDisplay(display)) {
+      safeLog("[WINDOW_ROUTING] overlay already visible; moving to active display instead of hiding");
+      routeVisibleWindowsToDisplay(display);
+      overlayWindow.showInactive();
+      overlayWindow.moveTop();
+      overlayWindow.setIgnoreMouseEvents(true, { forward: true });
+      return;
+    }
     safeLog("[OVERLAY_INTERACTION] hiding overlay, enabled click-through");
+    safeLog("[STRESS_TEST] overlay hidden; click-through restored");
     overlayWindow.setIgnoreMouseEvents(true, { forward: true });
     overlayWindow.hide();
   } else {
+    routeVisibleWindowsToDisplay(display);
     safeLog("[OVERLAY_INTERACTION] showing overlay, enabled click-through (ignore mouse: true)");
+    safeLog("[STRESS_TEST] overlay shown; duplicate window count", {
+      windows: electron.BrowserWindow.getAllWindows().length
+    });
     overlayWindow.setIgnoreMouseEvents(true, { forward: true });
-    overlayWindow.show();
+    overlayWindow.showInactive();
+    overlayWindow.moveTop();
   }
   overlayWindow.webContents.send("overlay:toggle");
 }
@@ -2175,7 +2309,7 @@ function createWindow() {
     }
   });
   mainWindow.on("ready-to-show", () => {
-    mainWindow?.show();
+    safeLog("[WINDOW_ROUTING] practice window ready and waiting for controlled demo");
   });
   mainWindow.on("closed", () => {
     mainWindow = null;
@@ -2191,7 +2325,9 @@ function createWindow() {
   }
 }
 function createOverlayWindow() {
-  const { x, y, width, height } = electron.screen.getPrimaryDisplay().bounds;
+  const initialDisplay = electron.screen.getDisplayNearestPoint(electron.screen.getCursorScreenPoint());
+  const { x, y, width, height } = initialDisplay.bounds;
+  setActiveCoordinateDisplay(initialDisplay.id);
   overlayWindow = new electron.BrowserWindow({
     x,
     y,
@@ -2202,6 +2338,10 @@ function createOverlayWindow() {
     hasShadow: false,
     alwaysOnTop: true,
     skipTaskbar: true,
+    visibleOnAllWorkspaces: true,
+    fullscreenable: false,
+    focusable: true,
+    acceptFirstMouse: true,
     show: false,
     backgroundColor: "#00000000",
     // 'panel' is the macOS-native overlay type: always-on-top across all
@@ -2212,9 +2352,8 @@ function createOverlayWindow() {
       sandbox: false
     }
   });
-  overlayWindow.setAlwaysOnTop(true, "screen-saver");
+  enableOverlayWorkspaceBehavior();
   overlayWindow.setIgnoreMouseEvents(true, { forward: true });
-  overlayWindow.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
   overlayWindow.on("ready-to-show", () => {
     overlayWindow?.hide();
   });
@@ -2236,9 +2375,13 @@ electron.app.whenReady().then(async () => {
   });
   createWindow();
   createOverlayWindow();
-  if (!electron.app.isPackaged) {
+  registerWindowRoutingListeners();
+  const shouldOpenDevTools = !electron.app.isPackaged && process.env["SPECTER_OPEN_DEVTOOLS"] === "true";
+  if (shouldOpenDevTools) {
     mainWindow?.webContents.openDevTools({ mode: "detach" });
     overlayWindow?.webContents.openDevTools({ mode: "detach" });
+  }
+  if (!electron.app.isPackaged) {
     electron.globalShortcut.register("CommandOrControl+Shift+D", () => {
       if (mainWindow?.webContents.isDevToolsOpened()) {
         mainWindow.webContents.closeDevTools();
@@ -2263,6 +2406,7 @@ electron.app.whenReady().then(async () => {
     return executeRealMouseSteps(steps);
   });
   electron.ipcMain.handle("cursor:getPosition", async () => getPhysicalMousePosition());
+  electron.ipcMain.handle("cursor:getPositionPercent", async () => getPhysicalMousePercent());
   electron.ipcMain.handle("cursor:diagnostics", async () => getCoordinateCalibrationDiagnostics());
   electron.ipcMain.handle("cursor:moveCenter", async () => {
     safeLog("[COORD_CALIBRATION] explicit center move requested");
@@ -2436,11 +2580,13 @@ electron.app.whenReady().then(async () => {
     return graph;
   });
   electron.ipcMain.handle("demo:controlledWorkflow", async () => {
+    const { display } = getSummonDisplay();
+    moveOverlayToDisplay(display);
+    if (!mainWindow || mainWindow.isDestroyed()) {
+      createWindow();
+    }
     if (mainWindow && !mainWindow.isDestroyed()) {
-      mainWindow.setContentSize(CONTROLLED_DEMO_WIDTH, CONTROLLED_DEMO_HEIGHT);
-      mainWindow.center();
-      mainWindow.show();
-      mainWindow.focus();
+      movePracticeWindowToDisplay(display, true);
     }
     const workflow = createControlledDemoWorkflow(mainWindow);
     const graph = saveToNode(loadGraph(DEFAULT_APP_NAME), workflow.nodeId, workflow.steps);
@@ -2532,7 +2678,7 @@ electron.app.whenReady().then(async () => {
     if (electron.BrowserWindow.getAllWindows().length === 0) {
       createWindow();
       createOverlayWindow();
-      if (!electron.app.isPackaged) {
+      if (shouldOpenDevTools) {
         mainWindow?.webContents.openDevTools({ mode: "detach" });
         overlayWindow?.webContents.openDevTools({ mode: "detach" });
       }

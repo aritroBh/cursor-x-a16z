@@ -15,6 +15,7 @@ const api = {
   clickCursor: (x, y) => electron.ipcRenderer.invoke("cursor:click", x, y),
   replaySteps: (steps) => electron.ipcRenderer.invoke("cursor:replay", steps),
   getCursorPosition: () => electron.ipcRenderer.invoke("cursor:getPosition"),
+  getCursorPercent: () => electron.ipcRenderer.invoke("cursor:getPositionPercent"),
   getCursorCalibration: () => electron.ipcRenderer.invoke("cursor:diagnostics"),
   moveCursorToScreenCenter: () => electron.ipcRenderer.invoke("cursor:moveCenter"),
   waitForCursorTarget: (x, y, tolerancePx, timeoutMs) => electron.ipcRenderer.invoke("cursor:waitForTarget", x, y, tolerancePx, timeoutMs),

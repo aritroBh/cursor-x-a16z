@@ -447,10 +447,61 @@ const SessionPanel = ({
 const SHOW_WALKTHROUGH_DEBUG = false;
 const DEFAULT_REAL_APP_PROMPT = "Teach me one visible action";
 const DEFAULT_CONFIDENCE_THRESHOLD = 0.65;
+const HUD_VIEWPORT_MARGIN = 12;
+const CURSOR_REVEAL_POLL_MS = 70;
+const NEAR_TARGET_REVEAL_DISTANCE_PX = 180;
+const IDLE_REVEAL_RADIUS = 110;
+const WALKTHROUGH_REVEAL_RADIUS = 150;
+const NEAR_TARGET_REVEAL_RADIUS = 210;
+const IDLE_REVEAL_STRENGTH = 0.28;
+const WALKTHROUGH_REVEAL_STRENGTH = 0.48;
+const NEAR_TARGET_REVEAL_STRENGTH = 0.72;
+function clampHudPosition(position, width, height) {
+  const maxLeft = Math.max(
+    HUD_VIEWPORT_MARGIN,
+    window.innerWidth - width - HUD_VIEWPORT_MARGIN
+  );
+  const maxTop = Math.max(
+    HUD_VIEWPORT_MARGIN,
+    window.innerHeight - height - HUD_VIEWPORT_MARGIN
+  );
+  return {
+    left: Math.min(maxLeft, Math.max(HUD_VIEWPORT_MARGIN, position.left)),
+    top: Math.min(maxTop, Math.max(HUD_VIEWPORT_MARGIN, position.top))
+  };
+}
 function messageFromError(error) {
   if (error instanceof Error && error.message) return error.message;
   if (typeof error === "string" && error.trim()) return error;
   return "Specter hit a temporary issue. Try again.";
+}
+function finitePercent(value) {
+  return typeof value === "number" && Number.isFinite(value) ? Math.min(100, Math.max(0, value)) : null;
+}
+function cursorTargetDistancePx(cursorX, cursorY, targetX, targetY) {
+  const width = Math.max(1, window.innerWidth);
+  const height = Math.max(1, window.innerHeight);
+  return Math.hypot(
+    (cursorX - targetX) / 100 * width,
+    (cursorY - targetY) / 100 * height
+  );
+}
+function cursorRevealTuning(isWalkthroughActive, targetDistancePx) {
+  const nearTargetFactor = targetDistancePx === null ? 0 : Math.max(
+    0,
+    Math.min(1, 1 - targetDistancePx / NEAR_TARGET_REVEAL_DISTANCE_PX)
+  );
+  const baseRadius = isWalkthroughActive ? WALKTHROUGH_REVEAL_RADIUS : IDLE_REVEAL_RADIUS;
+  const baseStrength = isWalkthroughActive ? WALKTHROUGH_REVEAL_STRENGTH : IDLE_REVEAL_STRENGTH;
+  const radius = Math.round(
+    baseRadius + (NEAR_TARGET_REVEAL_RADIUS - baseRadius) * nearTargetFactor
+  );
+  const strength = baseStrength + (NEAR_TARGET_REVEAL_STRENGTH - baseStrength) * nearTargetFactor;
+  return {
+    nearTargetFactor,
+    radius,
+    strength
+  };
 }
 function formatCoordinate(value) {
   return typeof value === "number" && Number.isFinite(value) ? value.toFixed(1) : "?";
@@ -492,6 +543,7 @@ function walkthroughStepFromReplay(data) {
   };
 }
 const OverlayApp = () => {
+  const overlayRef = reactExports.useRef(null);
   const [isVisible, setIsVisible] = reactExports.useState(false);
   const [mode, setMode] = reactExports.useState("silent");
   const [intent, setIntent] = reactExports.useState("");
@@ -499,7 +551,9 @@ const OverlayApp = () => {
   const [replayState, setReplayState] = reactExports.useState("idle");
   const [replayMode, setReplayMode] = reactExports.useState(null);
   const [isLoading, setIsLoading] = reactExports.useState(false);
-  const [loadingMessage, setLoadingMessage] = reactExports.useState("Analyzing your screen...");
+  const [loadingMessage, setLoadingMessage] = reactExports.useState(
+    "Analyzing your screen..."
+  );
   const [errorMessage, setErrorMessage] = reactExports.useState("");
   const [lastNodeId, setLastNodeId] = reactExports.useState("");
   const [manualConfirmMessage, setManualConfirmMessage] = reactExports.useState("");
@@ -513,12 +567,109 @@ const OverlayApp = () => {
   const [screenState, setScreenState] = reactExports.useState(null);
   const [isInputFocused, setIsInputFocused] = reactExports.useState(false);
   const [isClickThrough, setIsClickThrough] = reactExports.useState(true);
+  const [hudPosition, setHudPosition] = reactExports.useState(null);
+  const [isHudDragging, setIsHudDragging] = reactExports.useState(false);
+  const [summonSettled, setSummonSettled] = reactExports.useState(false);
+  const hudRef = reactExports.useRef(null);
+  const hudDragOffsetRef = reactExports.useRef({ x: 0, y: 0 });
+  const isHudHoveredRef = reactExports.useRef(false);
+  const isHudDraggingRef = reactExports.useRef(false);
+  const isInputFocusedRef = reactExports.useRef(false);
   const setInteractivity = (interactive) => {
-    if (!interactive && isInputFocused) return;
+    if (!interactive && (isInputFocusedRef.current || isHudDraggingRef.current))
+      return;
     const next = !interactive;
     setIsClickThrough(next);
     void api.setOverlayClickThrough(next);
   };
+  reactExports.useEffect(() => {
+    isInputFocusedRef.current = isInputFocused;
+  }, [isInputFocused]);
+  reactExports.useEffect(() => {
+    if (!isVisible) {
+      setSummonSettled(false);
+      return;
+    }
+    setSummonSettled(false);
+    const timer = window.setTimeout(() => setSummonSettled(true), 1100);
+    return () => window.clearTimeout(timer);
+  }, [isVisible]);
+  reactExports.useEffect(() => {
+    const clampToViewport = () => {
+      const hud = hudRef.current;
+      if (!hud) return;
+      const rect = hud.getBoundingClientRect();
+      setHudPosition(
+        (current) => current ? clampHudPosition(current, rect.width, rect.height) : current
+      );
+    };
+    window.addEventListener("resize", clampToViewport);
+    return () => window.removeEventListener("resize", clampToViewport);
+  }, []);
+  reactExports.useEffect(() => {
+    const shouldTrackCursor = isVisible || replayState !== "idle" || isLoading;
+    if (!shouldTrackCursor) return;
+    let isDisposed = false;
+    let timer = null;
+    let hasLoggedCursorError = false;
+    const isWalkthroughActive = replayMode === "walkthrough" && replayState === "running";
+    const revealTarget = isWalkthroughActive && currentStep ? currentStep : selectedRealAppTarget;
+    const targetX = finitePercent(revealTarget?.x);
+    const targetY = finitePercent(revealTarget?.y);
+    const updateCursorReveal = async () => {
+      try {
+        const position = api.getCursorPercent ? await api.getCursorPercent() : null;
+        const cursorX = finitePercent(position?.x);
+        const cursorY = finitePercent(position?.y);
+        const overlay = overlayRef.current;
+        if (overlay && cursorX !== null && cursorY !== null) {
+          const distancePx = targetX !== null && targetY !== null ? cursorTargetDistancePx(cursorX, cursorY, targetX, targetY) : null;
+          const reveal = cursorRevealTuning(isWalkthroughActive, distancePx);
+          const centerAlpha = Math.max(0.18, 1 - reveal.strength);
+          const midAlpha = Math.min(1, centerAlpha + reveal.strength * 0.55);
+          overlay.style.setProperty("--cursor-x", `${cursorX}vw`);
+          overlay.style.setProperty("--cursor-y", `${cursorY}vh`);
+          overlay.style.setProperty("--reveal-radius", `${reveal.radius}px`);
+          overlay.style.setProperty(
+            "--reveal-strength",
+            reveal.strength.toFixed(3)
+          );
+          overlay.style.setProperty(
+            "--reveal-center-alpha",
+            centerAlpha.toFixed(3)
+          );
+          overlay.style.setProperty("--reveal-mid-alpha", midAlpha.toFixed(3));
+          overlay.dataset.cursorReveal = reveal.nearTargetFactor > 0.35 ? "near-target" : isWalkthroughActive ? "walkthrough" : "idle";
+        }
+      } catch (error) {
+        if (!hasLoggedCursorError) {
+          console.warn("[CURSOR_REVEAL] cursor tracking unavailable:", error);
+          hasLoggedCursorError = true;
+        }
+      } finally {
+        if (!isDisposed) {
+          timer = window.setTimeout(
+            updateCursorReveal,
+            isWalkthroughActive ? 55 : CURSOR_REVEAL_POLL_MS
+          );
+        }
+      }
+    };
+    void updateCursorReveal();
+    return () => {
+      isDisposed = true;
+      if (timer) window.clearTimeout(timer);
+    };
+  }, [
+    isVisible,
+    isLoading,
+    replayMode,
+    replayState,
+    currentStep?.x,
+    currentStep?.y,
+    selectedRealAppTarget?.x,
+    selectedRealAppTarget?.y
+  ]);
   reactExports.useEffect(() => {
     const offToggle = api.onOverlayToggle(() => {
       setIsVisible((prev) => !prev);
@@ -536,14 +687,18 @@ const OverlayApp = () => {
       setManualConfirmMessage("");
     });
     const offConfirmNeeded = api.onReplayConfirmNeeded((data) => {
-      setManualConfirmMessage(data?.message || "Click not detected. Press Space to confirm this step.");
+      setManualConfirmMessage(
+        data?.message || "Click not detected. Press Space to confirm this step."
+      );
       setIsLoading(false);
     });
     const offConfirmCleared = api.onReplayConfirmCleared(() => {
       setManualConfirmMessage("");
     });
     const offScreenDenied = api.onScreenPermissionDenied(() => {
-      setErrorMessage("Screen Recording permission is missing. Grant it in macOS Privacy settings, then retry.");
+      setErrorMessage(
+        "Screen Recording permission is missing. Grant it in macOS Privacy settings, then retry."
+      );
       setIsLoading(false);
     });
     return () => {
@@ -574,7 +729,9 @@ const OverlayApp = () => {
   }, []);
   reactExports.useEffect(() => {
     if (!isInputFocused) {
-      console.log("[OVERLAY_INTERACTION] input blurred, restoring click-through");
+      console.log(
+        "[OVERLAY_INTERACTION] input blurred, restoring click-through"
+      );
       setInteractivity(false);
     }
   }, [isInputFocused]);
@@ -665,9 +822,13 @@ const OverlayApp = () => {
     const startTime = Date.now();
     let selectedArm = null;
     try {
-      const res = await api.analyzeScreen(void 0, { captureUnderlying: true });
+      const res = await api.analyzeScreen(void 0, {
+        captureUnderlying: true
+      });
       if (res?.error === "AI_BACKEND_UNAVAILABLE") {
-        setErrorMessage("AI vision is unavailable right now. You can still use Controlled Demo or pick a target manually.");
+        setErrorMessage(
+          "AI vision is unavailable right now. You can still use Controlled Demo or pick a target manually."
+        );
         setIsLoading(false);
         return;
       }
@@ -675,7 +836,9 @@ const OverlayApp = () => {
       setLoadingMessage("Planning the walkthrough...");
       const plan = await api.planSteps(trimmed, res, [], mode);
       if (!plan || !Array.isArray(plan.steps) || plan.steps.length === 0) {
-        throw new Error("Specter could not create a usable plan for that intent.");
+        throw new Error(
+          "Specter could not create a usable plan for that intent."
+        );
       }
       const nodeId = typeof plan.levelTitle === "string" && plan.levelTitle.trim() ? plan.levelTitle : trimmed;
       setLastNodeId(nodeId);
@@ -724,7 +887,9 @@ const OverlayApp = () => {
     }
     setErrorMessage("");
     setIsLoading(true);
-    setLoadingMessage(kind === "walkthrough" ? "Starting walkthrough..." : "Starting auto-execute...");
+    setLoadingMessage(
+      kind === "walkthrough" ? "Starting walkthrough..." : "Starting auto-execute..."
+    );
     setReplayMode(kind);
     setReplayState("running");
     try {
@@ -796,7 +961,9 @@ const OverlayApp = () => {
         setIsLoading(false);
         return;
       }
-      const normalizedTargets = Array.isArray(result?.targets) ? result.targets.map((target) => normalizedRealAppTarget(target)) : [];
+      const normalizedTargets = Array.isArray(result?.targets) ? result.targets.map(
+        (target) => normalizedRealAppTarget(target)
+      ) : [];
       const nextTargets = {
         ...result,
         targets: normalizedTargets,
@@ -810,7 +977,9 @@ const OverlayApp = () => {
         setRealAppNotice("No clear target found. Pick a target manually.");
         setIsManualTargetPicking(true);
       } else if ((bestTarget.confidence ?? 0) < threshold) {
-        setRealAppNotice("Low confidence. Confirm one target or pick manually.");
+        setRealAppNotice(
+          "Low confidence. Confirm one target or pick manually."
+        );
       } else {
         setRealAppNotice("Confirm the target before the ghost starts.");
       }
@@ -836,7 +1005,9 @@ const OverlayApp = () => {
   const startManualTargetPicking = () => {
     console.log("[MANUAL_TARGET] manual target picking armed");
     setIsManualTargetPicking(true);
-    setRealAppNotice("Click the real-app target location. Press Escape to cancel.");
+    setRealAppNotice(
+      "Click the real-app target location. Press Escape to cancel."
+    );
   };
   const handleManualTargetPick = (event) => {
     if (!isManualTargetPicking) return;
@@ -864,7 +1035,10 @@ const OverlayApp = () => {
         needsConfirmation: true,
         confidenceThreshold: DEFAULT_CONFIDENCE_THRESHOLD
       },
-      targets: [target, ...(current?.targets || []).filter((item) => item.source !== "manual")]
+      targets: [
+        target,
+        ...(current?.targets || []).filter((item) => item.source !== "manual")
+      ]
     }));
     setIsManualTargetPicking(false);
     setRealAppNotice("Manual target saved. Confirm to start the ghost.");
@@ -890,7 +1064,8 @@ const OverlayApp = () => {
     try {
       const workflow = await api.createRealAppWorkflow(workflowInput);
       const nodeId = workflow?.nodeId;
-      if (!nodeId) throw new Error("Specter could not save the real-app walkthrough.");
+      if (!nodeId)
+        throw new Error("Specter could not save the real-app walkthrough.");
       console.log("[REAL_APP_WALKTHROUGH] starting", {
         nodeId,
         label: target.label,
@@ -936,11 +1111,57 @@ const OverlayApp = () => {
     setErrorMessage("");
     try {
       await api.moveCursorToScreenCenter();
-      setCalibrationMessage("Center move requested. Verify the cursor landed at the visual center.");
+      setCalibrationMessage(
+        "Center move requested. Verify the cursor landed at the visual center."
+      );
     } catch (error) {
       console.error("[Overlay] Center move failed:", error);
       setErrorMessage(messageFromError(error));
     }
+  };
+  const startHudDrag = (event) => {
+    if (event.button !== 0) return;
+    const hud = hudRef.current;
+    if (!hud) return;
+    const rect = hud.getBoundingClientRect();
+    hudDragOffsetRef.current = {
+      x: event.clientX - rect.left,
+      y: event.clientY - rect.top
+    };
+    isHudDraggingRef.current = true;
+    setIsHudDragging(true);
+    setHudPosition({ left: rect.left, top: rect.top });
+    setInteractivity(true);
+    event.preventDefault();
+    event.stopPropagation();
+    event.currentTarget.setPointerCapture(event.pointerId);
+  };
+  const moveHudDrag = (event) => {
+    if (!isHudDraggingRef.current) return;
+    const hud = hudRef.current;
+    if (!hud) return;
+    const rect = hud.getBoundingClientRect();
+    const nextPosition = {
+      left: event.clientX - hudDragOffsetRef.current.x,
+      top: event.clientY - hudDragOffsetRef.current.y
+    };
+    setHudPosition(clampHudPosition(nextPosition, rect.width, rect.height));
+  };
+  const stopHudDrag = (event) => {
+    if (!isHudDraggingRef.current) return;
+    isHudDraggingRef.current = false;
+    setIsHudDragging(false);
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+      event.currentTarget.releasePointerCapture(event.pointerId);
+    }
+    if (isHudHoveredRef.current) {
+      setInteractivity(true);
+    } else {
+      setInteractivity(false);
+    }
+  };
+  const resetHudPosition = () => {
+    setHudPosition(null);
   };
   if (!isVisible && replayState === "idle" && !isLoading) return null;
   const isReplayRunning = replayState === "running";
@@ -948,14 +1169,42 @@ const OverlayApp = () => {
   const statusText = currentStep ? `Step ${(currentStep.index ?? 0) + 1}/${currentStep.total ?? "?"}: ${currentStep.instruction || currentStep.targetLabel || (replayMode === "auto" ? "Executing action" : "Follow the ghost cursor")}` : replayMode === "auto" ? "Executing workflow..." : "Walkthrough running...";
   const realAppConfidenceThreshold = realAppTargets?.confidenceThreshold || DEFAULT_CONFIDENCE_THRESHOLD;
   const realAppMarkerTargets = realAppTargets?.targets || [];
-  const showRealAppVerification = Boolean(realAppTargets || selectedRealAppTarget || isManualTargetPicking);
+  const showRealAppVerification = Boolean(
+    realAppTargets || selectedRealAppTarget || isManualTargetPicking
+  );
+  const showFallbackWorkflow = Boolean(realAppTargets?.fallbackAvailable);
+  const showWorkflowCard = showFallbackWorkflow || showRealAppVerification;
   const selectedTargetConfidence = selectedRealAppTarget?.confidence;
   const selectedTargetIsLowConfidence = typeof selectedTargetConfidence === "number" && selectedTargetConfidence < realAppConfidenceThreshold;
+  const edgeLightState = !isVisible ? "hidden" : isReplayRunning ? "walkthrough" : summonSettled ? "idle" : "summon";
+  const overlayClassName = [
+    "overlay-container",
+    `overlay-state-${edgeLightState}`,
+    isInputFocused ? "overlay-state-focused" : "",
+    isHudDragging ? "overlay-hud-dragging" : ""
+  ].filter(Boolean).join(" ");
+  const hudStyle = hudPosition ? {
+    position: "absolute",
+    left: `${hudPosition.left}px`,
+    top: `${hudPosition.top}px`
+  } : {
+    position: "absolute",
+    left: "50%",
+    bottom: "10%",
+    transform: "translateX(-50%)"
+  };
   return /* @__PURE__ */ jsxRuntimeExports.jsx(jsxRuntimeExports.Fragment, { children: /* @__PURE__ */ jsxRuntimeExports.jsxs(
     "div",
     {
-      className: "overlay-container",
+      ref: overlayRef,
+      className: overlayClassName,
       style: {
+        "--cursor-x": "50vw",
+        "--cursor-y": "50vh",
+        "--reveal-radius": `${IDLE_REVEAL_RADIUS}px`,
+        "--reveal-strength": `${IDLE_REVEAL_STRENGTH}`,
+        "--reveal-center-alpha": `${1 - IDLE_REVEAL_STRENGTH}`,
+        "--reveal-mid-alpha": "0.88",
         position: "fixed",
         top: 0,
         left: 0,
@@ -967,13 +1216,25 @@ const OverlayApp = () => {
         flexDirection: "column",
         alignItems: "center",
         justifyContent: "center",
-        background: isVisible ? "rgba(0, 0, 0, 0.04)" : "transparent",
+        background: "transparent",
         fontFamily: "Inter, system-ui, sans-serif",
         transition: "background 0.5s ease"
       },
       children: [
-        /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "siri-glow-fullscreen", style: { opacity: isVisible ? 1 : 0, transition: "opacity 0.8s ease", pointerEvents: "none" } }),
-        /* @__PURE__ */ jsxRuntimeExports.jsx(GhostCursor, { step: currentStep || (isVisible ? { type: "idle" } : null) }),
+        /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "specter-overlay-wash" }),
+        /* @__PURE__ */ jsxRuntimeExports.jsx(
+          "div",
+          {
+            className: "siri-glow-fullscreen",
+            style: { pointerEvents: "none" }
+          }
+        ),
+        /* @__PURE__ */ jsxRuntimeExports.jsx(
+          GhostCursor,
+          {
+            step: currentStep || (isVisible ? { type: "idle" } : null)
+          }
+        ),
         isManualTargetPicking && !isReplayRunning && /* @__PURE__ */ jsxRuntimeExports.jsx(
           "div",
           {
@@ -1138,127 +1399,177 @@ const OverlayApp = () => {
         isVisible && !isReplayRunning && /* @__PURE__ */ jsxRuntimeExports.jsx(jsxRuntimeExports.Fragment, { children: /* @__PURE__ */ jsxRuntimeExports.jsxs(
           "div",
           {
+            ref: hudRef,
+            className: `specter-hud-shell ${isHudDragging ? "is-dragging" : ""}`,
             onMouseEnter: () => {
               console.log("[OVERLAY_INTERACTION] mouse entered Specter UI");
+              isHudHoveredRef.current = true;
               setInteractivity(true);
             },
             onMouseLeave: () => {
               console.log("[OVERLAY_INTERACTION] mouse left Specter UI");
+              isHudHoveredRef.current = false;
               setInteractivity(false);
             },
-            style: {
-              position: "absolute",
-              bottom: "10%",
-              display: "flex",
-              flexDirection: "column",
-              alignItems: "center",
-              gap: "12px",
-              width: "80%",
-              maxWidth: "600px",
-              pointerEvents: "auto",
-              zIndex: 10004
-            },
+            style: hudStyle,
             children: [
-              realAppTargets?.fallbackAvailable && /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { style: {
-                width: "100%",
-                background: "rgba(12, 14, 18, 0.86)",
-                border: "1px solid rgba(255,255,255,0.12)",
-                borderRadius: "16px",
-                padding: "14px",
-                color: "#fff",
-                boxShadow: "0 16px 42px rgba(0,0,0,0.34)",
-                backdropFilter: "blur(18px)",
-                display: "flex",
-                flexDirection: "column",
-                gap: "10px"
-              }, children: [
-                /* @__PURE__ */ jsxRuntimeExports.jsx("div", { style: { fontSize: "14px", fontWeight: 800, lineHeight: 1.35 }, children: "AI vision is unavailable right now. You can still use Controlled Demo or pick a target manually." }),
-                /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { style: { display: "flex", gap: "8px", width: "100%" }, children: [
-                  /* @__PURE__ */ jsxRuntimeExports.jsx(
-                    "button",
-                    {
-                      disabled: isLoading,
-                      onClick: prepareControlledDemo,
-                      style: {
-                        flex: 1,
-                        border: "1px solid rgba(255,255,255,0.12)",
-                        borderRadius: "10px",
-                        padding: "9px 10px",
-                        color: "white",
-                        background: "rgba(48,209,88,0.28)",
-                        fontSize: "12px",
-                        fontWeight: 800,
-                        cursor: "pointer"
-                      },
-                      children: "Controlled Demo"
-                    }
-                  ),
-                  /* @__PURE__ */ jsxRuntimeExports.jsx(
-                    "button",
-                    {
-                      disabled: isLoading,
-                      onClick: startManualTargetPicking,
-                      style: {
-                        flex: 1,
-                        border: "1px solid rgba(255,255,255,0.12)",
-                        borderRadius: "10px",
-                        padding: "9px 10px",
-                        color: "white",
-                        background: "rgba(10,132,255,0.24)",
-                        fontSize: "12px",
-                        fontWeight: 800,
-                        cursor: "pointer"
-                      },
-                      children: "Pick target manually"
-                    }
-                  ),
-                  /* @__PURE__ */ jsxRuntimeExports.jsx(
-                    "button",
-                    {
-                      disabled: isLoading,
-                      onClick: () => {
-                        setRealAppTargets(null);
-                        startRealAppTest(realAppIntent || intent || DEFAULT_REAL_APP_PROMPT);
-                      },
-                      style: {
-                        flex: 1,
-                        border: "1px solid rgba(255,255,255,0.12)",
-                        borderRadius: "10px",
-                        padding: "9px 10px",
-                        color: "white",
-                        background: "rgba(255,255,255,0.12)",
-                        fontSize: "12px",
-                        fontWeight: 800,
-                        cursor: "pointer"
-                      },
-                      children: "Retry AI"
-                    }
-                  )
-                ] })
-              ] }),
-              /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { style: { display: "flex", alignItems: "center", gap: "12px", width: "100%", justifyContent: "center" }, children: [
-                /* @__PURE__ */ jsxRuntimeExports.jsx(ModeToggle, { mode, onChange: setMode }),
-                /* @__PURE__ */ jsxRuntimeExports.jsx(
-                  "button",
-                  {
-                    onClick: () => setShowDebugTools(!showDebugTools),
-                    style: {
-                      background: showDebugTools ? "rgba(255,255,255,0.18)" : "rgba(255,255,255,0.08)",
-                      border: "1px solid rgba(255,255,255,0.12)",
-                      borderRadius: "8px",
-                      padding: "4px 8px",
-                      color: "rgba(255,255,255,0.6)",
-                      fontSize: "10px",
-                      fontWeight: 700,
-                      textTransform: "uppercase",
-                      letterSpacing: "0.5px",
-                      cursor: "pointer",
-                      transition: "all 0.2s ease"
-                    },
-                    children: showDebugTools ? "⚙️ Hide Debug" : "⚙️ Debug"
-                  }
-                )
-              ] }),
+              /* @__PURE__ */ jsxRuntimeExports.jsx(
+                "div",
+                {
+                  className: "specter-hud-drag-handle",
+                  "aria-label": "Move Specter HUD",
+                  title: "Move Specter HUD",
+                  onPointerDown: startHudDrag,
+                  onPointerMove: moveHudDrag,
+                  onPointerUp: stopHudDrag,
+                  onPointerCancel: stopHudDrag,
+                  children: /* @__PURE__ */ jsxRuntimeExports.jsx("span", {})
+                }
+              ),
+              showWorkflowCard && /* @__PURE__ */ jsxRuntimeExports.jsxs(
+                "div",
+                {
+                  className: "specter-workflow-card",
+                  onClick: (event) => event.stopPropagation(),
+                  children: [
+                    /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "specter-workflow-header", children: [
+                      /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { children: [
+                        /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "specter-kicker", children: showFallbackWorkflow ? "Fallback" : "Guided Workspace" }),
+                        /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "specter-workflow-title", children: showFallbackWorkflow ? "AI vision is unavailable right now. You can still use Controlled Demo or pick a target manually." : realAppTargets?.microTask || "First, I will teach one visible action." })
+                      ] }),
+                      /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "specter-workflow-meta", children: showFallbackWorkflow ? "Local demo safe" : realAppTargets?.app || "Real app" })
+                    ] }),
+                    !showFallbackWorkflow && realAppNotice && /* @__PURE__ */ jsxRuntimeExports.jsx(
+                      "div",
+                      {
+                        className: `specter-workflow-note ${selectedTargetIsLowConfidence ? "is-warning" : ""}`,
+                        children: realAppNotice
+                      }
+                    ),
+                    !showFallbackWorkflow && (selectedRealAppTarget ? /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "specter-target-summary", children: [
+                      /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { style: { minWidth: 0 }, children: [
+                        /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "specter-target-title", children: selectedRealAppTarget.label }),
+                        /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "specter-target-detail", children: [
+                          "X ",
+                          formatCoordinate(selectedRealAppTarget.x),
+                          " / Y",
+                          " ",
+                          formatCoordinate(selectedRealAppTarget.y),
+                          " / Confidence",
+                          " ",
+                          confidencePercent(
+                            selectedRealAppTarget.confidence
+                          )
+                        ] }),
+                        selectedRealAppTarget.description && /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "specter-target-detail", children: selectedRealAppTarget.description })
+                      ] }),
+                      /* @__PURE__ */ jsxRuntimeExports.jsx(
+                        "div",
+                        {
+                          className: `specter-target-dot ${selectedTargetIsLowConfidence ? "is-warning" : ""}`
+                        }
+                      )
+                    ] }) : /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "specter-workflow-note", children: "Pick a numbered marker, or set the target manually." })),
+                    /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "specter-action-row", children: showFallbackWorkflow ? /* @__PURE__ */ jsxRuntimeExports.jsxs(jsxRuntimeExports.Fragment, { children: [
+                      /* @__PURE__ */ jsxRuntimeExports.jsx(
+                        "button",
+                        {
+                          className: "specter-action-button primary",
+                          disabled: isLoading,
+                          onClick: prepareControlledDemo,
+                          children: "Controlled Demo"
+                        }
+                      ),
+                      /* @__PURE__ */ jsxRuntimeExports.jsx(
+                        "button",
+                        {
+                          className: "specter-action-button blue",
+                          disabled: isLoading,
+                          onClick: startManualTargetPicking,
+                          children: "Pick manually"
+                        }
+                      ),
+                      /* @__PURE__ */ jsxRuntimeExports.jsx(
+                        "button",
+                        {
+                          className: "specter-action-button",
+                          disabled: isLoading,
+                          onClick: () => {
+                            setRealAppTargets(null);
+                            startRealAppTest(
+                              realAppIntent || intent || DEFAULT_REAL_APP_PROMPT
+                            );
+                          },
+                          children: "Retry AI"
+                        }
+                      )
+                    ] }) : /* @__PURE__ */ jsxRuntimeExports.jsxs(jsxRuntimeExports.Fragment, { children: [
+                      /* @__PURE__ */ jsxRuntimeExports.jsx(
+                        "button",
+                        {
+                          className: "specter-action-button primary",
+                          disabled: isLoading || !selectedRealAppTarget,
+                          onClick: startRealAppWalkthrough,
+                          children: "Start ghost"
+                        }
+                      ),
+                      /* @__PURE__ */ jsxRuntimeExports.jsx(
+                        "button",
+                        {
+                          className: "specter-action-button blue",
+                          disabled: isLoading,
+                          onClick: startManualTargetPicking,
+                          children: "Pick manually"
+                        }
+                      ),
+                      /* @__PURE__ */ jsxRuntimeExports.jsx(
+                        "button",
+                        {
+                          className: "specter-action-button",
+                          disabled: isLoading,
+                          onClick: prepareControlledDemo,
+                          children: "Controlled Demo"
+                        }
+                      )
+                    ] }) })
+                  ]
+                }
+              ),
+              /* @__PURE__ */ jsxRuntimeExports.jsxs(
+                "div",
+                {
+                  style: {
+                    display: "flex",
+                    alignItems: "center",
+                    gap: "12px",
+                    width: "100%",
+                    justifyContent: "center"
+                  },
+                  children: [
+                    /* @__PURE__ */ jsxRuntimeExports.jsx(ModeToggle, { mode, onChange: setMode }),
+                    /* @__PURE__ */ jsxRuntimeExports.jsx(
+                      "button",
+                      {
+                        onClick: () => setShowDebugTools(!showDebugTools),
+                        style: {
+                          background: showDebugTools ? "rgba(255,255,255,0.18)" : "rgba(255,255,255,0.08)",
+                          border: "1px solid rgba(255,255,255,0.12)",
+                          borderRadius: "8px",
+                          padding: "4px 8px",
+                          color: "rgba(255,255,255,0.6)",
+                          fontSize: "10px",
+                          fontWeight: 700,
+                          textTransform: "uppercase",
+                          letterSpacing: "0.5px",
+                          cursor: "pointer",
+                          transition: "all 0.2s ease"
+                        },
+                        children: showDebugTools ? "⚙️ Hide Debug" : "⚙️ Debug"
+                      }
+                    )
+                  ]
+                }
+              ),
               /* @__PURE__ */ jsxRuntimeExports.jsxs(
                 "div",
                 {
@@ -1281,351 +1592,170 @@ const OverlayApp = () => {
                         }
                       }
                     ),
-                    !intent && screenState?.app && /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { style: {
-                      position: "absolute",
-                      top: "-24px",
-                      left: "20px",
-                      fontSize: "11px",
-                      fontWeight: 600,
-                      color: "rgba(255,255,255,0.42)",
-                      letterSpacing: "0.2px"
-                    }, children: [
-                      "Looking at ",
-                      screenState.app
-                    ] })
+                    !intent && screenState?.app && /* @__PURE__ */ jsxRuntimeExports.jsxs(
+                      "div",
+                      {
+                        style: {
+                          position: "absolute",
+                          top: "-24px",
+                          left: "20px",
+                          fontSize: "11px",
+                          fontWeight: 600,
+                          color: "rgba(255,255,255,0.42)",
+                          letterSpacing: "0.2px"
+                        },
+                        children: [
+                          "Looking at ",
+                          screenState.app
+                        ]
+                      }
+                    )
                   ]
                 }
               ),
-              showDebugTools && /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { style: {
-                width: "100%",
-                background: "rgba(12, 14, 18, 0.45)",
-                border: "1px solid rgba(255,255,255,0.08)",
-                borderRadius: "14px",
-                padding: "12px",
-                display: "flex",
-                flexDirection: "column",
-                gap: "8px"
-              }, children: [
-                /* @__PURE__ */ jsxRuntimeExports.jsx("div", { style: { fontSize: "10px", fontWeight: 800, color: "rgba(255,255,255,0.3)", textTransform: "uppercase" }, children: "Debug / Demo Tools" }),
-                /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { style: { display: "flex", gap: "8px" }, children: [
-                  /* @__PURE__ */ jsxRuntimeExports.jsx(
-                    "button",
-                    {
-                      disabled: isLoading,
-                      onClick: prepareControlledDemo,
-                      style: {
-                        flex: 1,
-                        border: "1px solid rgba(255,255,255,0.12)",
-                        borderRadius: "10px",
-                        padding: "8px",
-                        color: "white",
-                        background: "rgba(255,255,255,0.1)",
-                        fontSize: "11px",
-                        fontWeight: 700,
-                        cursor: "pointer"
-                      },
-                      children: "Use controlled demo"
-                    }
-                  ),
-                  /* @__PURE__ */ jsxRuntimeExports.jsx(
-                    "button",
-                    {
-                      disabled: isLoading,
-                      onClick: runCoordinateCalibration,
-                      style: {
-                        flex: 1,
-                        border: "1px solid rgba(255,255,255,0.12)",
-                        borderRadius: "10px",
-                        padding: "8px",
-                        color: "white",
-                        background: "rgba(10,132,255,0.15)",
-                        fontSize: "11px",
-                        fontWeight: 700,
-                        cursor: "pointer"
-                      },
-                      children: "Log calibration"
-                    }
-                  ),
-                  /* @__PURE__ */ jsxRuntimeExports.jsx(
-                    "button",
-                    {
-                      disabled: isLoading || !intent,
-                      onClick: () => runLegacyPlannerFlow(intent),
-                      style: {
-                        flex: 1,
-                        border: "1px solid rgba(255,255,255,0.12)",
-                        borderRadius: "10px",
-                        padding: "8px",
-                        color: "white",
-                        background: "rgba(191,90,242,0.15)",
-                        fontSize: "11px",
-                        fontWeight: 700,
-                        cursor: "pointer"
-                      },
-                      children: "Legacy planner"
-                    }
-                  ),
-                  /* @__PURE__ */ jsxRuntimeExports.jsx(
-                    "button",
-                    {
-                      disabled: isLoading,
-                      onClick: moveCursorToScreenCenter,
-                      style: {
-                        flex: 1,
-                        border: "1px solid rgba(255,255,255,0.12)",
-                        borderRadius: "10px",
-                        padding: "8px",
-                        color: "white",
-                        background: "rgba(48,209,88,0.15)",
-                        fontSize: "11px",
-                        fontWeight: 700,
-                        cursor: "pointer"
-                      },
-                      children: "Move center"
-                    }
-                  )
-                ] }),
-                calibrationMessage && /* @__PURE__ */ jsxRuntimeExports.jsx("div", { style: { color: "rgba(255,255,255,0.5)", fontSize: "10px" }, children: calibrationMessage }),
-                showRealAppVerification && /* @__PURE__ */ jsxRuntimeExports.jsxs(
-                  "div",
-                  {
-                    onClick: (event) => event.stopPropagation(),
-                    style: {
-                      width: "100%",
-                      background: "rgba(12, 14, 18, 0.86)",
-                      border: "1px solid rgba(255,255,255,0.12)",
-                      borderRadius: "16px",
-                      padding: "14px",
-                      color: "#fff",
-                      boxShadow: "0 16px 42px rgba(0,0,0,0.34)",
-                      backdropFilter: "blur(18px)",
-                      display: "flex",
-                      flexDirection: "column",
-                      gap: "10px"
-                    },
-                    children: [
-                      /* @__PURE__ */ jsxRuntimeExports.jsxs(
-                        "div",
-                        {
-                          style: {
-                            display: "flex",
-                            alignItems: "center",
-                            justifyContent: "space-between",
-                            gap: "12px"
-                          },
-                          children: [
-                            /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { children: [
-                              /* @__PURE__ */ jsxRuntimeExports.jsx(
-                                "div",
-                                {
-                                  style: {
-                                    fontSize: "11px",
-                                    color: "rgba(255,255,255,0.58)",
-                                    fontWeight: 800,
-                                    textTransform: "uppercase",
-                                    letterSpacing: 0
-                                  },
-                                  children: "Real App Test"
-                                }
-                              ),
-                              /* @__PURE__ */ jsxRuntimeExports.jsx(
-                                "div",
-                                {
-                                  style: {
-                                    fontSize: "15px",
-                                    fontWeight: 800,
-                                    marginTop: "2px"
-                                  },
-                                  children: realAppTargets?.microTask || "First, I will teach one visible action."
-                                }
-                              )
-                            ] }),
-                            /* @__PURE__ */ jsxRuntimeExports.jsx(
-                              "div",
-                              {
-                                style: {
-                                  fontSize: "11px",
-                                  color: "rgba(255,255,255,0.72)",
-                                  fontWeight: 700,
-                                  textAlign: "right",
-                                  maxWidth: "160px",
-                                  overflow: "hidden",
-                                  textOverflow: "ellipsis",
-                                  whiteSpace: "nowrap"
-                                },
-                                children: realAppTargets?.app || "Real app"
-                              }
-                            )
-                          ]
-                        }
-                      ),
-                      realAppNotice && /* @__PURE__ */ jsxRuntimeExports.jsx(
-                        "div",
-                        {
-                          style: {
-                            color: selectedTargetIsLowConfidence ? "#ffd60a" : "rgba(255,255,255,0.72)",
-                            fontSize: "12px",
-                            fontWeight: 700,
-                            lineHeight: 1.35
-                          },
-                          children: realAppNotice
-                        }
-                      ),
-                      selectedRealAppTarget ? /* @__PURE__ */ jsxRuntimeExports.jsxs(
-                        "div",
-                        {
-                          style: {
-                            display: "grid",
-                            gridTemplateColumns: "1fr auto",
-                            gap: "10px",
-                            alignItems: "center",
-                            background: "rgba(255,255,255,0.07)",
-                            border: "1px solid rgba(255,255,255,0.08)",
-                            borderRadius: "12px",
-                            padding: "10px"
-                          },
-                          children: [
-                            /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { style: { minWidth: 0 }, children: [
-                              /* @__PURE__ */ jsxRuntimeExports.jsx(
-                                "div",
-                                {
-                                  style: {
-                                    fontSize: "14px",
-                                    fontWeight: 850,
-                                    overflow: "hidden",
-                                    textOverflow: "ellipsis",
-                                    whiteSpace: "nowrap"
-                                  },
-                                  children: selectedRealAppTarget.label
-                                }
-                              ),
-                              /* @__PURE__ */ jsxRuntimeExports.jsxs(
-                                "div",
-                                {
-                                  style: {
-                                    marginTop: "4px",
-                                    color: "rgba(255,255,255,0.58)",
-                                    fontSize: "11px",
-                                    fontWeight: 650,
-                                    lineHeight: 1.35
-                                  },
-                                  children: [
-                                    "X ",
-                                    formatCoordinate(selectedRealAppTarget.x),
-                                    " / Y ",
-                                    formatCoordinate(selectedRealAppTarget.y),
-                                    " / Confidence",
-                                    " ",
-                                    confidencePercent(selectedRealAppTarget.confidence)
-                                  ]
-                                }
-                              ),
-                              selectedRealAppTarget.description && /* @__PURE__ */ jsxRuntimeExports.jsx(
-                                "div",
-                                {
-                                  style: {
-                                    marginTop: "4px",
-                                    color: "rgba(255,255,255,0.48)",
-                                    fontSize: "11px",
-                                    lineHeight: 1.35
-                                  },
-                                  children: selectedRealAppTarget.description
-                                }
-                              )
-                            ] }),
-                            /* @__PURE__ */ jsxRuntimeExports.jsx(
-                              "div",
-                              {
-                                style: {
-                                  width: "10px",
-                                  height: "10px",
-                                  borderRadius: "999px",
-                                  background: selectedTargetIsLowConfidence ? "#ff9f0a" : "#30d158",
-                                  boxShadow: selectedTargetIsLowConfidence ? "0 0 0 5px rgba(255,159,10,0.15)" : "0 0 0 5px rgba(48,209,88,0.15)"
-                                }
-                              }
-                            )
-                          ]
-                        }
-                      ) : /* @__PURE__ */ jsxRuntimeExports.jsx(
-                        "div",
-                        {
-                          style: {
-                            color: "rgba(255,255,255,0.64)",
-                            fontSize: "12px",
-                            fontWeight: 700,
-                            lineHeight: 1.35
-                          },
-                          children: "Pick a numbered marker, or set the target manually."
-                        }
-                      ),
-                      /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { style: { display: "flex", gap: "8px", width: "100%" }, children: [
-                        /* @__PURE__ */ jsxRuntimeExports.jsx(
-                          "button",
-                          {
-                            disabled: isLoading || !selectedRealAppTarget,
-                            onClick: startRealAppWalkthrough,
-                            style: {
-                              flex: 1.2,
-                              border: "1px solid rgba(255,255,255,0.12)",
-                              borderRadius: "10px",
-                              padding: "9px 10px",
-                              color: "white",
-                              background: "rgba(48,209,88,0.28)",
-                              fontSize: "12px",
-                              fontWeight: 800,
-                              cursor: isLoading || !selectedRealAppTarget ? "default" : "pointer",
-                              opacity: isLoading || !selectedRealAppTarget ? 0.48 : 1
-                            },
-                            children: "Looks right, start"
-                          }
-                        ),
-                        /* @__PURE__ */ jsxRuntimeExports.jsx(
-                          "button",
-                          {
-                            disabled: isLoading,
-                            onClick: startManualTargetPicking,
-                            style: {
-                              flex: 1,
-                              border: "1px solid rgba(255,255,255,0.12)",
-                              borderRadius: "10px",
-                              padding: "9px 10px",
-                              color: "white",
-                              background: "rgba(10,132,255,0.24)",
-                              fontSize: "12px",
-                              fontWeight: 800,
-                              cursor: isLoading ? "default" : "pointer",
-                              opacity: isLoading ? 0.48 : 1
-                            },
-                            children: "Pick target manually"
-                          }
-                        ),
-                        /* @__PURE__ */ jsxRuntimeExports.jsx(
-                          "button",
-                          {
-                            disabled: isLoading,
-                            onClick: prepareControlledDemo,
-                            style: {
-                              flex: 1,
-                              border: "1px solid rgba(255,255,255,0.12)",
-                              borderRadius: "10px",
-                              padding: "9px 10px",
-                              color: "white",
-                              background: "rgba(255,255,255,0.12)",
-                              fontSize: "12px",
-                              fontWeight: 800,
-                              cursor: isLoading ? "default" : "pointer",
-                              opacity: isLoading ? 0.48 : 1
-                            },
-                            children: "Use controlled demo instead"
-                          }
-                        )
-                      ] })
-                    ]
-                  }
-                )
-              ] }),
-              /* @__PURE__ */ jsxRuntimeExports.jsx(
+              showDebugTools && /* @__PURE__ */ jsxRuntimeExports.jsxs(
+                "div",
+                {
+                  style: {
+                    width: "100%",
+                    background: "rgba(12, 14, 18, 0.45)",
+                    border: "1px solid rgba(255,255,255,0.08)",
+                    borderRadius: "14px",
+                    padding: "12px",
+                    display: "flex",
+                    flexDirection: "column",
+                    gap: "8px"
+                  },
+                  children: [
+                    /* @__PURE__ */ jsxRuntimeExports.jsx(
+                      "div",
+                      {
+                        style: {
+                          fontSize: "10px",
+                          fontWeight: 800,
+                          color: "rgba(255,255,255,0.3)",
+                          textTransform: "uppercase"
+                        },
+                        children: "Debug / Demo Tools"
+                      }
+                    ),
+                    /* @__PURE__ */ jsxRuntimeExports.jsxs(
+                      "div",
+                      {
+                        style: { display: "flex", gap: "8px", flexWrap: "wrap" },
+                        children: [
+                          /* @__PURE__ */ jsxRuntimeExports.jsx(
+                            "button",
+                            {
+                              disabled: isLoading,
+                              onClick: prepareControlledDemo,
+                              style: {
+                                flex: 1,
+                                border: "1px solid rgba(255,255,255,0.12)",
+                                borderRadius: "10px",
+                                padding: "8px",
+                                color: "white",
+                                background: "rgba(255,255,255,0.1)",
+                                fontSize: "11px",
+                                fontWeight: 700,
+                                cursor: "pointer"
+                              },
+                              children: "Use controlled demo"
+                            }
+                          ),
+                          /* @__PURE__ */ jsxRuntimeExports.jsx(
+                            "button",
+                            {
+                              disabled: isLoading,
+                              onClick: runCoordinateCalibration,
+                              style: {
+                                flex: 1,
+                                border: "1px solid rgba(255,255,255,0.12)",
+                                borderRadius: "10px",
+                                padding: "8px",
+                                color: "white",
+                                background: "rgba(10,132,255,0.15)",
+                                fontSize: "11px",
+                                fontWeight: 700,
+                                cursor: "pointer"
+                              },
+                              children: "Log calibration"
+                            }
+                          ),
+                          /* @__PURE__ */ jsxRuntimeExports.jsx(
+                            "button",
+                            {
+                              disabled: isLoading || !intent,
+                              onClick: () => runLegacyPlannerFlow(intent),
+                              style: {
+                                flex: 1,
+                                border: "1px solid rgba(255,255,255,0.12)",
+                                borderRadius: "10px",
+                                padding: "8px",
+                                color: "white",
+                                background: "rgba(191,90,242,0.15)",
+                                fontSize: "11px",
+                                fontWeight: 700,
+                                cursor: "pointer"
+                              },
+                              children: "Legacy planner"
+                            }
+                          ),
+                          /* @__PURE__ */ jsxRuntimeExports.jsx(
+                            "button",
+                            {
+                              disabled: isLoading,
+                              onClick: moveCursorToScreenCenter,
+                              style: {
+                                flex: 1,
+                                border: "1px solid rgba(255,255,255,0.12)",
+                                borderRadius: "10px",
+                                padding: "8px",
+                                color: "white",
+                                background: "rgba(48,209,88,0.15)",
+                                fontSize: "11px",
+                                fontWeight: 700,
+                                cursor: "pointer"
+                              },
+                              children: "Move center"
+                            }
+                          ),
+                          /* @__PURE__ */ jsxRuntimeExports.jsx(
+                            "button",
+                            {
+                              onClick: resetHudPosition,
+                              style: {
+                                flex: 1,
+                                minWidth: "110px",
+                                border: "1px solid rgba(255,255,255,0.12)",
+                                borderRadius: "10px",
+                                padding: "8px",
+                                color: "white",
+                                background: "rgba(255,255,255,0.08)",
+                                fontSize: "11px",
+                                fontWeight: 700,
+                                cursor: "pointer"
+                              },
+                              children: "Reset HUD"
+                            }
+                          )
+                        ]
+                      }
+                    ),
+                    calibrationMessage && /* @__PURE__ */ jsxRuntimeExports.jsx(
+                      "div",
+                      {
+                        style: {
+                          color: "rgba(255,255,255,0.5)",
+                          fontSize: "10px"
+                        },
+                        children: calibrationMessage
+                      }
+                    )
+                  ]
+                }
+              ),
+              lastNodeId && !showWorkflowCard && /* @__PURE__ */ jsxRuntimeExports.jsx(
                 SessionPanel,
                 {
                   intent,

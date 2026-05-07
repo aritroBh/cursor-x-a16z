@@ -84,7 +84,8 @@ async function main() {
     'src/renderer/overlay/InputBar.tsx',
     'src/renderer/overlay/ModeToggle.tsx',
     'src/renderer/overlay/SessionPanel.tsx',
-    'src/renderer/src/assets/overlay.css'
+    'src/renderer/src/assets/overlay.css',
+    'docs/manual-stress-test-checklist.md'
   ]
 
   for (const file of requiredFiles) {
@@ -114,6 +115,9 @@ async function main() {
   const overlayCss = readFile('src/renderer/src/assets/overlay.css')
   check(overlayCss.includes('@property --angle'), 'overlay.css keeps @property --angle')
   check(/siri-spin\s+[5-8]s/.test(overlayCss), 'overlay.css keeps 5–8s Siri-style conic rotation')
+  check(overlayCss.includes('--edge-band') && overlayCss.includes('--edge-bloom'), 'overlay.css defines a wider edge band and bloom')
+  check(overlayCss.includes('mix-blend-mode: screen'), 'edge glow uses screen blending for varied backgrounds')
+  check(/padding:\s*var\(--edge-band\)/.test(overlayCss), 'crisp edge ring uses the wider visible band')
   check(!overlayCss.includes('siri-glow-thin'), 'old siri-glow-thin animation name is absent')
   check(!overlayCss.includes('background: #000'), 'overlay.css does not force an opaque black background')
 
@@ -266,6 +270,25 @@ async function main() {
   check(logger.includes('export function safeError'), 'logger.ts exports safeError')
   check(mainIndex.includes("from './logger'") || mainIndex.includes("from '../logger'"), 'index.ts imports safe logger')
   check(mainIndex.includes('safeLog') && mainIndex.includes('safeWarn') && mainIndex.includes('safeError'), 'index.ts uses safeLog/safeWarn/safeError')
+
+  printHeader('Window Routing')
+
+  const screenCoordinates = readFile('src/main/screenCoordinates.ts')
+  const capture = readFile('src/main/capture.ts')
+  const stressChecklist = readFile('docs/manual-stress-test-checklist.md')
+
+  check(mainIndex.includes('[WINDOW_ROUTING] overlay summon request'), 'double-shift summon logs window routing request')
+  check(mainIndex.includes('screen.getCursorScreenPoint()'), 'double-shift routing samples the current cursor point')
+  check(mainIndex.includes('screen.getDisplayNearestPoint'), 'double-shift routing selects the nearest active display')
+  check(mainIndex.includes('setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true })'), 'overlay is visible on all workspaces and fullscreen spaces')
+  check(mainIndex.includes('setFullScreenable(false)'), 'overlay uses non-fullscreenable macOS auxiliary behavior')
+  check(mainIndex.includes('showInactive()'), 'overlay summon can show without stealing active-app focus')
+  check(mainIndex.includes('setContentBounds'), 'practice window is centered on the routed display')
+  check(mainIndex.includes('[STRESS_TEST]'), 'main process has stress-test lifecycle logs')
+  check(mainIndex.includes('SPECTER_OPEN_DEVTOOLS'), 'devtools are opt-in for cleaner demo flow')
+  check(screenCoordinates.includes('setActiveCoordinateDisplay'), 'coordinate conversion tracks the routed active display')
+  check(capture.includes('getActiveCoordinateDisplay'), 'screen capture follows the routed active display')
+  check(stressChecklist.includes('## A. Overlay Toggling') && stressChecklist.includes('## H. Window Lifecycle'), 'manual stress-test checklist covers A through H')
 
   printHeader('Capture Log Naming')
 

@@ -13,9 +13,8 @@ html, body, #root {
 .main-window {
   min-height: 100vh;
   background:
-    radial-gradient(circle at 22% 18%, rgba(96,165,250,0.14), transparent 28%),
-    radial-gradient(circle at 78% 24%, rgba(52,211,153,0.11), transparent 26%),
-    linear-gradient(180deg, rgba(255,255,255,0.045), rgba(255,255,255,0)),
+    linear-gradient(90deg, rgba(10,132,255,0.1), transparent 26%, transparent 74%, rgba(191,90,242,0.1)),
+    linear-gradient(180deg, rgba(255,255,255,0.055), rgba(255,255,255,0)),
     #101114;
 }
 
@@ -28,6 +27,15 @@ html, body, #root {
   overflow: hidden;
 }
 
+.demo-stage::before {
+  content: '';
+  position: absolute;
+  inset: 14px;
+  border: 1px solid rgba(255,255,255,0.1);
+  border-radius: 12px;
+  pointer-events: none;
+}
+
 .demo-header {
   position: absolute;
   top: 42px;
@@ -37,7 +45,7 @@ html, body, #root {
 
 .demo-eyebrow {
   margin: 0 0 0.45rem;
-  color: #60a5fa;
+  color: #8ec5ff;
   font-size: 0.78rem;
   font-weight: 800;
   letter-spacing: 0;
@@ -64,8 +72,8 @@ html, body, #root {
   border: 1px solid rgba(255,255,255,0.15);
   border-radius: 8px;
   color: #f8fafc;
-  background: #1c2430;
-  box-shadow: 0 10px 28px rgba(0,0,0,0.24);
+  background: rgba(24, 30, 40, 0.96);
+  box-shadow: 0 10px 28px rgba(0,0,0,0.24), 0 0 0 1px rgba(10,132,255,0.08);
   font: inherit;
   font-size: 1rem;
   font-weight: 700;
@@ -73,6 +81,7 @@ html, body, #root {
 }
 
 .demo-target:hover {
+  border-color: rgba(142, 197, 255, 0.5);
   background: #263449;
 }
 

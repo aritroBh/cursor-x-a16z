@@ -12,9 +12,9 @@ const DemoApp = () => {
   };
   return /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "main-window", children: /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "demo-stage", children: [
     /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "demo-header", children: [
-      /* @__PURE__ */ jsxRuntimeExports.jsx("p", { className: "demo-eyebrow", children: "Practice Workspace" }),
+      /* @__PURE__ */ jsxRuntimeExports.jsx("p", { className: "demo-eyebrow", children: "Specter Guided Workspace" }),
       /* @__PURE__ */ jsxRuntimeExports.jsx("h1", { children: "Project Setup" }),
-      /* @__PURE__ */ jsxRuntimeExports.jsx("p", { children: "Use Specter to follow a small, predictable software flow." })
+      /* @__PURE__ */ jsxRuntimeExports.jsx("p", { children: "Follow the same ghost cursor and confirmation flow used over real apps." })
     ] }),
     /* @__PURE__ */ jsxRuntimeExports.jsx(
       "button",

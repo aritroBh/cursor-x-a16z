@@ -1,5 +1,6 @@
 import 'dotenv/config'
 import { app, shell, BrowserWindow, ipcMain, globalShortcut, screen } from 'electron'
+import type { Display, Rectangle } from 'electron'
 import { join } from 'path'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import { uIOhook, UiohookKey } from 'uiohook-napi'
@@ -11,7 +12,7 @@ import {
   executeRealMouseSteps,
   moveRealMouse
 } from './cursor'
-import { getCoordinateCalibrationDiagnostics, getPhysicalMousePosition, waitForMouseAtTarget } from './userCursor'
+import { getCoordinateCalibrationDiagnostics, getPhysicalMousePercent, getPhysicalMousePosition, waitForMouseAtTarget } from './userCursor'
 import { analyzeScreen, detectScreenTargets, fallbackScreenState, fallbackScreenTargets } from './ai/screener'
 import { planSteps, converse } from './ai/planner'
 import { speak, stopSpeaking } from './ai/tts'
@@ -29,6 +30,7 @@ import { startRecording, recordStep, stopRecording, saveToNode } from './session
 import { registerReplayIpc, replayWalkthrough } from './session/replay'
 import { hasActiveReplay, stopReplay } from './session/replayController'
 import { CONTROLLED_DEMO_HEIGHT, CONTROLLED_DEMO_WIDTH, createControlledDemoWorkflow } from './session/demoWorkflow'
+import { setActiveCoordinateDisplay } from './screenCoordinates'
 import type { Step } from './session/types'
 import { safeLog, safeWarn, safeError } from './logger'
 
@@ -38,6 +40,109 @@ const REAL_APP_CONFIDENCE_THRESHOLD = 0.65
 
 let mainWindow: BrowserWindow | null = null
 let overlayWindow: BrowserWindow | null = null
+
+function displaySummary(display: Display): {
+  id: number
+  scaleFactor: number
+  bounds: Rectangle
+  workArea: Rectangle
+} {
+  return {
+    id: display.id,
+    scaleFactor: display.scaleFactor,
+    bounds: display.bounds,
+    workArea: display.workArea
+  }
+}
+
+function getSummonDisplay(): { cursorPoint: Electron.Point; display: Display } {
+  safeLog('[WINDOW_ROUTING] overlay summon request')
+  const cursorPoint = screen.getCursorScreenPoint()
+  const display = screen.getDisplayNearestPoint(cursorPoint)
+
+  safeLog('[WINDOW_ROUTING] cursor point', cursorPoint)
+  safeLog('[WINDOW_ROUTING] selected display id / bounds', displaySummary(display))
+  setActiveCoordinateDisplay(display.id)
+
+  return { cursorPoint, display }
+}
+
+function enableOverlayWorkspaceBehavior(): void {
+  if (!overlayWindow || overlayWindow.isDestroyed()) return
+
+  overlayWindow.setAlwaysOnTop(true, 'screen-saver', 1)
+  overlayWindow.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true })
+
+  if (process.platform === 'darwin') {
+    // Electron does not expose AppKit collectionBehavior directly. The
+    // combination of a panel window, all-workspaces visibility, screen-saver
+    // z-level, and non-fullscreenable behavior is the safest available route
+    // for macOS Spaces and fullscreen auxiliary presentation.
+    overlayWindow.setFullScreenable(false)
+  }
+
+  safeLog('[WINDOW_ROUTING] visible on all workspaces enabled', {
+    displayId: screen.getDisplayMatching(overlayWindow.getBounds()).id,
+    platform: process.platform
+  })
+}
+
+function moveOverlayToDisplay(display: Display): void {
+  if (!overlayWindow || overlayWindow.isDestroyed()) return
+
+  overlayWindow.setBounds(display.bounds)
+  enableOverlayWorkspaceBehavior()
+  safeLog('[WINDOW_ROUTING] moved overlay to display', displaySummary(display))
+}
+
+function centerContentBounds(display: Display, width: number, height: number): Rectangle {
+  const workArea = display.workArea
+  return {
+    x: Math.round(workArea.x + (workArea.width - width) / 2),
+    y: Math.round(workArea.y + (workArea.height - height) / 2),
+    width,
+    height
+  }
+}
+
+function movePracticeWindowToDisplay(display: Display, showWindow: boolean): void {
+  if (!mainWindow || mainWindow.isDestroyed()) return
+
+  mainWindow.setContentBounds(centerContentBounds(display, CONTROLLED_DEMO_WIDTH, CONTROLLED_DEMO_HEIGHT))
+  safeLog('[WINDOW_ROUTING] moved practice window to display', displaySummary(display))
+
+  if (showWindow) {
+    mainWindow.show()
+    mainWindow.focus()
+  }
+}
+
+function overlayIsOnDisplay(display: Display): boolean {
+  if (!overlayWindow || overlayWindow.isDestroyed()) return false
+  return screen.getDisplayMatching(overlayWindow.getBounds()).id === display.id
+}
+
+function routeVisibleWindowsToDisplay(display: Display): void {
+  moveOverlayToDisplay(display)
+  if (mainWindow && !mainWindow.isDestroyed() && mainWindow.isVisible()) {
+    movePracticeWindowToDisplay(display, false)
+  }
+}
+
+function registerWindowRoutingListeners(): void {
+  const refreshVisibleOverlayRoute = (reason: string) => {
+    if (!overlayWindow || overlayWindow.isDestroyed() || !overlayWindow.isVisible()) return
+
+    safeLog('[WINDOW_ROUTING] refreshing visible overlay route', { reason })
+    safeLog('[STRESS_TEST] display topology changed while overlay was visible', { reason })
+    const { display } = getSummonDisplay()
+    routeVisibleWindowsToDisplay(display)
+  }
+
+  screen.on('display-metrics-changed', () => refreshVisibleOverlayRoute('display-metrics-changed'))
+  screen.on('display-added', () => refreshVisibleOverlayRoute('display-added'))
+  screen.on('display-removed', () => refreshVisibleOverlayRoute('display-removed'))
+}
 
 function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms))
@@ -110,14 +215,32 @@ function toggleOverlay(): void {
     stopReplay()
     return
   }
+
+  const { display } = getSummonDisplay()
+
   if (overlayWindow.isVisible()) {
+    if (!overlayIsOnDisplay(display)) {
+      safeLog('[WINDOW_ROUTING] overlay already visible; moving to active display instead of hiding')
+      routeVisibleWindowsToDisplay(display)
+      overlayWindow.showInactive()
+      overlayWindow.moveTop()
+      overlayWindow.setIgnoreMouseEvents(true, { forward: true })
+      return
+    }
+
     safeLog('[OVERLAY_INTERACTION] hiding overlay, enabled click-through')
+    safeLog('[STRESS_TEST] overlay hidden; click-through restored')
     overlayWindow.setIgnoreMouseEvents(true, { forward: true })
     overlayWindow.hide()
   } else {
+    routeVisibleWindowsToDisplay(display)
     safeLog('[OVERLAY_INTERACTION] showing overlay, enabled click-through (ignore mouse: true)')
+    safeLog('[STRESS_TEST] overlay shown; duplicate window count', {
+      windows: BrowserWindow.getAllWindows().length
+    })
     overlayWindow.setIgnoreMouseEvents(true, { forward: true })
-    overlayWindow.show()
+    overlayWindow.showInactive()
+    overlayWindow.moveTop()
   }
   overlayWindow.webContents.send('overlay:toggle')
 }
@@ -158,7 +281,7 @@ function createWindow(): void {
   })
 
   mainWindow.on('ready-to-show', () => {
-    mainWindow?.show()
+    safeLog('[WINDOW_ROUTING] practice window ready and waiting for controlled demo')
   })
 
   mainWindow.on('closed', () => {
@@ -178,7 +301,9 @@ function createWindow(): void {
 }
 
 function createOverlayWindow(): void {
-  const { x, y, width, height } = screen.getPrimaryDisplay().bounds
+  const initialDisplay = screen.getDisplayNearestPoint(screen.getCursorScreenPoint())
+  const { x, y, width, height } = initialDisplay.bounds
+  setActiveCoordinateDisplay(initialDisplay.id)
 
   overlayWindow = new BrowserWindow({
     x,
@@ -190,6 +315,10 @@ function createOverlayWindow(): void {
     hasShadow: false,
     alwaysOnTop: true,
     skipTaskbar: true,
+    visibleOnAllWorkspaces: true,
+    fullscreenable: false,
+    focusable: true,
+    acceptFirstMouse: true,
     show: false,
     backgroundColor: '#00000000',
     // 'panel' is the macOS-native overlay type: always-on-top across all
@@ -201,9 +330,8 @@ function createOverlayWindow(): void {
     }
   })
 
-  overlayWindow.setAlwaysOnTop(true, 'screen-saver')
+  enableOverlayWorkspaceBehavior()
   overlayWindow.setIgnoreMouseEvents(true, { forward: true })
-  overlayWindow.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true })
 
   overlayWindow.on('ready-to-show', () => {
     overlayWindow?.hide()
@@ -232,10 +360,16 @@ app.whenReady().then(async () => {
 
   createWindow()
   createOverlayWindow()
+  registerWindowRoutingListeners()
 
-  if (!app.isPackaged) {
+  const shouldOpenDevTools = !app.isPackaged && process.env['SPECTER_OPEN_DEVTOOLS'] === 'true'
+
+  if (shouldOpenDevTools) {
     mainWindow?.webContents.openDevTools({ mode: 'detach' })
     overlayWindow?.webContents.openDevTools({ mode: 'detach' })
+  }
+
+  if (!app.isPackaged) {
 
     globalShortcut.register('CommandOrControl+Shift+D', () => {
       if (mainWindow?.webContents.isDevToolsOpened()) {
@@ -266,6 +400,7 @@ app.whenReady().then(async () => {
     return executeRealMouseSteps(steps)
   })
   ipcMain.handle('cursor:getPosition', async () => getPhysicalMousePosition())
+  ipcMain.handle('cursor:getPositionPercent', async () => getPhysicalMousePercent())
   ipcMain.handle('cursor:diagnostics', async () => getCoordinateCalibrationDiagnostics())
   ipcMain.handle('cursor:moveCenter', async () => {
     safeLog('[COORD_CALIBRATION] explicit center move requested')
@@ -458,12 +593,17 @@ app.whenReady().then(async () => {
   })
 
   ipcMain.handle('demo:controlledWorkflow', async () => {
-    if (mainWindow && !mainWindow.isDestroyed()) {
-      mainWindow.setContentSize(CONTROLLED_DEMO_WIDTH, CONTROLLED_DEMO_HEIGHT)
-      mainWindow.center()
-      mainWindow.show()
-      mainWindow.focus()
+    const { display } = getSummonDisplay()
+    moveOverlayToDisplay(display)
+
+    if (!mainWindow || mainWindow.isDestroyed()) {
+      createWindow()
     }
+
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      movePracticeWindowToDisplay(display, true)
+    }
+
     const workflow = createControlledDemoWorkflow(mainWindow)
     const graph = saveToNode(loadGraph(DEFAULT_APP_NAME), workflow.nodeId, workflow.steps)
     saveGraph(graph)
@@ -567,7 +707,7 @@ app.whenReady().then(async () => {
     if (BrowserWindow.getAllWindows().length === 0) {
       createWindow()
       createOverlayWindow()
-      if (!app.isPackaged) {
+      if (shouldOpenDevTools) {
         mainWindow?.webContents.openDevTools({ mode: 'detach' })
         overlayWindow?.webContents.openDevTools({ mode: 'detach' })
       }

@@ -1,8 +1,10 @@
 import { desktopCapturer, screen } from 'electron'
+import { getActiveCoordinateDisplay } from './screenCoordinates'
+import { safeLog } from './logger'
 
 export async function captureScreenBase64(): Promise<string> {
-  const primaryDisplay = screen.getPrimaryDisplay()
-  const { width, height } = primaryDisplay.size
+  const activeDisplay = getActiveCoordinateDisplay()
+  const { width, height } = activeDisplay.size
 
   let sources
   try {
@@ -17,13 +19,18 @@ export async function captureScreenBase64(): Promise<string> {
     throw wrapped
   }
 
-  const source = sources.find((s) => s.display_id === String(primaryDisplay.id)) ?? sources[0]
+  const source = sources.find((s) => s.display_id === String(activeDisplay.id)) ?? sources[0]
 
   if (!source || source.thumbnail.isEmpty()) {
     const err = new Error('Screen Recording permission denied. Grant access in System Settings, then retry.') as any
     err.code = 'SCREEN_PERMISSION_DENIED'
     throw err
   }
+
+  safeLog('[WINDOW_ROUTING] screen capture display selected', {
+    displayId: activeDisplay.id,
+    bounds: activeDisplay.bounds
+  })
 
   return source.thumbnail.toPNG().toString('base64')
 }

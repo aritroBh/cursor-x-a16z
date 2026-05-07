@@ -19,9 +19,9 @@ const DemoApp: React.FC = () => {
     <div className="main-window">
       <div className="demo-stage">
         <div className="demo-header">
-          <p className="demo-eyebrow">Practice Workspace</p>
+          <p className="demo-eyebrow">Specter Guided Workspace</p>
           <h1>Project Setup</h1>
-          <p>Use Specter to follow a small, predictable software flow.</p>
+          <p>Follow the same ghost cursor and confirmation flow used over real apps.</p>
         </div>
 
         <button

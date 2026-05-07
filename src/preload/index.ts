@@ -17,6 +17,7 @@ const api = {
   clickCursor: (x: number, y: number) => ipcRenderer.invoke('cursor:click', x, y),
   replaySteps: (steps: any[]) => ipcRenderer.invoke('cursor:replay', steps),
   getCursorPosition: () => ipcRenderer.invoke('cursor:getPosition'),
+  getCursorPercent: () => ipcRenderer.invoke('cursor:getPositionPercent'),
   getCursorCalibration: () => ipcRenderer.invoke('cursor:diagnostics'),
   moveCursorToScreenCenter: () => ipcRenderer.invoke('cursor:moveCenter'),
   waitForCursorTarget: (x: number, y: number, tolerancePx?: number, timeoutMs?: number) =>

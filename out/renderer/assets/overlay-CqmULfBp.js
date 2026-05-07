@@ -203,8 +203,6 @@ const OverlayApp = () => {
   }, []);
   const handleIntentSubmit = async (text) => {
     setIntent(text);
-    setIsVisible(false);
-    api.hideOverlay();
     const screenState = await api.analyzeScreen();
     const plan = await api.planSteps(text, screenState, [], mode);
     if (!plan || !plan.steps || plan.steps.length === 0) return;
@@ -226,7 +224,7 @@ const OverlayApp = () => {
     height: "100vh",
     position: "relative",
     pointerEvents: isVisible ? "auto" : "none",
-    background: isVisible ? "rgba(0,0,0,0.1)" : "transparent",
+    background: "transparent",
     display: "flex",
     flexDirection: "column",
     alignItems: "center",

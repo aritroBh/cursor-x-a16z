@@ -1,42 +1,57 @@
 /* Specter overlay styles */
 * { box-sizing: border-box; }
 
-@keyframes siri-glow {
-  0%   { box-shadow: inset 0 0 0 3px rgba(124, 58, 237, 0.8),
-                     inset 0 0 60px rgba(124, 58, 237, 0.15); }
-  25%  { box-shadow: inset 0 0 0 3px rgba(236, 72, 153, 0.8),
-                     inset 0 0 60px rgba(236, 72, 153, 0.15); }
-  50%  { box-shadow: inset 0 0 0 3px rgba(59, 130, 246, 0.8),
-                     inset 0 0 60px rgba(59, 130, 246, 0.15); }
-  75%  { box-shadow: inset 0 0 0 3px rgba(16, 185, 129, 0.8),
-                     inset 0 0 60px rgba(16, 185, 129, 0.15); }
-  100% { box-shadow: inset 0 0 0 3px rgba(124, 58, 237, 0.8),
-                     inset 0 0 60px rgba(124, 58, 237, 0.15); }
+@property --angle {
+  syntax: '<angle>';
+  initial-value: 0deg;
+  inherits: false;
 }
 
-@keyframes siri-glow-thin {
-  0%   { box-shadow: 0 0 0 2px rgba(124, 58, 237, 0.8),
-                     0 0 20px rgba(124, 58, 237, 0.15); }
-  25%  { box-shadow: 0 0 0 2px rgba(236, 72, 153, 0.8),
-                     0 0 20px rgba(236, 72, 153, 0.15); }
-  50%  { box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.8),
-                     0 0 20px rgba(59, 130, 246, 0.15); }
-  75%  { box-shadow: 0 0 0 2px rgba(16, 185, 129, 0.8),
-                     0 0 20px rgba(16, 185, 129, 0.15); }
-  100% { box-shadow: 0 0 0 2px rgba(124, 58, 237, 0.8),
-                     0 0 20px rgba(124, 58, 237, 0.15); }
+@keyframes siri-spin {
+  to { --angle: 360deg; }
 }
 
+/* Fullscreen overlay — keep transparent, no glow on the window itself */
 .siri-glow-fullscreen {
   position: fixed;
   inset: 0;
   pointer-events: none;
   z-index: 9998;
-  border: 3px solid transparent;
-  animation: siri-glow 3s linear infinite;
   background: transparent;
 }
 
+/* Card border glow — applied to .siri-glow-input */
 .siri-glow-input {
-  animation: siri-glow-thin 4s ease-in-out infinite;
+  position: relative;
+  z-index: 0;
+}
+
+.siri-glow-input::before {
+  content: '';
+  position: absolute;
+  inset: -3px;
+  border-radius: 19px;
+  background: conic-gradient(
+    from var(--angle),
+    #bf5af2, #0a84ff, #30d158,
+    #5e5ce6, #ff375f, #bf5af2
+  );
+  animation: siri-spin 5s linear infinite;
+  z-index: -1;
+}
+
+.siri-glow-input::after {
+  content: '';
+  position: absolute;
+  inset: -8px;
+  border-radius: 24px;
+  background: conic-gradient(
+    from var(--angle),
+    #bf5af2, #0a84ff, #30d158,
+    #5e5ce6, #ff375f, #bf5af2
+  );
+  animation: siri-spin 5s linear infinite;
+  filter: blur(14px);
+  opacity: 0.55;
+  z-index: -2;
 }

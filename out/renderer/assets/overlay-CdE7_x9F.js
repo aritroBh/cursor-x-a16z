@@ -184,13 +184,10 @@ const OverlayApp = () => {
   const [intent, setIntent] = reactExports.useState("");
   const [currentStep, setCurrentStep] = reactExports.useState(null);
   const [replayState, setReplayState] = reactExports.useState("idle");
+  const [isLoading, setIsLoading] = reactExports.useState(false);
   reactExports.useEffect(() => {
     api.onOverlayToggle(() => {
       setIsVisible((prev) => !prev);
-    });
-    api.onReplayStep((data) => {
-      setCurrentStep(data.step);
-      setReplayState("running");
     });
     api.onReplayComplete(() => {
       setCurrentStep(null);
@@ -201,11 +198,28 @@ const OverlayApp = () => {
       setReplayState("idle");
     });
   }, []);
+  reactExports.useEffect(() => {
+    api.onReplayStep((data) => {
+      setCurrentStep(data.step);
+      setReplayState("running");
+      setIsLoading(false);
+    });
+  }, []);
+  reactExports.useEffect(() => {
+    api.onReplayProgress((data) => {
+      setReplayState("running");
+      setCurrentStep({ index: data.index, total: data.total });
+    });
+  }, []);
   const handleIntentSubmit = async (text) => {
     setIntent(text);
+    setIsLoading(true);
     const screenState = await api.analyzeScreen();
     const plan = await api.planSteps(text, screenState, [], mode);
-    if (!plan || !plan.steps || plan.steps.length === 0) return;
+    if (!plan || !plan.steps || plan.steps.length === 0) {
+      setIsLoading(false);
+      return;
+    }
     if (mode === "ultra") {
       await api.speak(`Starting: ${plan.levelTitle}`);
     }
@@ -213,12 +227,13 @@ const OverlayApp = () => {
     const arm = await api.selectStyle();
     const startTime = Date.now();
     await api.walkthrough(plan.levelTitle);
+    setIsLoading(false);
     const elapsed = Date.now() - startTime;
     const reward = elapsed < 15e3 ? 1 : elapsed < 45e3 ? 0.5 : 0;
     await api.recordReward(arm, reward);
     await api.markNodeComplete(plan.levelTitle);
   };
-  if (!isVisible && replayState === "idle") return null;
+  if (!isVisible && replayState === "idle" && !isLoading) return null;
   return /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "overlay-container", style: {
     width: "100vw",
     height: "100vh",
@@ -232,6 +247,21 @@ const OverlayApp = () => {
     fontFamily: "Inter, system-ui, sans-serif"
   }, children: [
     /* @__PURE__ */ jsxRuntimeExports.jsx(GhostCursor, { step: currentStep }),
+    isLoading && /* @__PURE__ */ jsxRuntimeExports.jsx("div", { style: {
+      position: "fixed",
+      bottom: "24px",
+      left: "50%",
+      transform: "translateX(-50%)",
+      background: "rgba(0, 0, 0, 0.75)",
+      color: "#fff",
+      padding: "10px 20px",
+      borderRadius: "20px",
+      fontSize: "14px",
+      fontWeight: 500,
+      backdropFilter: "blur(8px)",
+      pointerEvents: "none",
+      zIndex: 9999
+    }, children: "Analyzing your screen..." }),
     isVisible && /* @__PURE__ */ jsxRuntimeExports.jsxs(jsxRuntimeExports.Fragment, { children: [
       /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "siri-glow-fullscreen" }),
       /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { style: {

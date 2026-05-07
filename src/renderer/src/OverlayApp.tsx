@@ -32,7 +32,6 @@ interface RealAppTargetsResult {
 }
 
 const SHOW_WALKTHROUGH_DEBUG = import.meta.env.DEV
-const SHOW_CALIBRATION_DEBUG = import.meta.env.DEV
 const DEFAULT_REAL_APP_PROMPT = 'Teach me one visible action'
 const DEFAULT_CONFIDENCE_THRESHOLD = 0.65
 
@@ -1246,7 +1245,7 @@ const OverlayApp: React.FC = () => {
                 nodeId={lastNodeId}
                 appName={screenState?.app}
                 isBusy={isLoading}
-                isWalkthroughActive={replayMode === 'walkthrough' && replayState === 'running'}
+                isWalkthroughActive={false}
                 onWalkthrough={() => replaySavedWorkflow('walkthrough')}
                 onAutoExecute={() => replaySavedWorkflow('auto')}
               />

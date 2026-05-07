@@ -1551,7 +1551,7 @@ const OverlayApp = () => {
                   nodeId: lastNodeId,
                   appName: screenState?.app,
                   isBusy: isLoading,
-                  isWalkthroughActive: replayMode === "walkthrough" && replayState === "running",
+                  isWalkthroughActive: false,
                   onWalkthrough: () => replaySavedWorkflow("walkthrough"),
                   onAutoExecute: () => replaySavedWorkflow("auto")
                 }

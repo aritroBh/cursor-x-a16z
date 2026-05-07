@@ -2,6 +2,7 @@ import Anthropic from '@anthropic-ai/sdk'
 
 const CLAUDE_MODEL = 'claude-sonnet-4-5'
 const STEP_ACTIONS = ['click', 'type', 'scroll', 'wait']
+type PlannerMode = 'silent' | 'ultra'
 const SYSTEM_PROMPT =
   'You are a software tutor. Given the user\'s intent, current screen state, and their learning history, generate a precise step-by-step tutorial. Return ONLY valid JSON. Coordinates must be percentages of screen dimensions. Keep instructions under 15 words each for Silent mode, conversational for Ultra mode.'
 
@@ -31,6 +32,45 @@ function isStepAction(value: any): boolean {
   return typeof value === 'string' && STEP_ACTIONS.includes(value)
 }
 
+function normalizeMode(mode: any): PlannerMode {
+  return mode === 'ultra' ? 'ultra' : 'silent'
+}
+
+function coordinatesFrom(screenState: any): Array<{ label: string; x: number; y: number }> {
+  if (!screenState || typeof screenState !== 'object' || !Array.isArray(screenState.coordinates)) {
+    return []
+  }
+
+  return screenState.coordinates
+    .filter((item: any) => item && typeof item === 'object')
+    .map((item: any) => ({
+      label: typeof item.label === 'string' && item.label.trim() ? item.label : 'target',
+      x: clampCoordinate(item.x ?? item.targetX, 50),
+      y: clampCoordinate(item.y ?? item.targetY, 50)
+    }))
+}
+
+function safeScreenState(screenState: any): any {
+  return {
+    app:
+      screenState && typeof screenState === 'object' && typeof screenState.app === 'string' && screenState.app.trim()
+        ? screenState.app
+        : 'Unknown',
+    coordinates: coordinatesFrom(screenState)
+  }
+}
+
+function findCoordinate(
+  coordinates: Array<{ label: string; x: number; y: number }>,
+  pattern: RegExp
+): { label: string; x: number; y: number } | undefined {
+  return coordinates.find((item) => pattern.test(item.label))
+}
+
+function numberOrUndefined(value: any): number | undefined {
+  return typeof value === 'number' && Number.isFinite(value) ? Math.max(0, Math.round(value)) : undefined
+}
+
 function normalizeSequence(value: any, fallback: any): any {
   if (!value || typeof value !== 'object') {
     return fallback
@@ -50,8 +90,13 @@ function normalizeSequence(value: any, fallback: any): any {
         ? Math.max(1, Math.round(maybeSequence.estimatedMinutes))
         : fallback.estimatedMinutes,
     steps: steps.map((step: any, index: number) => {
-      const partial = step
+      const partial = step && typeof step === 'object' ? step : {}
       const fallbackStep = fallback.steps[Math.min(index, fallback.steps.length - 1)]
+      const waitForMs =
+        numberOrUndefined(partial.waitForMs) ??
+        numberOrUndefined(partial.delayMs) ??
+        numberOrUndefined(fallbackStep.waitForMs) ??
+        numberOrUndefined(fallbackStep.delayMs)
 
       return {
         id: typeof partial.id === 'string' ? partial.id : `step-${index + 1}`,
@@ -67,17 +112,23 @@ function normalizeSequence(value: any, fallback: any): any {
         y: clampCoordinate(partial.y ?? partial.targetY, fallbackStep.y),
         action: isStepAction(partial.action) ? partial.action : fallbackStep.action,
         typeText: typeof partial.typeText === 'string' ? partial.typeText : undefined,
-        waitForMs: typeof partial.waitForMs === 'number' && Number.isFinite(partial.waitForMs) ? Math.max(0, partial.waitForMs) : undefined
+        delayMs: numberOrUndefined(partial.delayMs),
+        waitForMs
       }
     })
   }
 }
 
 function fallbackSequence(userIntent: string, screenState: any, mode: string): any {
-  const coordinates = screenState.coordinates || []
-  const short = mode === 'silent'
+  const coordinates = coordinatesFrom(screenState)
+  const short = normalizeMode(mode) === 'silent'
 
   if (/blender/i.test(userIntent) && /mesh/i.test(userIntent)) {
+    const addMenu = findCoordinate(coordinates, /add/i)
+    const meshItem = findCoordinate(coordinates, /mesh/i)
+    const cubeItem = findCoordinate(coordinates, /cube/i)
+    const moveTool = findCoordinate(coordinates, /move/i)
+
     return {
       levelTitle: 'Add a Mesh in Blender',
       estimatedMinutes: 2,
@@ -86,24 +137,24 @@ function fallbackSequence(userIntent: string, screenState: any, mode: string): a
           id: 'open-add-menu',
           instruction: short ? 'Open Add.' : 'Start with the Add menu in the top-left.',
           targetLabel: 'Add menu',
-          x: coordinates.find((item) => /add/i.test(item.label))?.x ?? 4,
-          y: coordinates.find((item) => /add/i.test(item.label))?.y ?? 3,
+          x: addMenu?.x ?? 4,
+          y: addMenu?.y ?? 3,
           action: 'click'
         },
         {
           id: 'choose-mesh',
           instruction: short ? 'Choose Mesh.' : 'Now choose Mesh from that menu.',
           targetLabel: 'Mesh',
-          x: coordinates.find((item) => /mesh/i.test(item.label))?.x ?? 6,
-          y: coordinates.find((item) => /mesh/i.test(item.label))?.y ?? 14,
+          x: meshItem?.x ?? 6,
+          y: meshItem?.y ?? 14,
           action: 'click'
         },
         {
           id: 'choose-cube',
           instruction: short ? 'Select Cube.' : 'Pick Cube as your first simple mesh.',
           targetLabel: 'Cube',
-          x: coordinates.find((item) => /cube/i.test(item.label))?.x ?? 10,
-          y: coordinates.find((item) => /cube/i.test(item.label))?.y ?? 20,
+          x: cubeItem?.x ?? 10,
+          y: cubeItem?.y ?? 20,
           action: 'click'
         },
         {
@@ -119,8 +170,8 @@ function fallbackSequence(userIntent: string, screenState: any, mode: string): a
           id: 'select-move-tool',
           instruction: short ? 'Select move.' : 'Select the move tool so you can position it.',
           targetLabel: 'Move tool',
-          x: coordinates.find((item) => /move/i.test(item.label))?.x ?? 2,
-          y: coordinates.find((item) => /move/i.test(item.label))?.y ?? 24,
+          x: moveTool?.x ?? 2,
+          y: moveTool?.y ?? 24,
           action: 'click'
         }
       ]
@@ -156,10 +207,16 @@ function fallbackSequence(userIntent: string, screenState: any, mode: string): a
 }
 
 export async function planSteps(userIntent: string, screenState: any, sessionHistory: any[], mode: string): Promise<any> {
-  console.log('[PLANNER] Intent:', userIntent)
-  console.log('[PLANNER] Screen app detected:', screenState?.app)
+  const normalizedMode = normalizeMode(mode)
+  const normalizedScreenState = safeScreenState(screenState)
+  const normalizedHistory = Array.isArray(sessionHistory) ? sessionHistory : []
+  const normalizedIntent = typeof userIntent === 'string' && userIntent.trim() ? userIntent : 'Specter Tutorial'
 
-  const fallback = fallbackSequence(userIntent, screenState, mode)
+  console.log('[PLANNER] Intent:', normalizedIntent)
+  console.log('[PLANNER] Mode:', normalizedMode)
+  console.log('[PLANNER] Screen app detected:', normalizedScreenState.app)
+
+  const fallback = fallbackSequence(normalizedIntent, normalizedScreenState, normalizedMode)
   const client = anthropicClient()
 
   if (!client) {
@@ -179,9 +236,9 @@ export async function planSteps(userIntent: string, screenState: any, sessionHis
           content: JSON.stringify(
             {
               userIntent,
-              screenState,
-              sessionHistory,
-              mode,
+              screenState: normalizedScreenState,
+              sessionHistory: normalizedHistory,
+              mode: normalizedMode,
               requiredShape: {
                 steps: [
                   {
@@ -207,9 +264,7 @@ export async function planSteps(userIntent: string, screenState: any, sessionHis
     })
 
     const rawText = message.content
-      .filter((part): part is { type: 'text'; text: string } =>
-        part.type === 'text' && 'text' in part)
-      .map((part) => (part as { type: 'text'; text: string }).text)
+      .flatMap((part) => (part.type === 'text' && 'text' in part && typeof part.text === 'string' ? [part.text] : []))
       .join('\n')
 
     console.log('[PLANNER] Raw response:', rawText)
@@ -255,9 +310,7 @@ export async function converse(userMessage: string, screenState: any, conversati
     })
 
     const text = message.content
-      .filter((part): part is { type: 'text'; text: string } =>
-        part.type === 'text' && 'text' in part)
-      .map((part) => (part as { type: 'text'; text: string }).text)
+      .flatMap((part) => (part.type === 'text' && 'text' in part && typeof part.text === 'string' ? [part.text] : []))
       .join('\n')
       .trim()
 

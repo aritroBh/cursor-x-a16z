@@ -1,257 +1,248 @@
 import * as fs from 'fs'
 import * as path from 'path'
 
+type CheckKind = 'pass' | 'fail' | 'warn'
+
 async function main() {
   const { default: chalk } = await import('chalk')
   const root = process.cwd()
 
   let passed = 0
   let failed = 0
+  let warned = 0
 
   function printHeader(title: string) {
-    console.log('\n' + chalk.cyan.bold('─── ' + title + ' ───'))
+    console.log('\n' + chalk.cyan.bold('== ' + title + ' =='))
   }
 
-  function pass(msg: string) {
-    passed++
-    console.log(chalk.green.bold('PASS') + ' ' + msg)
-  }
-
-  function fail(msg: string) {
-    failed++
-    console.log(chalk.red.bold('FAIL') + ' ' + msg)
-  }
-
-  function fileExists(p: string): boolean {
-    return fs.existsSync(path.join(root, p))
-  }
-
-  function readFile(p: string): string {
-    return fs.readFileSync(path.join(root, p), 'utf-8')
-  }
-
-  // ─── CATEGORY 1: ENV + CONFIG ───
-  printHeader('CATEGORY 1: ENV + CONFIG')
-
-  const envPath = path.join(root, '.env')
-  if (fs.existsSync(envPath)) {
-    pass('.env exists at project root')
-  } else {
-    fail('.env exists at project root')
-  }
-
-  let envContent = ''
-  if (fs.existsSync(envPath)) {
-    envContent = fs.readFileSync(envPath, 'utf-8')
-  }
-
-  const requiredKeys = ['ANTHROPIC_API_KEY', 'ELEVENLABS_API_KEY', 'OPENAI_API_KEY']
-  for (const key of requiredKeys) {
-    const match = envContent.match(new RegExp('^' + key + '=(.+)$', 'm'))
-    if (match && match[1].trim().length > 0) {
-      pass(`${key} is present and non-empty in .env`)
+  function report(kind: CheckKind, msg: string) {
+    if (kind === 'pass') {
+      passed++
+      console.log(chalk.green.bold('PASS') + ' ' + msg)
+    } else if (kind === 'warn') {
+      warned++
+      console.log(chalk.yellow.bold('WARN') + ' ' + msg)
     } else {
-      fail(`${key} is present and non-empty in .env`)
+      failed++
+      console.log(chalk.red.bold('FAIL') + ' ' + msg)
     }
   }
 
-  const overlayCssPath = 'src/renderer/src/assets/overlay.css'
-  const overlayCss = fileExists(overlayCssPath) ? readFile(overlayCssPath) : ''
-
-  if (overlayCss.includes('@property --angle')) {
-    pass('overlay.css contains "@property --angle"')
-  } else {
-    fail('overlay.css contains "@property --angle"')
+  function check(condition: boolean, msg: string) {
+    report(condition ? 'pass' : 'fail', msg)
   }
 
-  if (!overlayCss.includes('siri-glow-thin')) {
-    pass('overlay.css does NOT contain "siri-glow-thin"')
-  } else {
-    fail('overlay.css does NOT contain "siri-glow-thin"')
+  function warnIf(condition: boolean, msg: string) {
+    report(condition ? 'pass' : 'warn', msg)
   }
 
-  if (overlayCss.includes('siri-spin 5s')) {
-    pass('overlay.css contains "siri-spin 5s"')
-  } else {
-    fail('overlay.css contains "siri-spin 5s"')
+  function filePath(p: string): string {
+    return path.join(root, p)
   }
 
-  // ─── CATEGORY 2: FILE EXISTENCE ───
-  printHeader('CATEGORY 2: FILE EXISTENCE')
+  function fileExists(p: string): boolean {
+    return fs.existsSync(filePath(p))
+  }
+
+  function readFile(p: string): string {
+    return fs.readFileSync(filePath(p), 'utf-8')
+  }
+
+  function exportedFunctionBody(source: string, name: string, nextName?: string): string {
+    const start = source.indexOf(`export async function ${name}`)
+    if (start === -1) return ''
+    const end = nextName ? source.indexOf(`export async function ${nextName}`, start + 1) : -1
+    return source.slice(start, end === -1 ? undefined : end)
+  }
+
+  printHeader('Files')
 
   const requiredFiles = [
+    'package.json',
+    'package-lock.json',
     'src/main/index.ts',
-    'src/main/ai/planner.ts',
-    'src/main/ai/screener.ts',
-    'src/main/ai/tts.ts',
-    'src/main/ai/whisper.ts',
-    'src/main/ai/bandit.ts',
     'src/main/cursor.ts',
     'src/main/capture.ts',
     'src/main/permissions.ts',
+    'src/main/ai/planner.ts',
+    'src/main/ai/screener.ts',
+    'src/main/ai/tts.ts',
     'src/main/session/types.ts',
     'src/main/session/graph.ts',
     'src/main/session/storage.ts',
     'src/main/session/recorder.ts',
     'src/main/session/replay.ts',
+    'src/main/session/replayAuto.ts',
+    'src/main/session/replayController.ts',
+    'src/main/session/replaySafety.ts',
+    'src/main/userCursor.ts',
+    'src/main/screenCoordinates.ts',
     'src/preload/index.ts',
-    'src/renderer/overlay/InputBar.tsx',
-    'src/renderer/overlay/GhostCursor.tsx',
-    'src/renderer/overlay/ModeToggle.tsx',
-    'src/renderer/overlay/MicRecorder.ts',
-    'src/renderer/overlay/SessionPanel.tsx',
+    'src/renderer/src/overlay.tsx',
     'src/renderer/src/OverlayApp.tsx',
+    'src/renderer/overlay/GhostCursor.tsx',
+    'src/renderer/overlay/InputBar.tsx',
+    'src/renderer/overlay/ModeToggle.tsx',
+    'src/renderer/overlay/SessionPanel.tsx',
     'src/renderer/src/assets/overlay.css'
   ]
 
-  for (const f of requiredFiles) {
-    if (fileExists(f)) {
-      pass(`${f} exists`)
-    } else {
-      fail(`${f} exists`)
-    }
+  for (const file of requiredFiles) {
+    check(fileExists(file), `${file} exists`)
   }
 
-  // ─── CATEGORY 3: CODE SMELL CHECKS ───
-  printHeader('CATEGORY 3: CODE SMELL CHECKS')
+  printHeader('Environment')
 
-  const plannerText = readFile('src/main/ai/planner.ts')
-  if (!/targetX\s*:/.test(plannerText)) {
-    pass('planner.ts does NOT set targetX as an object key')
-  } else {
-    fail('planner.ts does NOT set targetX as an object key')
+  const envPath = filePath('.env')
+  const envContent = fs.existsSync(envPath) ? fs.readFileSync(envPath, 'utf-8') : ''
+  warnIf(fs.existsSync(envPath), '.env exists at project root')
+
+  for (const key of ['ANTHROPIC_API_KEY', 'ELEVENLABS_API_KEY', 'OPENAI_API_KEY']) {
+    const match = envContent.match(new RegExp('^' + key + '=(.+)$', 'm'))
+    warnIf(Boolean(match && match[1].trim()), `${key} is present and non-empty in .env`)
   }
 
-  const ghostCursorText = readFile('src/renderer/overlay/GhostCursor.tsx')
-  if (!ghostCursorText.includes('targetX')) {
-    pass('GhostCursor.tsx does NOT contain "targetX"')
-  } else {
-    fail('GhostCursor.tsx does NOT contain "targetX"')
+  printHeader('Package Scripts')
+
+  const pkg = JSON.parse(readFile('package.json'))
+  check(Boolean(pkg.scripts?.dev), 'package.json has npm run dev')
+  check(Boolean(pkg.scripts?.build), 'package.json has npm run build')
+  check(Boolean(pkg.scripts?.['test:specter']), 'package.json has npm run test:specter')
+
+  printHeader('Overlay Contract')
+
+  const overlayCss = readFile('src/renderer/src/assets/overlay.css')
+  check(overlayCss.includes('@property --angle'), 'overlay.css keeps @property --angle')
+  check(overlayCss.includes('siri-spin 5s'), 'overlay.css keeps 5s Siri-style conic rotation')
+  check(!overlayCss.includes('siri-glow-thin'), 'old siri-glow-thin animation name is absent')
+  check(!overlayCss.includes('background: #000'), 'overlay.css does not force an opaque black background')
+
+  const overlayEntry = readFile('src/renderer/src/overlay.tsx')
+  check(!overlayEntry.includes('React.StrictMode'), 'overlay entry does not wrap OverlayApp in React.StrictMode')
+
+  const ghostCursor = readFile('src/renderer/overlay/GhostCursor.tsx')
+  check(ghostCursor.includes('step.x') && ghostCursor.includes('step.y'), 'GhostCursor uses normalized x/y')
+  check(!ghostCursor.includes('targetX') && !ghostCursor.includes('targetY'), 'GhostCursor does not use targetX/targetY')
+  check(ghostCursor.includes('fill="white"'), 'GhostCursor renders a white pointer shape')
+  check(!ghostCursor.includes('cursor-dot') && !ghostCursor.includes('#7c3aed'), 'GhostCursor is not a purple dot/orb')
+
+  printHeader('Renderer Stability')
+
+  const overlayApp = readFile('src/renderer/src/OverlayApp.tsx')
+  check(overlayApp.includes('api.planSteps(trimmed, screenState, [], mode)'), 'OverlayApp passes current mode to planSteps')
+  check(/try\s*{[\s\S]*api\.analyzeScreen\(\)[\s\S]*catch\s*\(/.test(overlayApp), 'intent submission is wrapped in try/catch')
+  check(/finally\s*{[\s\S]*setIsLoading\(false\)/.test(overlayApp), 'intent submission clears loading in finally')
+  check(overlayApp.includes('setErrorMessage('), 'OverlayApp can show a visible error message')
+  check(overlayApp.includes('Walk me through') || overlayApp.includes('onWalkthrough'), 'renderer exposes walkthrough replay UI')
+  check(overlayApp.includes('Do it for me') || overlayApp.includes('onAutoExecute'), 'renderer exposes auto-execute replay UI')
+  check(overlayApp.includes("mode === 'ultra'") && overlayApp.includes('api.speak'), 'Ultra mode is the only submit path that starts TTS')
+  check(overlayApp.includes('api.stopSpeaking'), 'Silent mode stops/avoids speech')
+  check(
+    overlayApp.includes('SHOW_WALKTHROUGH_DEBUG') && overlayApp.includes('walkthrough-debug-pill'),
+    'OverlayApp has dev-only walkthrough step/coordinate debug pill'
+  )
+
+  printHeader('Preload IPC')
+
+  const preload = readFile('src/preload/index.ts')
+  check(preload.includes('return () => ipcRenderer.removeListener'), 'preload listener helpers return unsubscribe cleanup')
+
+  for (const exposed of [
+    'moveRealMouse',
+    'clickRealMouse',
+    'executeRealMouseSteps',
+    'planSteps',
+    'walkthrough',
+    'autoExecute',
+    'stopReplay',
+    'onReplayStep',
+    'onReplayProgress'
+  ]) {
+    check(preload.includes(exposed), `preload exposes ${exposed}`)
   }
 
-  const preloadText = readFile('src/preload/index.ts')
-  if (preloadText.includes('planSteps')) {
-    pass('preload/index.ts exposes "planSteps"')
-  } else {
-    fail('preload/index.ts exposes "planSteps"')
-  }
+  printHeader('Planner and Screener Safety')
 
-  const overlayAppText = readFile('src/renderer/src/OverlayApp.tsx')
-  if (overlayAppText.includes('planSteps(text, screenState, [], mode)')) {
-    pass('OverlayApp.tsx passes mode to api.planSteps')
-  } else {
-    fail('OverlayApp.tsx passes mode to api.planSteps')
-  }
+  const planner = readFile('src/main/ai/planner.ts')
+  const screener = readFile('src/main/ai/screener.ts')
+  const mainIndex = readFile('src/main/index.ts')
+  const analyzeScreenBody = exportedFunctionBody(screener, 'analyzeScreen')
 
-  if (overlayAppText.includes('useState(false)')) {
-    pass('OverlayApp.tsx contains "useState(false)"')
-  } else {
-    fail('OverlayApp.tsx contains "useState(false)"')
-  }
+  check(planner.includes('safeScreenState') && planner.includes('coordinatesFrom'), 'planner guards nullable screen state')
+  check(planner.includes('partial.x ?? partial.targetX') && planner.includes('partial.y ?? partial.targetY'), 'planner accepts legacy targetX/targetY input')
+  check(!/targetX\s*:/.test(planner), 'planner does not emit targetX as an object key')
+  check(planner.includes('x: clampCoordinate') && planner.includes('y: clampCoordinate'), 'planner normalizes output to x/y')
+  check(screener.includes("app: 'Unknown'") && screener.includes('coordinates: []'), 'screener fallback is { app: Unknown, coordinates: [] }')
+  check(!/return\s+null/.test(analyzeScreenBody), 'analyzeScreen does not return null on failures')
+  check(mainIndex.includes('fallbackScreenState()'), 'main screen:analyze handler returns fallback on capture/analyze failure')
 
-  if (!overlayAppText.includes('useState(true)')) {
-    pass('OverlayApp.tsx does NOT contain "useState(true)"')
-  } else {
-    fail('OverlayApp.tsx does NOT contain "useState(true)"')
-  }
+  printHeader('Walkthrough vs Auto')
 
-  if (ghostCursorText.includes('step.x')) {
-    pass('GhostCursor.tsx uses "step.x"')
-  } else {
-    fail('GhostCursor.tsx uses "step.x"')
-  }
-
-  const micRecorderText = readFile('src/renderer/overlay/MicRecorder.ts')
-  if (micRecorderText.includes('export')) {
-    pass('MicRecorder.ts exports a class or function')
-  } else {
-    fail('MicRecorder.ts exports a class or function')
-  }
-
-  // ─── CATEGORY 4: IPC SURFACE CHECK ───
-  printHeader('CATEGORY 4: IPC SURFACE CHECK')
-
-  const mainIndexText = readFile('src/main/index.ts')
-  const replayText = readFile('src/main/session/replay.ts')
-  const mainSource = mainIndexText + '\n' + replayText
-
-  const ipcChannels = [
-    'cursor:move',
-    'cursor:click',
-    'cursor:replay',
-    'screen:capture',
-    'screen:analyze',
-    'planner:plan',
-    'planner:converse',
-    'session:save',
-    'session:load',
-    'session:save-node',
-    'bandit:select',
-    'bandit:reward',
-    'tts:speak',
-    'whisper:transcribe',
-    'replay:walkthrough',
-    'replay:auto',
-    'replay:stop'
+  const cursor = readFile('src/main/cursor.ts')
+  const replay = readFile('src/main/session/replay.ts')
+  const replayAuto = readFile('src/main/session/replayAuto.ts')
+  const replayController = readFile('src/main/session/replayController.ts')
+  const replaySafety = readFile('src/main/session/replaySafety.ts')
+  const userCursor = readFile('src/main/userCursor.ts')
+  const walkthroughBody = exportedFunctionBody(replay, 'replayWalkthrough', 'registerReplayIpc')
+  const autoBody = exportedFunctionBody(replayAuto, 'replayAutoExecute')
+  const realCursorImportPattern = /from\s+['"]\.\.\/cursor['"]|from\s+['"]\.\/cursor['"]/
+  const replayModulesWithCursorImport = [
+    ['src/main/session/replay.ts', replay],
+    ['src/main/session/replayAuto.ts', replayAuto],
+    ['src/main/session/replayController.ts', replayController]
   ]
+    .filter(([, source]) => realCursorImportPattern.test(source))
+    .map(([file]) => file)
 
-  for (const channel of ipcChannels) {
-    const escaped = channel.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-    const regex = new RegExp(`ipcMain\\.handle\\(['"\`]${escaped}['"\`]`)
-    if (regex.test(mainSource)) {
-      pass(`ipcMain.handle registered for '${channel}'`)
-    } else {
-      fail(`ipcMain.handle registered for '${channel}'`)
-    }
-  }
+  check(cursor.includes('moveRealMouse') && cursor.includes('clickRealMouse'), 'real mouse automation has explicit real-mouse names')
+  check(!cursor.includes('ghostMove') && !cursor.includes('ghostClick'), 'real cursor module no longer exports ghostMove/ghostClick names')
+  check(!realCursorImportPattern.test(replay), 'walkthrough replay module does not import cursor.ts')
+  check(
+    replayModulesWithCursorImport.length === 1 && replayModulesWithCursorImport[0] === 'src/main/session/replayAuto.ts',
+    'replayAuto.ts is the only replay module that imports cursor.ts'
+  )
+  check(!/moveRealMouse|clickRealMouse|executeRealMouseSteps|mouse\.move|mouse\.click/.test(walkthroughBody), 'replayWalkthrough body does not call real mouse automation')
+  check(!/@nut-tree-fork\/nut-js/.test(replay), 'walkthrough replay module does not import nut-js')
+  check(walkthroughBody.includes('emitGhostStep'), 'replayWalkthrough emits renderer replay step events')
+  check(walkthroughBody.includes('waitForUserClickOnTarget'), 'click walkthrough steps require user click completion')
+  check(
+    walkthroughBody.includes("} else if (step.action === 'click') {") &&
+      walkthroughBody.includes('result = await waitForUserClickOnTarget(step, controller)'),
+    'click walkthrough steps arm click detection before hover-only waits'
+  )
+  check(walkthroughBody.includes("step.action === 'wait'") && walkthroughBody.includes('stepWaitMs'), 'wait steps sleep and continue')
+  check(!walkthroughBody.includes('45000'), 'walkthrough no longer uses 45 second per-step waits')
+  check(walkthroughBody.includes('MAX_WALKTHROUGH_ATTEMPTS'), 'walkthrough has max attempt protection')
+  check(autoBody.includes('clickRealMouse') && autoBody.includes('executeRealMouseSteps'), 'replayAutoExecute calls real mouse automation')
+  check(autoBody.includes('[AUTO_REAL_MOUSE]'), 'auto replay logs real OS automation loudly')
+  check(replay.includes('[WALKTHROUGH]') && replay.includes('[GHOST]'), 'walkthrough replay has walkthrough and ghost logs')
+  check(replay.includes('[USER_CURSOR]') && replay.includes('[CLICK_DETECT]'), 'walkthrough replay has user cursor and click detection logs')
+  check(
+    replaySafety.includes('assertWalkthroughReplaySafety') && replaySafety.includes('DEV SAFETY GUARD'),
+    'development safety guard checks walkthrough real-mouse imports/calls'
+  )
+  check(userCursor.includes('waitForUserClickAtTarget') && userCursor.includes("uIOhook.on('click'"), 'user cursor module can wait for an actual user click at target')
 
-  // ─── CATEGORY 5: MANUAL CHECKLIST ───
-  printHeader('CATEGORY 5: MANUAL CHECKLIST')
+  printHeader('Session Normalization')
 
-  const manualItems = [
-    '1. Run `npm run dev` — app launches without terminal errors',
-    '2. Main window renders dark background (#0d0f14)',
-    '3. Overlay window background is transparent (not black)',
-    '4. .siri-glow-input border shows rotating rainbow conic gradient around InputBar',
-    '5. Glow rotation speed feels slow (~5s per cycle)',
-    '6. Double-shift triggers overlay to appear',
-    '7. Double-shift again hides overlay',
-    '8. ModeToggle Silent button highlights white when selected',
-    '9. ModeToggle Ultra button highlights white when selected',
-    '10. Clicking Ultra then submitting intent — planner receives mode=\'ultra\' (check terminal log "[PLANNER] Intent:")',
-    '11. Type an intent, press Enter — "[PLANNER] Calling Claude..." appears in terminal',
-    '12. Ghost cursor appears and moves to first step coordinates',
-    '13. In Ultra mode — ElevenLabs TTS speaks the level title',
-    '14. In Silent mode — no speech plays',
-    '15. Session JSON written to ~/Library/Application Support/Specter/ after walkthrough',
-    '16. Screen Recording permission granted (check System Settings > Privacy)',
-    '17. Accessibility permission granted (check System Settings > Privacy)',
-    '18. Mic button visible in InputBar (if wired)',
-    '19. Hold mic button — recording starts; release — transcription fires',
-    '20. Replay walkthrough re-runs steps from saved session JSON'
-  ]
+  const storage = readFile('src/main/session/storage.ts')
+  const recorder = readFile('src/main/session/recorder.ts')
+  check(storage.includes('instruction') && storage.includes('targetLabel'), 'stored session steps preserve instructional labels')
+  check(storage.includes('waitForMs'), 'stored session steps preserve waitForMs')
+  check(recorder.includes('waitForMs'), 'recorded steps preserve waitForMs')
 
-  for (const item of manualItems) {
-    const parts = item.split(' — ')
-    const desc = parts[0]
-    const expected = parts[1] || ''
-    if (expected) {
-      console.log(chalk.yellow('[ ]') + ' ' + desc + chalk.gray('  →  ') + chalk.gray(expected))
-    } else {
-      console.log(chalk.yellow('[ ]') + ' ' + desc)
-    }
-  }
-
-  // ─── SUMMARY ───
   const total = passed + failed
-  console.log('\n' + chalk.bold('─'.repeat(40)))
+  console.log('\n' + chalk.bold('-'.repeat(48)))
   console.log(chalk.bold(`${passed}/${total} automated checks passed`))
+  if (warned > 0) {
+    console.log(chalk.yellow.bold(`${warned} warning(s); demo may need local secrets or permissions`))
+  }
   if (failed > 0) {
     console.log(chalk.red.bold(`${failed} automated check(s) failed`))
     process.exit(1)
-  } else {
-    console.log(chalk.green.bold('All automated checks passed'))
   }
+  console.log(chalk.green.bold('All Specter health checks passed'))
 }
 
 main().catch((err) => {

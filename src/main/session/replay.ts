@@ -1,90 +1,126 @@
 import { BrowserWindow, IpcMain } from 'electron'
-import { Step } from './types'
-import { ghostMove, ghostClick, executeSteps, waitForMouseAtTarget } from '../cursor'
+import { getPhysicalMousePercent, waitForMouseAtTarget, waitForUserClickAtTarget } from '../userCursor'
 import { loadGraph } from './storage'
+import { Step } from './types'
+import { replayAutoExecute } from './replayAuto'
+import {
+  createReplayController,
+  isActive,
+  releaseReplayController,
+  ReplayController,
+  restoreOverlayAfterReplay,
+  sendOverlay,
+  setOverlayForReplay,
+  setReplayWindowProvider,
+  sleep,
+  stopReplay
+} from './replayController'
+import { assertWalkthroughReplaySafety } from './replaySafety'
 
-let getOverlayWindow: () => BrowserWindow | null = () => null
-let activeReplay: ReplayController | null = null
+const DEFAULT_STEP_TIMEOUT_MS = 12000
+const DEFAULT_WAIT_STEP_MS = 800
+const MAX_WALKTHROUGH_ATTEMPTS = 2
+const TARGET_APPROACH_TOLERANCE_PX = 50
+const TARGET_CLICK_TOLERANCE_PX = 60
 
-interface ReplayController {
-  cancelled: boolean
-  cancelHandlers: Set<() => void>
+type TargetWaitResult = 'correct' | 'timeout' | 'cancelled'
+
+interface GhostStart {
+  x: number
+  y: number
 }
 
-function createReplayController(): ReplayController {
-  stopReplay()
-  const controller: ReplayController = {
-    cancelled: false,
-    cancelHandlers: new Set()
+function stepTitle(step: Step): string {
+  return step.instruction || step.targetLabel || step.id || 'Untitled step'
+}
+
+function stepWaitMs(step: Step): number {
+  return step.waitForMs || step.delayMs || DEFAULT_WAIT_STEP_MS
+}
+
+function fallbackGhostStart(step: Step, previousTarget: GhostStart | null): GhostStart {
+  if (previousTarget) return previousTarget
+
+  const offsetX = step.x > 58 ? -18 : 18
+  const offsetY = step.y > 58 ? -12 : 12
+  return {
+    x: Math.min(96, Math.max(4, step.x + offsetX)),
+    y: Math.min(96, Math.max(4, step.y + offsetY))
   }
-  activeReplay = controller
-  return controller
 }
 
-function cancelReplay(controller: ReplayController): void {
-  if (controller.cancelled) return
-  controller.cancelled = true
-  for (const handler of controller.cancelHandlers) {
-    handler()
+async function ghostStartForStep(step: Step, previousTarget: GhostStart | null): Promise<GhostStart> {
+  try {
+    return await getPhysicalMousePercent()
+  } catch (error) {
+    console.warn('[GHOST] could not read physical cursor for ghost start; using fallback', error)
+    return fallbackGhostStart(step, previousTarget)
   }
-  controller.cancelHandlers.clear()
 }
 
-function isActive(controller: ReplayController): boolean {
-  return activeReplay === controller && !controller.cancelled
-}
-
-function sleep(ms: number, controller: ReplayController): Promise<boolean> {
-  if (controller.cancelled) return Promise.resolve(false)
-  if (ms <= 0) return Promise.resolve(true)
-
-  return new Promise((resolve) => {
-    let settled = false
-    const timeout = setTimeout(() => settle(true), ms)
-    const settle = (completed: boolean) => {
-      if (settled) return
-      settled = true
-      clearTimeout(timeout)
-      controller.cancelHandlers.delete(cancel)
-      resolve(completed && !controller.cancelled)
-    }
-    const cancel = () => settle(false)
-    controller.cancelHandlers.add(cancel)
-  })
-}
-
-function sendOverlay(channel: string, payload: any): void {
-  const overlayWindow = getOverlayWindow()
-  if (!overlayWindow || overlayWindow.isDestroyed()) return
-  overlayWindow.webContents.send(channel, payload)
-}
-
-function setOverlayForReplay(): void {
-  const overlayWindow = getOverlayWindow()
-  if (!overlayWindow || overlayWindow.isDestroyed()) return
-  if (!overlayWindow.isVisible()) overlayWindow.show()
-  overlayWindow.setIgnoreMouseEvents(true, { forward: true })
-}
-
-function waitForUserAtTarget(step: Step, controller: ReplayController, timeoutMs = 45000): Promise<'correct' | 'timeout' | 'cancelled'> {
+function waitForUserNearTarget(
+  step: Step,
+  controller: ReplayController,
+  timeoutMs = DEFAULT_STEP_TIMEOUT_MS
+): Promise<TargetWaitResult> {
   if (controller.cancelled) return Promise.resolve('cancelled')
 
   return new Promise((resolve) => {
     let settled = false
+    const abort = new AbortController()
     const timeout = setTimeout(() => settle(controller.cancelled ? 'cancelled' : 'timeout'), timeoutMs)
-    const settle = (result: 'correct' | 'timeout' | 'cancelled') => {
+    const settle = (result: TargetWaitResult) => {
       if (settled) return
       settled = true
       clearTimeout(timeout)
+      abort.abort()
       controller.cancelHandlers.delete(cancel)
       resolve(result)
     }
     const cancel = () => settle('cancelled')
     controller.cancelHandlers.add(cancel)
 
-    waitForMouseAtTarget(step.x, step.y, 50, timeoutMs).then((result) => {
-      settle(result === 'correct' ? 'correct' : 'timeout')
-    })
+    waitForMouseAtTarget(step.x, step.y, TARGET_APPROACH_TOLERANCE_PX, timeoutMs, abort.signal)
+      .then((result) => {
+        settle(result)
+      })
+      .catch((error) => {
+        console.error('[USER_CURSOR] waitForMouseAtTarget failed', error)
+        settle('timeout')
+      })
+  })
+}
+
+function waitForUserClickOnTarget(
+  step: Step,
+  controller: ReplayController,
+  timeoutMs = DEFAULT_STEP_TIMEOUT_MS
+): Promise<TargetWaitResult> {
+  if (controller.cancelled) return Promise.resolve('cancelled')
+
+  return new Promise((resolve) => {
+    let settled = false
+    const abort = new AbortController()
+    const timeout = setTimeout(() => settle(controller.cancelled ? 'cancelled' : 'timeout'), timeoutMs)
+    const settle = (result: TargetWaitResult) => {
+      if (settled) return
+      settled = true
+      clearTimeout(timeout)
+      abort.abort()
+      controller.cancelHandlers.delete(cancel)
+      resolve(result)
+    }
+    const cancel = () => settle('cancelled')
+    controller.cancelHandlers.add(cancel)
+
+    waitForUserClickAtTarget(step.x, step.y, TARGET_CLICK_TOLERANCE_PX, timeoutMs, abort.signal)
+      .then((result) => {
+        settle(result)
+      })
+      .catch((error) => {
+        console.error('[CLICK_DETECT] waitForUserClickAtTarget failed', error)
+        settle('timeout')
+      })
   })
 }
 
@@ -98,37 +134,152 @@ function stepsForNode(nodeId: string | undefined, appName: string): Step[] {
   return latest?.steps || []
 }
 
-export function stopReplay(): void {
-  if (activeReplay) {
-    cancelReplay(activeReplay)
-  }
-  activeReplay = null
-  sendOverlay('replay:stopped', {})
+function logWalkthroughStep(step: Step, index: number, total: number, attempt: number): void {
+  console.log('[WALKTHROUGH] step', {
+    index,
+    displayIndex: index + 1,
+    total,
+    attempt,
+    title: stepTitle(step),
+    action: step.action,
+    x: step.x,
+    y: step.y
+  })
 }
 
+function emitGhostStep(step: Step, index: number, total: number, attempt: number, reason: TargetWaitResult, ghostStart: GhostStart): void {
+  const channel = attempt === 0 ? 'replay:step' : 'replay:retry'
+  const ghostLoops = step.action !== 'wait'
+
+  sendOverlay(channel, {
+    step,
+    index,
+    total,
+    reason,
+    attempt,
+    ghost: {
+      startX: ghostStart.x,
+      startY: ghostStart.y,
+      loop: ghostLoops,
+      timeoutMs: DEFAULT_STEP_TIMEOUT_MS
+    }
+  })
+
+  console.log('[GHOST] visual step emitted', {
+    channel,
+    index,
+    attempt,
+    action: step.action,
+    x: step.x,
+    y: step.y,
+    startX: ghostStart.x,
+    startY: ghostStart.y
+  })
+
+  if (ghostLoops) {
+    console.log('[GHOST] looping started', { index, attempt, timeoutMs: DEFAULT_STEP_TIMEOUT_MS })
+  }
+}
+
+function parkGhostAtEndpoint(step: Step, index: number, total: number, attempt: number): void {
+  console.log('[GHOST] parked at endpoint', { index, action: step.action, x: step.x, y: step.y })
+  sendOverlay('replay:target-reached', {
+    step,
+    index,
+    total,
+    attempt
+  })
+}
+
+export { stopReplay }
+
 export async function replayWalkthrough(steps: Step[], onStep: (step: Step, index: number) => void): Promise<void> {
+  assertWalkthroughReplaySafety()
+
   const controller = createReplayController()
   setOverlayForReplay()
+  let previousGhostTarget: GhostStart | null = null
+  console.log('[WALKTHROUGH] start', { totalSteps: steps.length })
 
   try {
     for (let index = 0; index < steps.length; index++) {
       if (!isActive(controller)) break
       const step = steps[index]
-      let result: 'correct' | 'timeout' | 'cancelled' = 'timeout'
+      let result: TargetWaitResult = 'timeout'
       let attempts = 0
 
       while (result !== 'correct' && isActive(controller)) {
-        const channel = attempts === 0 ? 'replay:step' : 'replay:retry'
-        sendOverlay(channel, { step, index, total: steps.length, reason: result })
+        logWalkthroughStep(step, index, steps.length, attempts)
+        const ghostStart = await ghostStartForStep(step, previousGhostTarget)
+        emitGhostStep(step, index, steps.length, attempts, result, ghostStart)
 
         if (attempts === 0) onStep(step, index)
 
-        if (step.action !== 'wait') {
-          await ghostMove(step.x, step.y, 600)
+        if (step.action === 'wait') {
+          const waitMs = stepWaitMs(step)
+          console.log('[WALKTHROUGH] wait step sleeping', { index, waitMs })
+          result = (await sleep(waitMs, controller)) ? 'correct' : 'cancelled'
+        } else if (step.action === 'click') {
+          console.log('[USER_CURSOR] waiting for real cursor to enter tolerance', {
+            index,
+            x: step.x,
+            y: step.y,
+            tolerancePx: TARGET_APPROACH_TOLERANCE_PX
+          })
+          result = await waitForUserNearTarget(step, controller)
+
+          if (result === 'correct') {
+            console.log('[USER_CURSOR] real cursor entered tolerance', { index, x: step.x, y: step.y })
+            previousGhostTarget = { x: step.x, y: step.y }
+            parkGhostAtEndpoint(step, index, steps.length, attempts)
+
+            console.log('[CLICK_DETECT] waiting for actual user click', {
+              index,
+              x: step.x,
+              y: step.y,
+              tolerancePx: TARGET_CLICK_TOLERANCE_PX
+            })
+            result = await waitForUserClickOnTarget(step, controller)
+            if (result === 'correct') {
+              console.log('[CLICK_DETECT] click detected', { index, x: step.x, y: step.y })
+            }
+          }
+        } else {
+          console.log('[USER_CURSOR] waiting for real cursor to enter tolerance', {
+            index,
+            action: step.action,
+            x: step.x,
+            y: step.y,
+            tolerancePx: TARGET_APPROACH_TOLERANCE_PX
+          })
+          result = await waitForUserNearTarget(step, controller)
+
+          if (result === 'correct') {
+            console.log('[USER_CURSOR] real cursor entered tolerance', { index, action: step.action, x: step.x, y: step.y })
+            previousGhostTarget = { x: step.x, y: step.y }
+            parkGhostAtEndpoint(step, index, steps.length, attempts)
+          }
         }
 
-        result = await waitForUserAtTarget(step, controller)
-        if (result === 'timeout') attempts++
+        if (result === 'correct') {
+          console.log('[WALKTHROUGH] step complete', { index, action: step.action, title: stepTitle(step) })
+        } else if (result === 'timeout') {
+          attempts++
+          console.warn('[WALKTHROUGH] step timed out', {
+            index,
+            action: step.action,
+            title: stepTitle(step),
+            attempt: attempts,
+            maxAttempts: MAX_WALKTHROUGH_ATTEMPTS
+          })
+          if (attempts >= MAX_WALKTHROUGH_ATTEMPTS) {
+            console.warn('[WALKTHROUGH] step skipped after timeout', { index, action: step.action, title: stepTitle(step) })
+            break
+          }
+        } else if (result === 'cancelled') {
+          console.warn('[WALKTHROUGH] step cancelled', { index, action: step.action, title: stepTitle(step) })
+          break
+        }
       }
     }
 
@@ -136,40 +287,14 @@ export async function replayWalkthrough(steps: Step[], onStep: (step: Step, inde
       sendOverlay('replay:complete', {})
     }
   } finally {
-    if (activeReplay === controller) activeReplay = null
-  }
-}
-
-export async function replayAutoExecute(steps: Step[]): Promise<void> {
-  const controller = createReplayController()
-  setOverlayForReplay()
-
-  try {
-    for (let index = 0; index < steps.length; index++) {
-      if (!isActive(controller)) break
-      const step = steps[index]
-
-      if (step.action === 'click') {
-        if (!(await sleep(step.delayMs || 0, controller))) break
-        await ghostClick(step.x, step.y)
-      } else if (step.action === 'wait') {
-        if (!(await sleep(step.delayMs || 500, controller))) break
-      } else {
-        if (!(await sleep(step.delayMs || 0, controller))) break
-        await executeSteps([{ ...step, delayMs: 0 }])
-      }
-      sendOverlay('replay:progress', { index, total: steps.length })
-    }
-  } finally {
-    if (!controller.cancelled) {
-      sendOverlay('replay:complete', {})
-    }
-    if (activeReplay === controller) activeReplay = null
+    releaseReplayController(controller)
+    restoreOverlayAfterReplay(controller)
+    console.log('[WALKTHROUGH] finished', { cancelled: controller.cancelled })
   }
 }
 
 export function registerReplayIpc(ipcMain: IpcMain, windowProvider: () => BrowserWindow | null, appName = 'Specter'): void {
-  getOverlayWindow = windowProvider
+  setReplayWindowProvider(windowProvider)
 
   ipcMain.handle('replay:walkthrough', async (_event, nodeId) => {
     const steps = stepsForNode(nodeId, appName)

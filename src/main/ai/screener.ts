@@ -1,5 +1,16 @@
 import Anthropic from '@anthropic-ai/sdk'
 
+export interface ScreenCoordinate {
+  label: string
+  x: number
+  y: number
+}
+
+export interface ScreenState {
+  app: string
+  coordinates: ScreenCoordinate[]
+}
+
 function anthropicClient() {
   const key = process.env.ANTHROPIC_API_KEY
   if (!key) {
@@ -8,14 +19,50 @@ function anthropicClient() {
   return new Anthropic({ apiKey: key })
 }
 
+export function fallbackScreenState(): ScreenState {
+  return {
+    app: 'Unknown',
+    coordinates: []
+  }
+}
 
-export async function analyzeScreen(base64PNG: string): Promise<any> {
+function percent(value: any, fallback = 50): number {
+  return typeof value === 'number' && Number.isFinite(value) ? Math.min(100, Math.max(0, value)) : fallback
+}
+
+function normalizeScreenState(value: any): ScreenState {
+  if (!value || typeof value !== 'object') {
+    return fallbackScreenState()
+  }
+
+  const coordinates = Array.isArray(value.coordinates)
+    ? value.coordinates
+        .filter((item: any) => item && typeof item === 'object')
+        .map((item: any) => ({
+          label: typeof item.label === 'string' && item.label.trim() ? item.label : 'Untitled target',
+          x: percent(item.x ?? item.targetX),
+          y: percent(item.y ?? item.targetY)
+        }))
+    : []
+
+  return {
+    app: typeof value.app === 'string' && value.app.trim() ? value.app : 'Unknown',
+    coordinates
+  }
+}
+
+export async function analyzeScreen(base64PNG?: string): Promise<ScreenState> {
   console.log('[SCREENER] Got base64, length:', base64PNG?.length)
   const anthropic = anthropicClient()
 
+  if (!base64PNG) {
+    console.warn('[Specter] No screenshot provided; using screen analysis fallback.')
+    return fallbackScreenState()
+  }
+
   if (!anthropic) {
     console.warn('[Specter] ANTHROPIC_API_KEY missing; skipping screen analysis.')
-    return null
+    return fallbackScreenState()
   }
 
   try {
@@ -47,9 +94,7 @@ export async function analyzeScreen(base64PNG: string): Promise<any> {
     })
 
     const textParts = message.content
-      .filter((part): part is { type: 'text'; text: string } =>
-        part.type === 'text' && 'text' in part)
-      .map((part) => (part as { type: 'text'; text: string }).text)
+      .flatMap((part) => (part.type === 'text' && 'text' in part && typeof part.text === 'string' ? [part.text] : []))
       .join('\n')
 
     if (textParts) {
@@ -59,12 +104,12 @@ export async function analyzeScreen(base64PNG: string): Promise<any> {
       if (jsonMatch) {
         const parsed = JSON.parse(jsonMatch[0])
         console.log('[SCREENER] Parsed state:', JSON.stringify(parsed))
-        return parsed
+        return normalizeScreenState(parsed)
       }
     }
-    return null
+    return fallbackScreenState()
   } catch (error) {
     console.error('[SCREENER] Error:', error)
-    return null
+    return fallbackScreenState()
   }
 }

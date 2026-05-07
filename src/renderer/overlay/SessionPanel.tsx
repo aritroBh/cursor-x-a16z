@@ -2,10 +2,33 @@ import React from 'react'
 
 interface SessionPanelProps {
   intent: string
+  nodeId?: string
+  isBusy?: boolean
+  onWalkthrough: () => void
+  onAutoExecute: () => void
 }
 
-export const SessionPanel: React.FC<SessionPanelProps> = ({ intent }) => {
+export const SessionPanel: React.FC<SessionPanelProps> = ({
+  intent,
+  nodeId,
+  isBusy = false,
+  onWalkthrough,
+  onAutoExecute
+}) => {
   if (!intent) return null
+
+  const disabled = isBusy || !nodeId
+  const buttonBase: React.CSSProperties = {
+    flex: 1,
+    border: '1px solid rgba(255,255,255,0.14)',
+    borderRadius: '12px',
+    padding: '10px 12px',
+    color: 'white',
+    fontSize: '13px',
+    fontWeight: 700,
+    cursor: disabled ? 'default' : 'pointer',
+    opacity: disabled ? 0.5 : 1
+  }
 
   return (
     <div className="session-panel" style={{
@@ -26,6 +49,32 @@ export const SessionPanel: React.FC<SessionPanelProps> = ({ intent }) => {
       </div>
       <div style={{ fontSize: '20px', fontWeight: 700 }}>
         {intent}
+      </div>
+      <div style={{
+        display: 'flex',
+        gap: '10px',
+        width: '100%'
+      }}>
+        <button
+          disabled={disabled}
+          onClick={onWalkthrough}
+          style={{
+            ...buttonBase,
+            background: 'rgba(255,255,255,0.14)'
+          }}
+        >
+          Walk me through
+        </button>
+        <button
+          disabled={disabled}
+          onClick={onAutoExecute}
+          style={{
+            ...buttonBase,
+            background: 'linear-gradient(135deg, rgba(10,132,255,0.84), rgba(48,209,88,0.72))'
+          }}
+        >
+          Do it for me
+        </button>
       </div>
       <div className="progress-bar" style={{
         width: '100%',

@@ -1,8 +1,16 @@
 "use strict";
 const electron = require("electron");
 const preload = require("@electron-toolkit/preload");
+function onIpc(channel, callback) {
+  const listener = (_event, ...args) => callback(...args);
+  electron.ipcRenderer.on(channel, listener);
+  return () => electron.ipcRenderer.removeListener(channel, listener);
+}
 const api = {
   // Cursor
+  moveRealMouse: (x, y, durationMs) => electron.ipcRenderer.invoke("cursor:move", x, y, durationMs),
+  clickRealMouse: (x, y) => electron.ipcRenderer.invoke("cursor:click", x, y),
+  executeRealMouseSteps: (steps) => electron.ipcRenderer.invoke("cursor:replay", steps),
   moveCursor: (x, y, durationMs) => electron.ipcRenderer.invoke("cursor:move", x, y, durationMs),
   clickCursor: (x, y) => electron.ipcRenderer.invoke("cursor:click", x, y),
   replaySteps: (steps) => electron.ipcRenderer.invoke("cursor:replay", steps),
@@ -11,11 +19,11 @@ const api = {
   // Overlay
   hideOverlay: () => electron.ipcRenderer.send("overlay:hide"),
   setOverlayClickThrough: (clickThrough) => electron.ipcRenderer.invoke("overlay:setClickThrough", clickThrough),
-  onOverlayToggle: (callback) => electron.ipcRenderer.on("overlay:toggle", () => callback()),
+  onOverlayToggle: (callback) => onIpc("overlay:toggle", callback),
   // Screen
   captureScreen: () => electron.ipcRenderer.invoke("screen:capture"),
   analyzeScreen: (base64PNG) => electron.ipcRenderer.invoke("screen:analyze", base64PNG),
-  onScreenPermissionDenied: (callback) => electron.ipcRenderer.on("permissions:screen-denied", () => callback()),
+  onScreenPermissionDenied: (callback) => onIpc("permissions:screen-denied", callback),
   // Planner
   planSteps: (userIntent, screenState, sessionHistory, mode) => electron.ipcRenderer.invoke("planner:plan", userIntent, screenState, sessionHistory, mode),
   converse: (userMessage, screenState, conversationHistory) => electron.ipcRenderer.invoke("planner:converse", userMessage, screenState, conversationHistory),
@@ -43,11 +51,12 @@ const api = {
   walkthrough: (nodeId) => electron.ipcRenderer.invoke("replay:walkthrough", nodeId),
   autoExecute: (nodeId) => electron.ipcRenderer.invoke("replay:auto", nodeId),
   stopReplay: () => electron.ipcRenderer.invoke("replay:stop"),
-  onReplayStep: (callback) => electron.ipcRenderer.on("replay:step", (_event, data) => callback(data)),
-  onReplayRetry: (callback) => electron.ipcRenderer.on("replay:retry", (_event, data) => callback(data)),
-  onReplayProgress: (callback) => electron.ipcRenderer.on("replay:progress", (_event, data) => callback(data)),
-  onReplayComplete: (callback) => electron.ipcRenderer.on("replay:complete", () => callback()),
-  onReplayStopped: (callback) => electron.ipcRenderer.on("replay:stopped", () => callback())
+  onReplayStep: (callback) => onIpc("replay:step", callback),
+  onReplayRetry: (callback) => onIpc("replay:retry", callback),
+  onReplayTargetReached: (callback) => onIpc("replay:target-reached", callback),
+  onReplayProgress: (callback) => onIpc("replay:progress", callback),
+  onReplayComplete: (callback) => onIpc("replay:complete", callback),
+  onReplayStopped: (callback) => onIpc("replay:stopped", callback)
 };
 if (process.contextIsolated) {
   try {

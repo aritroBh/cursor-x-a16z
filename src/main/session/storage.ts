@@ -36,11 +36,6 @@ function nonNegativeNumber(value: any, fallback = 0): number {
   return typeof value === 'number' && Number.isFinite(value) ? Math.max(0, value) : fallback
 }
 
-function _positiveNumber(value: any, fallback = 1): number {
-  const normalized = nonNegativeNumber(value, fallback)
-  return normalized > 0 ? normalized : fallback
-}
-
 function percentNumber(value: any, fallback = 50): number {
   return Math.min(100, nonNegativeNumber(value, fallback))
 }
@@ -97,11 +92,15 @@ function normalizeBranch(branchId: string, value: any): Branch {
 function normalizeStep(value: any): Step {
   const step = isRecord(value) ? value : {}
   return {
-    x: percentNumber(step.x),
-    y: percentNumber(step.y),
+    id: typeof step.id === 'string' ? step.id : undefined,
+    instruction: typeof step.instruction === 'string' ? step.instruction : undefined,
+    targetLabel: typeof step.targetLabel === 'string' ? step.targetLabel : undefined,
+    x: percentNumber(step.x ?? step.targetX),
+    y: percentNumber(step.y ?? step.targetY),
     action: normalizeAction(step.action),
     typeText: typeof step.typeText === 'string' ? step.typeText : undefined,
     delayMs: nonNegativeInteger(step.delayMs),
+    waitForMs: nonNegativeInteger(step.waitForMs),
     narration: typeof step.narration === 'string' ? step.narration : undefined
   }
 }

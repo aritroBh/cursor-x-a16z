@@ -1,9 +1,18 @@
 import { contextBridge, ipcRenderer } from 'electron'
 import { electronAPI } from '@electron-toolkit/preload'
 
+function onIpc(channel: string, callback: (...args: any[]) => void): () => void {
+  const listener = (_event: Electron.IpcRendererEvent, ...args: any[]) => callback(...args)
+  ipcRenderer.on(channel, listener)
+  return () => ipcRenderer.removeListener(channel, listener)
+}
+
 // Custom APIs for renderer
 const api = {
   // Cursor
+  moveRealMouse: (x: number, y: number, durationMs?: number) => ipcRenderer.invoke('cursor:move', x, y, durationMs),
+  clickRealMouse: (x: number, y: number) => ipcRenderer.invoke('cursor:click', x, y),
+  executeRealMouseSteps: (steps: any[]) => ipcRenderer.invoke('cursor:replay', steps),
   moveCursor: (x: number, y: number, durationMs?: number) => ipcRenderer.invoke('cursor:move', x, y, durationMs),
   clickCursor: (x: number, y: number) => ipcRenderer.invoke('cursor:click', x, y),
   replaySteps: (steps: any[]) => ipcRenderer.invoke('cursor:replay', steps),
@@ -14,12 +23,12 @@ const api = {
   // Overlay
   hideOverlay: () => ipcRenderer.send('overlay:hide'),
   setOverlayClickThrough: (clickThrough: boolean) => ipcRenderer.invoke('overlay:setClickThrough', clickThrough),
-  onOverlayToggle: (callback: () => void) => ipcRenderer.on('overlay:toggle', () => callback()),
+  onOverlayToggle: (callback: () => void) => onIpc('overlay:toggle', callback),
 
   // Screen
   captureScreen: () => ipcRenderer.invoke('screen:capture'),
   analyzeScreen: (base64PNG?: string) => ipcRenderer.invoke('screen:analyze', base64PNG),
-  onScreenPermissionDenied: (callback: () => void) => ipcRenderer.on('permissions:screen-denied', () => callback()),
+  onScreenPermissionDenied: (callback: () => void) => onIpc('permissions:screen-denied', callback),
 
   // Planner
   planSteps: (userIntent: string, screenState: any, sessionHistory: any[], mode: string) =>
@@ -57,11 +66,12 @@ const api = {
   walkthrough: (nodeId?: string) => ipcRenderer.invoke('replay:walkthrough', nodeId),
   autoExecute: (nodeId?: string) => ipcRenderer.invoke('replay:auto', nodeId),
   stopReplay: () => ipcRenderer.invoke('replay:stop'),
-  onReplayStep: (callback: (data: any) => void) => ipcRenderer.on('replay:step', (_event, data) => callback(data)),
-  onReplayRetry: (callback: (data: any) => void) => ipcRenderer.on('replay:retry', (_event, data) => callback(data)),
-  onReplayProgress: (callback: (data: any) => void) => ipcRenderer.on('replay:progress', (_event, data) => callback(data)),
-  onReplayComplete: (callback: () => void) => ipcRenderer.on('replay:complete', () => callback()),
-  onReplayStopped: (callback: () => void) => ipcRenderer.on('replay:stopped', () => callback())
+  onReplayStep: (callback: (data: any) => void) => onIpc('replay:step', callback),
+  onReplayRetry: (callback: (data: any) => void) => onIpc('replay:retry', callback),
+  onReplayTargetReached: (callback: (data: any) => void) => onIpc('replay:target-reached', callback),
+  onReplayProgress: (callback: (data: any) => void) => onIpc('replay:progress', callback),
+  onReplayComplete: (callback: () => void) => onIpc('replay:complete', callback),
+  onReplayStopped: (callback: () => void) => onIpc('replay:stopped', callback)
 }
 
 // Use `contextBridge` APIs to expose Electron APIs to

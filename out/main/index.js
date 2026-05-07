@@ -13,9 +13,27 @@ const os = require("os");
 const OpenAI = require("openai");
 const fs = require("fs");
 const crypto = require("crypto");
+function _interopNamespaceDefault(e) {
+  const n = Object.create(null, { [Symbol.toStringTag]: { value: "Module" } });
+  if (e) {
+    for (const k in e) {
+      if (k !== "default") {
+        const d = Object.getOwnPropertyDescriptor(e, k);
+        Object.defineProperty(n, k, d.get ? d : {
+          enumerable: true,
+          get: () => e[k]
+        });
+      }
+    }
+  }
+  n.default = e;
+  return Object.freeze(n);
+}
+const path__namespace = /* @__PURE__ */ _interopNamespaceDefault(path);
+const fs__namespace = /* @__PURE__ */ _interopNamespaceDefault(fs);
 const { getAuthStatus, askForAccessibilityAccess } = pkg;
 const ACCESSIBILITY_SETTINGS_URL = "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility";
-function sleep$2(ms) {
+function sleep$3(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 async function triggerScreenRecordingPrompt() {
@@ -54,7 +72,7 @@ async function checkPermissions() {
     let screenStatus = getAuthStatus("screen");
     if (screenStatus !== "authorized") {
       await triggerScreenRecordingPrompt();
-      await sleep$2(500);
+      await sleep$3(500);
       screenStatus = getAuthStatus("screen");
     }
     const accessibilityStatus = getAuthStatus("accessibility");
@@ -107,12 +125,20 @@ async function captureScreenBase64() {
   }
   return source.thumbnail.toPNG().toString("base64");
 }
-const DEFAULT_MOVE_DURATION_MS = 650;
-function sleep$1(ms) {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
 function clampPercent(value) {
   return Math.min(100, Math.max(0, value));
+}
+async function toScreenPoint(x, y) {
+  const primary = electron.screen.getPrimaryDisplay();
+  const { width: logicalW, height: logicalH } = primary.size;
+  const scale = primary.scaleFactor;
+  const pixelX = Math.round(clampPercent(x) / 100 * logicalW * scale);
+  const pixelY = Math.round(clampPercent(y) / 100 * logicalH * scale);
+  return new nutJs.Point(pixelX, pixelY);
+}
+const DEFAULT_MOVE_DURATION_MS = 650;
+function sleep$2(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 function easeInOutCubic(progress) {
   return progress < 0.5 ? 4 * progress ** 3 : 1 - Math.pow(-2 * progress + 2, 3) / 2;
@@ -123,45 +149,11 @@ function cursorPermissionError(error) {
     `Specter could not control the macOS cursor. Grant Accessibility permission to this app in System Settings > Privacy & Security > Accessibility, then retry. Original error: ${detail}`
   );
 }
-async function toScreenPoint(x, y) {
-  const primary = electron.screen.getPrimaryDisplay();
-  const { width: logicalW, height: logicalH } = primary.size;
-  const scale = primary.scaleFactor;
-  const pixelX = Math.round(clampPercent(x) / 100 * logicalW * scale);
-  const pixelY = Math.round(clampPercent(y) / 100 * logicalH * scale);
-  return new nutJs.Point(pixelX, pixelY);
-}
-async function getPhysicalMousePosition() {
-  try {
-    const pos = await nutJs.mouse.getPosition();
-    return { x: pos.x, y: pos.y };
-  } catch (error) {
-    throw cursorPermissionError(error);
-  }
-}
-async function waitForMouseAtTarget(targetPercentX, targetPercentY, tolerancePx, timeoutMs) {
-  try {
-    const target = await toScreenPoint(targetPercentX, targetPercentY);
-    const start = Date.now();
-    while (Date.now() - start < timeoutMs) {
-      const pos = await nutJs.mouse.getPosition();
-      const dx = pos.x - target.x;
-      const dy = pos.y - target.y;
-      if (Math.abs(dx) <= tolerancePx && Math.abs(dy) <= tolerancePx) {
-        return "correct";
-      }
-      await sleep$1(100);
-    }
-    return "timeout";
-  } catch (error) {
-    throw cursorPermissionError(error);
-  }
-}
-async function ghostMove(x, y, durationMs = DEFAULT_MOVE_DURATION_MS) {
-  console.log("[CURSOR] ghostMove called:", x, y, durationMs);
+async function moveRealMouse(x, y, durationMs = DEFAULT_MOVE_DURATION_MS) {
+  console.log("[AUTO_REAL_MOUSE] moveRealMouse invoked REAL OS cursor automation", { x, y, durationMs });
   try {
     const target = await toScreenPoint(x, y);
-    console.log("[CURSOR] Physical pixels:", target.x, target.y);
+    console.log("[AUTO_REAL_MOUSE] physical target pixels", { x: target.x, y: target.y });
     const current = await nutJs.mouse.getPosition();
     const distance = Math.max(1, Math.hypot(target.x - current.x, target.y - current.y));
     const previousSpeed = nutJs.mouse.config.mouseSpeed;
@@ -169,46 +161,179 @@ async function ghostMove(x, y, durationMs = DEFAULT_MOVE_DURATION_MS) {
     nutJs.mouse.config.mouseSpeed = Math.max(200, distance / durationSeconds);
     try {
       await nutJs.mouse.move(nutJs.straightTo(target), easeInOutCubic);
-      console.log("[CURSOR] nut-js move complete");
+      console.log("[AUTO_REAL_MOUSE] nut-js REAL OS move complete");
     } finally {
       nutJs.mouse.config.mouseSpeed = previousSpeed;
     }
   } catch (error) {
-    console.error("[CURSOR] nut-js error:", error);
+    console.error("[AUTO_REAL_MOUSE] nut-js REAL OS automation error:", error);
     throw cursorPermissionError(error);
   }
 }
-async function ghostClick(x, y) {
+async function clickRealMouse(x, y) {
   try {
-    await ghostMove(x, y);
+    console.log("[AUTO_REAL_MOUSE] clickRealMouse invoked REAL OS cursor automation", { x, y });
+    await moveRealMouse(x, y);
     await nutJs.mouse.click(nutJs.Button.LEFT);
+    console.log("[AUTO_REAL_MOUSE] nut-js REAL OS click complete", { x, y });
   } catch (error) {
     throw cursorPermissionError(error);
   }
 }
-async function executeSteps(steps) {
-  for (const step of steps) {
+async function executeRealMouseSteps(steps) {
+  console.log("[AUTO_REAL_MOUSE] executeRealMouseSteps invoked REAL OS automation", { totalSteps: steps.length });
+  for (const [index, step] of steps.entries()) {
+    console.log("[AUTO_REAL_MOUSE] executing real cursor step", {
+      index,
+      action: step.action,
+      x: step.x,
+      y: step.y
+    });
     if (step.action !== "wait" && step.delayMs) {
-      await sleep$1(step.delayMs);
+      await sleep$2(step.delayMs);
     }
     switch (step.action) {
       case "click":
-        await ghostClick(step.x, step.y);
+        await clickRealMouse(step.x, step.y);
         break;
       case "type":
-        await ghostMove(step.x, step.y);
+        await moveRealMouse(step.x, step.y);
         if (step.typeText) {
           await nutJs.keyboard.type(step.typeText);
         }
         break;
       case "scroll":
-        await ghostMove(step.x, step.y);
+        await moveRealMouse(step.x, step.y);
         await nutJs.mouse.scrollDown(3);
         break;
       case "wait":
-        await sleep$1(step.delayMs || 500);
+        await sleep$2(step.waitForMs || step.delayMs || 500);
         break;
     }
+  }
+}
+function sleep$1(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+function userCursorPermissionError(error) {
+  const detail = error instanceof Error ? error.message : String(error);
+  return new Error(
+    `Specter could not monitor the macOS cursor. Grant Accessibility and Input Monitoring permissions to this app in System Settings > Privacy & Security, then retry. Original error: ${detail}`
+  );
+}
+async function getPhysicalMousePosition() {
+  try {
+    const pos = await nutJs.mouse.getPosition();
+    return { x: pos.x, y: pos.y };
+  } catch (error) {
+    throw userCursorPermissionError(error);
+  }
+}
+async function getPhysicalMousePercent() {
+  try {
+    const pos = await nutJs.mouse.getPosition();
+    const primary = electron.screen.getPrimaryDisplay();
+    const { width: logicalW, height: logicalH } = primary.size;
+    const scale = primary.scaleFactor;
+    return {
+      x: clampPercent(pos.x / (logicalW * scale) * 100),
+      y: clampPercent(pos.y / (logicalH * scale) * 100)
+    };
+  } catch (error) {
+    throw userCursorPermissionError(error);
+  }
+}
+async function waitForMouseAtTarget(targetPercentX, targetPercentY, tolerancePx, timeoutMs, signal) {
+  try {
+    const target = await toScreenPoint(targetPercentX, targetPercentY);
+    const start = Date.now();
+    while (Date.now() - start < timeoutMs) {
+      if (signal?.aborted) return "cancelled";
+      const pos = await nutJs.mouse.getPosition();
+      const dx = pos.x - target.x;
+      const dy = pos.y - target.y;
+      if (Math.hypot(dx, dy) <= tolerancePx) {
+        console.log("[USER_CURSOR] entered target tolerance", {
+          targetPercentX,
+          targetPercentY,
+          tolerancePx,
+          cursorX: pos.x,
+          cursorY: pos.y
+        });
+        return "correct";
+      }
+      await sleep$1(100);
+    }
+    console.warn("[USER_CURSOR] target tolerance wait timed out", { targetPercentX, targetPercentY, tolerancePx, timeoutMs });
+    return "timeout";
+  } catch (error) {
+    throw userCursorPermissionError(error);
+  }
+}
+async function currentMousePositionOrEvent(event) {
+  try {
+    const pos = await nutJs.mouse.getPosition();
+    return { x: pos.x, y: pos.y };
+  } catch {
+    return { x: event.x, y: event.y };
+  }
+}
+async function waitForUserClickAtTarget(targetPercentX, targetPercentY, tolerancePx, timeoutMs, signal) {
+  try {
+    const target = await toScreenPoint(targetPercentX, targetPercentY);
+    return await new Promise((resolve) => {
+      let settled = false;
+      const timeout = setTimeout(() => settle(signal?.aborted ? "cancelled" : "timeout"), timeoutMs);
+      const settle = (result) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timeout);
+        uiohookNapi.uIOhook.off("click", onClick);
+        signal?.removeEventListener("abort", onAbort);
+        if (result === "timeout") {
+          console.warn("[CLICK_DETECT] timed out waiting for user click", {
+            targetPercentX,
+            targetPercentY,
+            tolerancePx,
+            timeoutMs
+          });
+        }
+        resolve(result);
+      };
+      const onAbort = () => settle("cancelled");
+      const onClick = (event) => {
+        void currentMousePositionOrEvent(event).then((pos) => {
+          const dx = pos.x - target.x;
+          const dy = pos.y - target.y;
+          const distancePx = Math.hypot(dx, dy);
+          console.log("[CLICK_DETECT] click observed", {
+            targetPercentX,
+            targetPercentY,
+            tolerancePx,
+            cursorX: pos.x,
+            cursorY: pos.y,
+            distancePx
+          });
+          if (distancePx <= tolerancePx) {
+            console.log("[CLICK_DETECT] click detected inside target tolerance", {
+              targetPercentX,
+              targetPercentY,
+              tolerancePx
+            });
+            settle("correct");
+          }
+        }).catch(() => void 0);
+      };
+      if (signal?.aborted) {
+        settle("cancelled");
+        return;
+      }
+      console.log("[CLICK_DETECT] armed user click detector", { targetPercentX, targetPercentY, tolerancePx, timeoutMs });
+      signal?.addEventListener("abort", onAbort, { once: true });
+      uiohookNapi.uIOhook.on("click", onClick);
+    });
+  } catch (error) {
+    throw userCursorPermissionError(error);
   }
 }
 function anthropicClient$1() {
@@ -218,12 +343,39 @@ function anthropicClient$1() {
   }
   return new Anthropic({ apiKey: key });
 }
+function fallbackScreenState() {
+  return {
+    app: "Unknown",
+    coordinates: []
+  };
+}
+function percent(value, fallback = 50) {
+  return typeof value === "number" && Number.isFinite(value) ? Math.min(100, Math.max(0, value)) : fallback;
+}
+function normalizeScreenState(value) {
+  if (!value || typeof value !== "object") {
+    return fallbackScreenState();
+  }
+  const coordinates = Array.isArray(value.coordinates) ? value.coordinates.filter((item) => item && typeof item === "object").map((item) => ({
+    label: typeof item.label === "string" && item.label.trim() ? item.label : "Untitled target",
+    x: percent(item.x ?? item.targetX),
+    y: percent(item.y ?? item.targetY)
+  })) : [];
+  return {
+    app: typeof value.app === "string" && value.app.trim() ? value.app : "Unknown",
+    coordinates
+  };
+}
 async function analyzeScreen(base64PNG) {
   console.log("[SCREENER] Got base64, length:", base64PNG?.length);
   const anthropic = anthropicClient$1();
+  if (!base64PNG) {
+    console.warn("[Specter] No screenshot provided; using screen analysis fallback.");
+    return fallbackScreenState();
+  }
   if (!anthropic) {
     console.warn("[Specter] ANTHROPIC_API_KEY missing; skipping screen analysis.");
-    return null;
+    return fallbackScreenState();
   }
   try {
     console.log("[SCREENER] Calling Claude Vision...");
@@ -251,7 +403,7 @@ async function analyzeScreen(base64PNG) {
         }
       ]
     });
-    const textParts = message.content.filter((part) => part.type === "text" && "text" in part).map((part) => part.text).join("\n");
+    const textParts = message.content.flatMap((part) => part.type === "text" && "text" in part && typeof part.text === "string" ? [part.text] : []).join("\n");
     if (textParts) {
       console.log("[SCREENER] Raw response:", textParts);
       const cleanJson = textParts.replace(/```json/g, "").replace(/```/g, "").trim();
@@ -259,13 +411,13 @@ async function analyzeScreen(base64PNG) {
       if (jsonMatch) {
         const parsed = JSON.parse(jsonMatch[0]);
         console.log("[SCREENER] Parsed state:", JSON.stringify(parsed));
-        return parsed;
+        return normalizeScreenState(parsed);
       }
     }
-    return null;
+    return fallbackScreenState();
   } catch (error) {
     console.error("[SCREENER] Error:", error);
-    return null;
+    return fallbackScreenState();
   }
 }
 const CLAUDE_MODEL = "claude-sonnet-4-5";
@@ -293,6 +445,31 @@ function clampCoordinate(value, fallback) {
 function isStepAction(value) {
   return typeof value === "string" && STEP_ACTIONS$1.includes(value);
 }
+function normalizeMode(mode) {
+  return mode === "ultra" ? "ultra" : "silent";
+}
+function coordinatesFrom(screenState) {
+  if (!screenState || typeof screenState !== "object" || !Array.isArray(screenState.coordinates)) {
+    return [];
+  }
+  return screenState.coordinates.filter((item) => item && typeof item === "object").map((item) => ({
+    label: typeof item.label === "string" && item.label.trim() ? item.label : "target",
+    x: clampCoordinate(item.x ?? item.targetX, 50),
+    y: clampCoordinate(item.y ?? item.targetY, 50)
+  }));
+}
+function safeScreenState(screenState) {
+  return {
+    app: screenState && typeof screenState === "object" && typeof screenState.app === "string" && screenState.app.trim() ? screenState.app : "Unknown",
+    coordinates: coordinatesFrom(screenState)
+  };
+}
+function findCoordinate(coordinates, pattern) {
+  return coordinates.find((item) => pattern.test(item.label));
+}
+function numberOrUndefined(value) {
+  return typeof value === "number" && Number.isFinite(value) ? Math.max(0, Math.round(value)) : void 0;
+}
 function normalizeSequence(value, fallback) {
   if (!value || typeof value !== "object") {
     return fallback;
@@ -303,8 +480,9 @@ function normalizeSequence(value, fallback) {
     levelTitle: typeof maybeSequence.levelTitle === "string" && maybeSequence.levelTitle.trim() ? maybeSequence.levelTitle : fallback.levelTitle,
     estimatedMinutes: typeof maybeSequence.estimatedMinutes === "number" && Number.isFinite(maybeSequence.estimatedMinutes) ? Math.max(1, Math.round(maybeSequence.estimatedMinutes)) : fallback.estimatedMinutes,
     steps: steps.map((step, index) => {
-      const partial = step;
+      const partial = step && typeof step === "object" ? step : {};
       const fallbackStep = fallback.steps[Math.min(index, fallback.steps.length - 1)];
+      const waitForMs = numberOrUndefined(partial.waitForMs) ?? numberOrUndefined(partial.delayMs) ?? numberOrUndefined(fallbackStep.waitForMs) ?? numberOrUndefined(fallbackStep.delayMs);
       return {
         id: typeof partial.id === "string" ? partial.id : `step-${index + 1}`,
         instruction: typeof partial.instruction === "string" && partial.instruction.trim() ? partial.instruction : fallbackStep.instruction,
@@ -313,15 +491,20 @@ function normalizeSequence(value, fallback) {
         y: clampCoordinate(partial.y ?? partial.targetY, fallbackStep.y),
         action: isStepAction(partial.action) ? partial.action : fallbackStep.action,
         typeText: typeof partial.typeText === "string" ? partial.typeText : void 0,
-        waitForMs: typeof partial.waitForMs === "number" && Number.isFinite(partial.waitForMs) ? Math.max(0, partial.waitForMs) : void 0
+        delayMs: numberOrUndefined(partial.delayMs),
+        waitForMs
       };
     })
   };
 }
 function fallbackSequence(userIntent, screenState, mode) {
-  const coordinates = screenState.coordinates || [];
-  const short = mode === "silent";
+  const coordinates = coordinatesFrom(screenState);
+  const short = normalizeMode(mode) === "silent";
   if (/blender/i.test(userIntent) && /mesh/i.test(userIntent)) {
+    const addMenu = findCoordinate(coordinates, /add/i);
+    const meshItem = findCoordinate(coordinates, /mesh/i);
+    const cubeItem = findCoordinate(coordinates, /cube/i);
+    const moveTool = findCoordinate(coordinates, /move/i);
     return {
       levelTitle: "Add a Mesh in Blender",
       estimatedMinutes: 2,
@@ -330,24 +513,24 @@ function fallbackSequence(userIntent, screenState, mode) {
           id: "open-add-menu",
           instruction: short ? "Open Add." : "Start with the Add menu in the top-left.",
           targetLabel: "Add menu",
-          x: coordinates.find((item) => /add/i.test(item.label))?.x ?? 4,
-          y: coordinates.find((item) => /add/i.test(item.label))?.y ?? 3,
+          x: addMenu?.x ?? 4,
+          y: addMenu?.y ?? 3,
           action: "click"
         },
         {
           id: "choose-mesh",
           instruction: short ? "Choose Mesh." : "Now choose Mesh from that menu.",
           targetLabel: "Mesh",
-          x: coordinates.find((item) => /mesh/i.test(item.label))?.x ?? 6,
-          y: coordinates.find((item) => /mesh/i.test(item.label))?.y ?? 14,
+          x: meshItem?.x ?? 6,
+          y: meshItem?.y ?? 14,
           action: "click"
         },
         {
           id: "choose-cube",
           instruction: short ? "Select Cube." : "Pick Cube as your first simple mesh.",
           targetLabel: "Cube",
-          x: coordinates.find((item) => /cube/i.test(item.label))?.x ?? 10,
-          y: coordinates.find((item) => /cube/i.test(item.label))?.y ?? 20,
+          x: cubeItem?.x ?? 10,
+          y: cubeItem?.y ?? 20,
           action: "click"
         },
         {
@@ -363,8 +546,8 @@ function fallbackSequence(userIntent, screenState, mode) {
           id: "select-move-tool",
           instruction: short ? "Select move." : "Select the move tool so you can position it.",
           targetLabel: "Move tool",
-          x: coordinates.find((item) => /move/i.test(item.label))?.x ?? 2,
-          y: coordinates.find((item) => /move/i.test(item.label))?.y ?? 24,
+          x: moveTool?.x ?? 2,
+          y: moveTool?.y ?? 24,
           action: "click"
         }
       ]
@@ -394,9 +577,14 @@ function fallbackSequence(userIntent, screenState, mode) {
   };
 }
 async function planSteps(userIntent, screenState, sessionHistory, mode) {
-  console.log("[PLANNER] Intent:", userIntent);
-  console.log("[PLANNER] Screen app detected:", screenState?.app);
-  const fallback = fallbackSequence(userIntent, screenState, mode);
+  const normalizedMode = normalizeMode(mode);
+  const normalizedScreenState = safeScreenState(screenState);
+  const normalizedHistory = Array.isArray(sessionHistory) ? sessionHistory : [];
+  const normalizedIntent = typeof userIntent === "string" && userIntent.trim() ? userIntent : "Specter Tutorial";
+  console.log("[PLANNER] Intent:", normalizedIntent);
+  console.log("[PLANNER] Mode:", normalizedMode);
+  console.log("[PLANNER] Screen app detected:", normalizedScreenState.app);
+  const fallback = fallbackSequence(normalizedIntent, normalizedScreenState, normalizedMode);
   const client = anthropicClient();
   if (!client) {
     console.warn("[Specter] ANTHROPIC_API_KEY missing; using planner fallback.");
@@ -414,9 +602,9 @@ async function planSteps(userIntent, screenState, sessionHistory, mode) {
           content: JSON.stringify(
             {
               userIntent,
-              screenState,
-              sessionHistory,
-              mode,
+              screenState: normalizedScreenState,
+              sessionHistory: normalizedHistory,
+              mode: normalizedMode,
               requiredShape: {
                 steps: [
                   {
@@ -440,7 +628,7 @@ async function planSteps(userIntent, screenState, sessionHistory, mode) {
         }
       ]
     });
-    const rawText = message.content.filter((part) => part.type === "text" && "text" in part).map((part) => part.text).join("\n");
+    const rawText = message.content.flatMap((part) => part.type === "text" && "text" in part && typeof part.text === "string" ? [part.text] : []).join("\n");
     console.log("[PLANNER] Raw response:", rawText);
     const steps = normalizeSequence(extractJson(rawText), fallback);
     return steps;
@@ -478,7 +666,7 @@ async function converse(userMessage, screenState, conversationHistory) {
         }
       ]
     });
-    const text = message.content.filter((part) => part.type === "text" && "text" in part).map((part) => part.text).join("\n").trim();
+    const text = message.content.flatMap((part) => part.type === "text" && "text" in part && typeof part.text === "string" ? [part.text] : []).join("\n").trim();
     return text || "Yes. Keep going with the next highlighted step.";
   } catch (error) {
     console.error("[Specter] Failed to answer follow-up:", error);
@@ -790,11 +978,15 @@ function normalizeBranch(branchId, value) {
 function normalizeStep(value) {
   const step = isRecord(value) ? value : {};
   return {
-    x: percentNumber(step.x),
-    y: percentNumber(step.y),
+    id: typeof step.id === "string" ? step.id : void 0,
+    instruction: typeof step.instruction === "string" ? step.instruction : void 0,
+    targetLabel: typeof step.targetLabel === "string" ? step.targetLabel : void 0,
+    x: percentNumber(step.x ?? step.targetX),
+    y: percentNumber(step.y ?? step.targetY),
     action: normalizeAction(step.action),
     typeText: typeof step.typeText === "string" ? step.typeText : void 0,
     delayMs: nonNegativeInteger(step.delayMs),
+    waitForMs: nonNegativeInteger(step.waitForMs),
     narration: typeof step.narration === "string" ? step.narration : void 0
   };
 }
@@ -987,10 +1179,16 @@ function averageStepTime(steps) {
 }
 function normalizeRecordedStep(step) {
   return {
-    ...step,
+    id: typeof step.id === "string" ? step.id : void 0,
+    instruction: typeof step.instruction === "string" ? step.instruction : void 0,
+    targetLabel: typeof step.targetLabel === "string" ? step.targetLabel : void 0,
     x: Number.isFinite(step.x) ? Math.min(100, Math.max(0, step.x)) : 50,
     y: Number.isFinite(step.y) ? Math.min(100, Math.max(0, step.y)) : 50,
-    delayMs: Number.isFinite(step.delayMs) ? Math.max(0, Math.round(step.delayMs)) : 0
+    action: ["click", "type", "scroll", "wait"].includes(step.action) ? step.action : "click",
+    typeText: typeof step.typeText === "string" ? step.typeText : void 0,
+    delayMs: Number.isFinite(step.delayMs) ? Math.max(0, Math.round(step.delayMs)) : 0,
+    waitForMs: Number.isFinite(step.waitForMs) ? Math.max(0, Math.round(step.waitForMs)) : void 0,
+    narration: typeof step.narration === "string" ? step.narration : void 0
   };
 }
 function startRecording() {
@@ -1031,11 +1229,16 @@ function saveToNode(graph, nodeId, steps) {
 }
 let getOverlayWindow = () => null;
 let activeReplay = null;
+function setReplayWindowProvider(windowProvider) {
+  getOverlayWindow = windowProvider;
+}
 function createReplayController() {
   stopReplay();
+  const overlayWindow2 = getOverlayWindow();
   const controller = {
     cancelled: false,
-    cancelHandlers: /* @__PURE__ */ new Set()
+    cancelHandlers: /* @__PURE__ */ new Set(),
+    overlayWasVisible: Boolean(overlayWindow2?.isVisible())
   };
   activeReplay = controller;
   return controller;
@@ -1050,6 +1253,9 @@ function cancelReplay(controller) {
 }
 function isActive(controller) {
   return activeReplay === controller && !controller.cancelled;
+}
+function releaseReplayController(controller) {
+  if (activeReplay === controller) activeReplay = null;
 }
 function sleep(ms, controller) {
   if (controller.cancelled) return Promise.resolve(false);
@@ -1079,22 +1285,186 @@ function setOverlayForReplay() {
   if (!overlayWindow2.isVisible()) overlayWindow2.show();
   overlayWindow2.setIgnoreMouseEvents(true, { forward: true });
 }
-function waitForUserAtTarget(step, controller, timeoutMs = 45e3) {
+function restoreOverlayAfterReplay(controller) {
+  const overlayWindow2 = getOverlayWindow();
+  if (!overlayWindow2 || overlayWindow2.isDestroyed()) return;
+  if (controller.overlayWasVisible && overlayWindow2.isVisible()) {
+    overlayWindow2.setIgnoreMouseEvents(false);
+    return;
+  }
+  overlayWindow2.setIgnoreMouseEvents(true, { forward: true });
+  overlayWindow2.hide();
+}
+function stopReplay() {
+  const hadActiveReplay = Boolean(activeReplay);
+  if (activeReplay) {
+    cancelReplay(activeReplay);
+  }
+  activeReplay = null;
+  if (hadActiveReplay) {
+    sendOverlay("replay:stopped", {});
+  }
+}
+const DEFAULT_WAIT_STEP_MS$1 = 800;
+function stepWaitMs$1(step) {
+  return step.waitForMs || step.delayMs || DEFAULT_WAIT_STEP_MS$1;
+}
+function stepTitle$1(step) {
+  return step.instruction || step.targetLabel || step.id || "Untitled step";
+}
+async function replayAutoExecute(steps) {
+  const controller = createReplayController();
+  setOverlayForReplay();
+  console.log("[AUTO_REAL_MOUSE] STARTING REAL OS AUTOMATION", { totalSteps: steps.length });
+  try {
+    for (let index = 0; index < steps.length; index++) {
+      if (!isActive(controller)) break;
+      const step = steps[index];
+      console.log("[AUTO_REAL_MOUSE] real mouse step", {
+        index,
+        displayIndex: index + 1,
+        total: steps.length,
+        title: stepTitle$1(step),
+        action: step.action,
+        x: step.x,
+        y: step.y
+      });
+      if (step.action === "click") {
+        if (!await sleep(step.delayMs || 0, controller)) break;
+        console.log("[AUTO_REAL_MOUSE] REAL OS move/click", { index, x: step.x, y: step.y });
+        await clickRealMouse(step.x, step.y);
+      } else if (step.action === "wait") {
+        const waitMs = stepWaitMs$1(step);
+        console.log("[AUTO_REAL_MOUSE] wait before next real OS action", { index, waitMs });
+        if (!await sleep(waitMs, controller)) break;
+      } else {
+        if (!await sleep(step.delayMs || 0, controller)) break;
+        console.log("[AUTO_REAL_MOUSE] REAL OS action replay", {
+          index,
+          action: step.action,
+          x: step.x,
+          y: step.y,
+          hasTypeText: Boolean(step.typeText)
+        });
+        await executeRealMouseSteps([{ ...step, delayMs: 0 }]);
+      }
+      console.log("[AUTO_REAL_MOUSE] real mouse step complete", { index, action: step.action });
+      sendOverlay("replay:progress", { index, total: steps.length });
+    }
+  } finally {
+    if (!controller.cancelled) {
+      sendOverlay("replay:complete", {});
+    }
+    releaseReplayController(controller);
+    restoreOverlayAfterReplay(controller);
+    console.log("[AUTO_REAL_MOUSE] REAL OS AUTOMATION FINISHED", { cancelled: controller.cancelled });
+  }
+}
+let walkthroughSafetyChecked = false;
+function functionSource(source, name) {
+  const start = source.indexOf(`export async function ${name}`);
+  if (start === -1) return "";
+  const bodyStart = source.indexOf("{", start);
+  if (bodyStart === -1) return "";
+  let depth = 0;
+  for (let index = bodyStart; index < source.length; index++) {
+    const char = source[index];
+    if (char === "{") depth++;
+    if (char === "}") depth--;
+    if (depth === 0) return source.slice(start, index + 1);
+  }
+  return source.slice(start);
+}
+function assertWalkthroughReplaySafety() {
+  if (walkthroughSafetyChecked || process.env.NODE_ENV === "production") return;
+  walkthroughSafetyChecked = true;
+  const replayPath = path__namespace.join(process.cwd(), "src/main/session/replay.ts");
+  if (!fs__namespace.existsSync(replayPath)) return;
+  const source = fs__namespace.readFileSync(replayPath, "utf-8");
+  const walkthroughBody = functionSource(source, "replayWalkthrough");
+  const forbiddenImport = source.match(/from\s+['"](\.\.\/cursor|\.\/cursor)['"]|@nut-tree-fork\/nut-js/);
+  const forbiddenCall = walkthroughBody.match(
+    /\b(moveRealMouse|clickRealMouse|executeRealMouseSteps|mouse\.(move|click|scrollDown|scrollUp)|keyboard\.type|straightTo|Button\.LEFT)\b/
+  );
+  if (forbiddenImport || forbiddenCall) {
+    throw new Error(
+      `[WALKTHROUGH] DEV SAFETY GUARD: replayWalkthrough must not import or call real mouse automation. Matched: ${forbiddenImport?.[0] || forbiddenCall?.[0]}`
+    );
+  }
+}
+const DEFAULT_STEP_TIMEOUT_MS = 12e3;
+const DEFAULT_WAIT_STEP_MS = 800;
+const MAX_WALKTHROUGH_ATTEMPTS = 2;
+const TARGET_APPROACH_TOLERANCE_PX = 50;
+const TARGET_CLICK_TOLERANCE_PX = 60;
+function stepTitle(step) {
+  return step.instruction || step.targetLabel || step.id || "Untitled step";
+}
+function stepWaitMs(step) {
+  return step.waitForMs || step.delayMs || DEFAULT_WAIT_STEP_MS;
+}
+function fallbackGhostStart(step, previousTarget) {
+  if (previousTarget) return previousTarget;
+  const offsetX = step.x > 58 ? -18 : 18;
+  const offsetY = step.y > 58 ? -12 : 12;
+  return {
+    x: Math.min(96, Math.max(4, step.x + offsetX)),
+    y: Math.min(96, Math.max(4, step.y + offsetY))
+  };
+}
+async function ghostStartForStep(step, previousTarget) {
+  try {
+    return await getPhysicalMousePercent();
+  } catch (error) {
+    console.warn("[GHOST] could not read physical cursor for ghost start; using fallback", error);
+    return fallbackGhostStart(step, previousTarget);
+  }
+}
+function waitForUserNearTarget(step, controller, timeoutMs = DEFAULT_STEP_TIMEOUT_MS) {
   if (controller.cancelled) return Promise.resolve("cancelled");
   return new Promise((resolve) => {
     let settled = false;
+    const abort = new AbortController();
     const timeout = setTimeout(() => settle(controller.cancelled ? "cancelled" : "timeout"), timeoutMs);
     const settle = (result) => {
       if (settled) return;
       settled = true;
       clearTimeout(timeout);
+      abort.abort();
       controller.cancelHandlers.delete(cancel);
       resolve(result);
     };
     const cancel = () => settle("cancelled");
     controller.cancelHandlers.add(cancel);
-    waitForMouseAtTarget(step.x, step.y, 50, timeoutMs).then((result) => {
-      settle(result === "correct" ? "correct" : "timeout");
+    waitForMouseAtTarget(step.x, step.y, TARGET_APPROACH_TOLERANCE_PX, timeoutMs, abort.signal).then((result) => {
+      settle(result);
+    }).catch((error) => {
+      console.error("[USER_CURSOR] waitForMouseAtTarget failed", error);
+      settle("timeout");
+    });
+  });
+}
+function waitForUserClickOnTarget(step, controller, timeoutMs = DEFAULT_STEP_TIMEOUT_MS) {
+  if (controller.cancelled) return Promise.resolve("cancelled");
+  return new Promise((resolve) => {
+    let settled = false;
+    const abort = new AbortController();
+    const timeout = setTimeout(() => settle(controller.cancelled ? "cancelled" : "timeout"), timeoutMs);
+    const settle = (result) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timeout);
+      abort.abort();
+      controller.cancelHandlers.delete(cancel);
+      resolve(result);
+    };
+    const cancel = () => settle("cancelled");
+    controller.cancelHandlers.add(cancel);
+    waitForUserClickAtTarget(step.x, step.y, TARGET_CLICK_TOLERANCE_PX, timeoutMs, abort.signal).then((result) => {
+      settle(result);
+    }).catch((error) => {
+      console.error("[CLICK_DETECT] waitForUserClickAtTarget failed", error);
+      settle("timeout");
     });
   });
 }
@@ -1104,16 +1474,63 @@ function stepsForNode(nodeId, appName) {
   const latest = sessions.length > 0 ? sessions[sessions.length - 1] : null;
   return latest?.steps || [];
 }
-function stopReplay() {
-  if (activeReplay) {
-    cancelReplay(activeReplay);
+function logWalkthroughStep(step, index, total, attempt) {
+  console.log("[WALKTHROUGH] step", {
+    index,
+    displayIndex: index + 1,
+    total,
+    attempt,
+    title: stepTitle(step),
+    action: step.action,
+    x: step.x,
+    y: step.y
+  });
+}
+function emitGhostStep(step, index, total, attempt, reason, ghostStart) {
+  const channel = attempt === 0 ? "replay:step" : "replay:retry";
+  const ghostLoops = step.action !== "wait";
+  sendOverlay(channel, {
+    step,
+    index,
+    total,
+    reason,
+    attempt,
+    ghost: {
+      startX: ghostStart.x,
+      startY: ghostStart.y,
+      loop: ghostLoops,
+      timeoutMs: DEFAULT_STEP_TIMEOUT_MS
+    }
+  });
+  console.log("[GHOST] visual step emitted", {
+    channel,
+    index,
+    attempt,
+    action: step.action,
+    x: step.x,
+    y: step.y,
+    startX: ghostStart.x,
+    startY: ghostStart.y
+  });
+  if (ghostLoops) {
+    console.log("[GHOST] looping started", { index, attempt, timeoutMs: DEFAULT_STEP_TIMEOUT_MS });
   }
-  activeReplay = null;
-  sendOverlay("replay:stopped", {});
+}
+function parkGhostAtEndpoint(step, index, total, attempt) {
+  console.log("[GHOST] parked at endpoint", { index, action: step.action, x: step.x, y: step.y });
+  sendOverlay("replay:target-reached", {
+    step,
+    index,
+    total,
+    attempt
+  });
 }
 async function replayWalkthrough(steps, onStep) {
+  assertWalkthroughReplaySafety();
   const controller = createReplayController();
   setOverlayForReplay();
+  let previousGhostTarget = null;
+  console.log("[WALKTHROUGH] start", { totalSteps: steps.length });
   try {
     for (let index = 0; index < steps.length; index++) {
       if (!isActive(controller)) break;
@@ -1121,50 +1538,84 @@ async function replayWalkthrough(steps, onStep) {
       let result = "timeout";
       let attempts = 0;
       while (result !== "correct" && isActive(controller)) {
-        const channel = attempts === 0 ? "replay:step" : "replay:retry";
-        sendOverlay(channel, { step, index, total: steps.length, reason: result });
+        logWalkthroughStep(step, index, steps.length, attempts);
+        const ghostStart = await ghostStartForStep(step, previousGhostTarget);
+        emitGhostStep(step, index, steps.length, attempts, result, ghostStart);
         if (attempts === 0) onStep(step, index);
-        if (step.action !== "wait") {
-          await ghostMove(step.x, step.y, 600);
+        if (step.action === "wait") {
+          const waitMs = stepWaitMs(step);
+          console.log("[WALKTHROUGH] wait step sleeping", { index, waitMs });
+          result = await sleep(waitMs, controller) ? "correct" : "cancelled";
+        } else if (step.action === "click") {
+          console.log("[USER_CURSOR] waiting for real cursor to enter tolerance", {
+            index,
+            x: step.x,
+            y: step.y,
+            tolerancePx: TARGET_APPROACH_TOLERANCE_PX
+          });
+          result = await waitForUserNearTarget(step, controller);
+          if (result === "correct") {
+            console.log("[USER_CURSOR] real cursor entered tolerance", { index, x: step.x, y: step.y });
+            previousGhostTarget = { x: step.x, y: step.y };
+            parkGhostAtEndpoint(step, index, steps.length, attempts);
+            console.log("[CLICK_DETECT] waiting for actual user click", {
+              index,
+              x: step.x,
+              y: step.y,
+              tolerancePx: TARGET_CLICK_TOLERANCE_PX
+            });
+            result = await waitForUserClickOnTarget(step, controller);
+            if (result === "correct") {
+              console.log("[CLICK_DETECT] click detected", { index, x: step.x, y: step.y });
+            }
+          }
+        } else {
+          console.log("[USER_CURSOR] waiting for real cursor to enter tolerance", {
+            index,
+            action: step.action,
+            x: step.x,
+            y: step.y,
+            tolerancePx: TARGET_APPROACH_TOLERANCE_PX
+          });
+          result = await waitForUserNearTarget(step, controller);
+          if (result === "correct") {
+            console.log("[USER_CURSOR] real cursor entered tolerance", { index, action: step.action, x: step.x, y: step.y });
+            previousGhostTarget = { x: step.x, y: step.y };
+            parkGhostAtEndpoint(step, index, steps.length, attempts);
+          }
         }
-        result = await waitForUserAtTarget(step, controller);
-        if (result === "timeout") attempts++;
+        if (result === "correct") {
+          console.log("[WALKTHROUGH] step complete", { index, action: step.action, title: stepTitle(step) });
+        } else if (result === "timeout") {
+          attempts++;
+          console.warn("[WALKTHROUGH] step timed out", {
+            index,
+            action: step.action,
+            title: stepTitle(step),
+            attempt: attempts,
+            maxAttempts: MAX_WALKTHROUGH_ATTEMPTS
+          });
+          if (attempts >= MAX_WALKTHROUGH_ATTEMPTS) {
+            console.warn("[WALKTHROUGH] step skipped after timeout", { index, action: step.action, title: stepTitle(step) });
+            break;
+          }
+        } else if (result === "cancelled") {
+          console.warn("[WALKTHROUGH] step cancelled", { index, action: step.action, title: stepTitle(step) });
+          break;
+        }
       }
     }
     if (!controller.cancelled) {
       sendOverlay("replay:complete", {});
     }
   } finally {
-    if (activeReplay === controller) activeReplay = null;
-  }
-}
-async function replayAutoExecute(steps) {
-  const controller = createReplayController();
-  setOverlayForReplay();
-  try {
-    for (let index = 0; index < steps.length; index++) {
-      if (!isActive(controller)) break;
-      const step = steps[index];
-      if (step.action === "click") {
-        if (!await sleep(step.delayMs || 0, controller)) break;
-        await ghostClick(step.x, step.y);
-      } else if (step.action === "wait") {
-        if (!await sleep(step.delayMs || 500, controller)) break;
-      } else {
-        if (!await sleep(step.delayMs || 0, controller)) break;
-        await executeSteps([{ ...step, delayMs: 0 }]);
-      }
-      sendOverlay("replay:progress", { index, total: steps.length });
-    }
-  } finally {
-    if (!controller.cancelled) {
-      sendOverlay("replay:complete", {});
-    }
-    if (activeReplay === controller) activeReplay = null;
+    releaseReplayController(controller);
+    restoreOverlayAfterReplay(controller);
+    console.log("[WALKTHROUGH] finished", { cancelled: controller.cancelled });
   }
 }
 function registerReplayIpc(ipcMain, windowProvider, appName = "Specter") {
-  getOverlayWindow = windowProvider;
+  setReplayWindowProvider(windowProvider);
   ipcMain.handle("replay:walkthrough", async (_event, nodeId) => {
     const steps = stepsForNode(nodeId, appName);
     await replayWalkthrough(steps, () => {
@@ -1310,12 +1761,12 @@ electron.app.whenReady().then(async () => {
   });
   electron.ipcMain.handle("cursor:move", async (_event, x, y, durationMs) => {
     console.log("[IPC] cursor:move", { x, y, durationMs });
-    return ghostMove(x, y, durationMs);
+    return moveRealMouse(x, y, durationMs);
   });
-  electron.ipcMain.handle("cursor:click", async (_event, x, y) => ghostClick(x, y));
-  electron.ipcMain.handle("cursor:replay", async (_event, steps) => executeSteps(steps));
+  electron.ipcMain.handle("cursor:click", async (_event, x, y) => clickRealMouse(x, y));
+  electron.ipcMain.handle("cursor:replay", async (_event, steps) => executeRealMouseSteps(steps));
   electron.ipcMain.handle("cursor:getPosition", async () => getPhysicalMousePosition());
-  electron.ipcMain.handle("cursor:waitForTarget", async (_event, x, y, tolerancePx = 50, timeoutMs = 45e3) => {
+  electron.ipcMain.handle("cursor:waitForTarget", async (_event, x, y, tolerancePx = 50, timeoutMs = 12e3) => {
     console.log("[IPC] cursor:waitForTarget", { x, y, tolerancePx, timeoutMs });
     return waitForMouseAtTarget(x, y, tolerancePx, timeoutMs);
   });
@@ -1343,7 +1794,8 @@ electron.app.whenReady().then(async () => {
       if (isPermissionError(err) || err.code === "SCREEN_PERMISSION_DENIED") {
         event.sender.send("permissions:screen-denied");
       }
-      throw err;
+      console.error("[Specter] Screen analysis failed; using fallback screen state:", err);
+      return fallbackScreenState();
     }
   });
   electron.ipcMain.handle("planner:plan", async (_event, userIntent, screenState, sessionHistory, mode) => {

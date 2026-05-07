@@ -6,8 +6,13 @@ import { uIOhook, UiohookKey } from 'uiohook-napi'
 
 import { checkPermissions, isPermissionError } from './permissions'
 import { captureScreenBase64 } from './capture'
-import { ghostMove, ghostClick, executeSteps, getPhysicalMousePosition, waitForMouseAtTarget } from './cursor'
-import { analyzeScreen } from './ai/screener'
+import {
+  clickRealMouse,
+  executeRealMouseSteps,
+  moveRealMouse
+} from './cursor'
+import { getPhysicalMousePosition, waitForMouseAtTarget } from './userCursor'
+import { analyzeScreen, fallbackScreenState } from './ai/screener'
 import { planSteps, converse } from './ai/planner'
 import { speak, stopSpeaking } from './ai/tts'
 import { transcribe } from './ai/whisper'
@@ -187,13 +192,13 @@ app.whenReady().then(async () => {
 
   ipcMain.handle('cursor:move', async (_event, x, y, durationMs) => {
     console.log('[IPC] cursor:move', { x, y, durationMs })
-    return ghostMove(x, y, durationMs)
+    return moveRealMouse(x, y, durationMs)
   })
 
-  ipcMain.handle('cursor:click', async (_event, x, y) => ghostClick(x, y))
-  ipcMain.handle('cursor:replay', async (_event, steps) => executeSteps(steps))
+  ipcMain.handle('cursor:click', async (_event, x, y) => clickRealMouse(x, y))
+  ipcMain.handle('cursor:replay', async (_event, steps) => executeRealMouseSteps(steps))
   ipcMain.handle('cursor:getPosition', async () => getPhysicalMousePosition())
-  ipcMain.handle('cursor:waitForTarget', async (_event, x, y, tolerancePx = 50, timeoutMs = 45000) => {
+  ipcMain.handle('cursor:waitForTarget', async (_event, x, y, tolerancePx = 50, timeoutMs = 12000) => {
     console.log('[IPC] cursor:waitForTarget', { x, y, tolerancePx, timeoutMs })
     return waitForMouseAtTarget(x, y, tolerancePx, timeoutMs)
   })
@@ -224,7 +229,8 @@ app.whenReady().then(async () => {
       if (isPermissionError(err) || err.code === 'SCREEN_PERMISSION_DENIED') {
         event.sender.send('permissions:screen-denied')
       }
-      throw err
+      console.error('[Specter] Screen analysis failed; using fallback screen state:', err)
+      return fallbackScreenState()
     }
   })
 

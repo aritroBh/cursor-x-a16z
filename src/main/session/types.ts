@@ -1,9 +1,13 @@
 export interface Step {
+  id?: string;
+  instruction?: string;
+  targetLabel?: string;
   x: number;
   y: number;
   action: 'click' | 'type' | 'scroll' | 'wait';
   typeText?: string;
   delayMs?: number;
+  waitForMs?: number;
   narration?: string;
 }
 

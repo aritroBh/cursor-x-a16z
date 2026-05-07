@@ -5,14 +5,15 @@ const recorder = new MicRecorder()
 
 interface InputBarProps {
   onSubmit: (text: string) => void
+  disabled?: boolean
 }
 
-export const InputBar: React.FC<InputBarProps> = ({ onSubmit }) => {
+export const InputBar: React.FC<InputBarProps> = ({ onSubmit, disabled = false }) => {
   const [value, setValue] = useState('')
   const [isRecording, setIsRecording] = useState(false)
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === 'Enter' && value.trim()) {
+    if (!disabled && e.key === 'Enter' && value.trim()) {
       onSubmit(value)
       setValue('')
     }
@@ -35,6 +36,7 @@ export const InputBar: React.FC<InputBarProps> = ({ onSubmit }) => {
         type="text"
         placeholder="What would you like to learn?"
         value={value}
+        disabled={disabled}
         onChange={(e) => setValue(e.target.value)}
         onKeyDown={handleKeyDown}
         style={{
@@ -43,7 +45,8 @@ export const InputBar: React.FC<InputBarProps> = ({ onSubmit }) => {
           background: 'transparent',
           fontSize: '18px',
           outline: 'none',
-          color: '#1a1a1a'
+          color: '#1a1a1a',
+          opacity: disabled ? 0.55 : 1
         }}
       />
       <div style={{
@@ -57,11 +60,14 @@ export const InputBar: React.FC<InputBarProps> = ({ onSubmit }) => {
         Press Enter
       </div>
       <button
+        disabled={disabled}
         onMouseDown={async () => {
+          if (disabled) return
           setIsRecording(true)
           await recorder.start()
         }}
         onMouseUp={async () => {
+          if (disabled) return
           setIsRecording(false)
           const buffer = await recorder.stop()
           const text = await (window as any).api.transcribe(buffer)
@@ -71,7 +77,8 @@ export const InputBar: React.FC<InputBarProps> = ({ onSubmit }) => {
           background: isRecording ? '#ff3b30' : 'rgba(0,0,0,0.1)',
           border: 'none', borderRadius: '50%',
           width: '36px', height: '36px',
-          cursor: 'pointer', marginLeft: '8px',
+          cursor: disabled ? 'default' : 'pointer', marginLeft: '8px',
+          opacity: disabled ? 0.55 : 1,
           display: 'flex', alignItems: 'center', justifyContent: 'center'
         }}
       >

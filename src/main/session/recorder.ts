@@ -54,10 +54,16 @@ function averageStepTime(steps: Step[]): number {
 
 function normalizeRecordedStep(step: any): Step {
   return {
-    ...step,
+    id: typeof step.id === 'string' ? step.id : undefined,
+    instruction: typeof step.instruction === 'string' ? step.instruction : undefined,
+    targetLabel: typeof step.targetLabel === 'string' ? step.targetLabel : undefined,
     x: Number.isFinite(step.x) ? Math.min(100, Math.max(0, step.x)) : 50,
     y: Number.isFinite(step.y) ? Math.min(100, Math.max(0, step.y)) : 50,
-    delayMs: Number.isFinite(step.delayMs) ? Math.max(0, Math.round(step.delayMs)) : 0
+    action: ['click', 'type', 'scroll', 'wait'].includes(step.action) ? step.action : 'click',
+    typeText: typeof step.typeText === 'string' ? step.typeText : undefined,
+    delayMs: Number.isFinite(step.delayMs) ? Math.max(0, Math.round(step.delayMs)) : 0,
+    waitForMs: Number.isFinite(step.waitForMs) ? Math.max(0, Math.round(step.waitForMs)) : undefined,
+    narration: typeof step.narration === 'string' ? step.narration : undefined
   }
 }
 

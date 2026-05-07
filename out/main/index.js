@@ -1514,12 +1514,14 @@ function setOverlayForReplay() {
   const overlayWindow2 = getOverlayWindow();
   if (!overlayWindow2 || overlayWindow2.isDestroyed()) return;
   if (!overlayWindow2.isVisible()) overlayWindow2.show();
+  console.log("[OVERLAY_INTERACTION] replay starting, enabled click-through");
   overlayWindow2.setIgnoreMouseEvents(true, { forward: true });
 }
 function setOverlayForKeyboardFallback() {
   const overlayWindow2 = getOverlayWindow();
   if (!overlayWindow2 || overlayWindow2.isDestroyed()) return;
   if (!overlayWindow2.isVisible()) overlayWindow2.show();
+  console.log("[OVERLAY_INTERACTION] keyboard fallback, disabled click-through (interactive mode)");
   overlayWindow2.setIgnoreMouseEvents(false);
   overlayWindow2.focus();
 }
@@ -1527,9 +1529,11 @@ function restoreOverlayAfterReplay(controller) {
   const overlayWindow2 = getOverlayWindow();
   if (!overlayWindow2 || overlayWindow2.isDestroyed()) return;
   if (controller.overlayWasVisible && overlayWindow2.isVisible()) {
-    overlayWindow2.setIgnoreMouseEvents(false);
+    console.log("[OVERLAY_INTERACTION] replay ended, restoring click-through true");
+    overlayWindow2.setIgnoreMouseEvents(true, { forward: true });
     return;
   }
+  console.log("[OVERLAY_INTERACTION] replay ended, restoring click-through true and hiding overlay");
   overlayWindow2.setIgnoreMouseEvents(true, { forward: true });
   overlayWindow2.hide();
 }
@@ -1896,6 +1900,7 @@ async function replayWalkthrough(steps, onStep) {
       }
     }
     if (!controller.cancelled) {
+      console.log("[WALKTHROUGH] complete");
       sendOverlay("replay:complete", {});
     }
   } finally {
@@ -2200,10 +2205,20 @@ electron.app.whenReady().then(async () => {
       throw err;
     }
   });
-  electron.ipcMain.handle("screen:analyze", async (event, base64PNG) => {
-    console.log("[IPC] screen:analyze", { hasBase64: !!base64PNG });
+  electron.ipcMain.handle("screen:analyze", async (event, base64PNG, options) => {
+    console.log("[IPC] screen:analyze", { hasBase64: !!base64PNG, captureUnderlying: !!options?.captureUnderlying });
+    const captureUnderlying = options?.captureUnderlying;
+    const wasOverlayVisible = captureUnderlying && Boolean(overlayWindow && !overlayWindow.isDestroyed() && overlayWindow.isVisible());
     try {
+      if (wasOverlayVisible && overlayWindow) {
+        console.log("[CAPTURE_UNDERLYING] hiding overlay before screen capture");
+        overlayWindow.setIgnoreMouseEvents(true, { forward: true });
+        overlayWindow.hide();
+        await delay(160);
+      }
+      console.log("[CAPTURE_UNDERLYING] starting screenshot capture");
       const screenshot = base64PNG || await captureScreenBase64();
+      console.log("[CAPTURE_UNDERLYING] screenshot captured", { bytesBase64: screenshot.length });
       return analyzeScreen(screenshot);
     } catch (err) {
       if (isPermissionError(err) || err.code === "SCREEN_PERMISSION_DENIED") {
@@ -2211,6 +2226,12 @@ electron.app.whenReady().then(async () => {
       }
       console.error("[Specter] Screen analysis failed; using fallback screen state:", err);
       return fallbackScreenState();
+    } finally {
+      if (wasOverlayVisible && overlayWindow && !overlayWindow.isDestroyed()) {
+        console.log("[CAPTURE_UNDERLYING] restoring overlay after capture, click-through true");
+        overlayWindow.show();
+        overlayWindow.setIgnoreMouseEvents(true, { forward: true });
+      }
     }
   });
   electron.ipcMain.handle("realApp:detectTargets", async (event, userIntent = "") => {
@@ -2219,18 +2240,21 @@ electron.app.whenReady().then(async () => {
     const wasOverlayVisible = Boolean(overlayWindow && !overlayWindow.isDestroyed() && overlayWindow.isVisible());
     try {
       if (wasOverlayVisible && overlayWindow) {
+        console.log("[CAPTURE_UNDERLYING] hiding overlay before real-app target detection");
         overlayWindow.setIgnoreMouseEvents(true, { forward: true });
         overlayWindow.hide();
         await delay(160);
       }
+      console.log("[CAPTURE_UNDERLYING] starting screenshot capture for real-app targets");
       const screenshot = await captureScreenBase64();
-      console.log("[SCREEN_TARGETS] captured real app screen", {
+      console.log("[CAPTURE_UNDERLYING] screenshot captured for real-app targets", {
         prompt,
         bytesBase64: screenshot.length
       });
       if (wasOverlayVisible && overlayWindow && !overlayWindow.isDestroyed()) {
+        console.log("[CAPTURE_UNDERLYING] restoring overlay after real-app capture, click-through true");
         overlayWindow.show();
-        overlayWindow.setIgnoreMouseEvents(false);
+        overlayWindow.setIgnoreMouseEvents(true, { forward: true });
       }
       const result = await detectScreenTargets(screenshot, prompt);
       console.log("[SCREEN_TARGETS] targets returned", {
@@ -2256,7 +2280,7 @@ electron.app.whenReady().then(async () => {
     } finally {
       if (wasOverlayVisible && overlayWindow && !overlayWindow.isDestroyed()) {
         overlayWindow.show();
-        overlayWindow.setIgnoreMouseEvents(false);
+        overlayWindow.setIgnoreMouseEvents(true, { forward: true });
       }
     }
   });

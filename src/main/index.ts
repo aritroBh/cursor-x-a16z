@@ -299,11 +299,14 @@ app.whenReady().then(async () => {
     const wasOverlayVisible = captureUnderlying && Boolean(overlayWindow && !overlayWindow.isDestroyed() && overlayWindow.isVisible())
     try {
       if (wasOverlayVisible && overlayWindow) {
+        console.log('[CAPTURE_UNDERLYING] hiding overlay before screen capture')
         overlayWindow.setIgnoreMouseEvents(true, { forward: true })
         overlayWindow.hide()
         await delay(160)
       }
+      console.log('[CAPTURE_UNDERLYING] starting screenshot capture')
       const screenshot = base64PNG || (await captureScreenBase64())
+      console.log('[CAPTURE_UNDERLYING] screenshot captured', { bytesBase64: screenshot.length })
       return analyzeScreen(screenshot)
     } catch (err: any) {
       if (isPermissionError(err) || err.code === 'SCREEN_PERMISSION_DENIED') {
@@ -313,6 +316,7 @@ app.whenReady().then(async () => {
       return fallbackScreenState()
     } finally {
       if (wasOverlayVisible && overlayWindow && !overlayWindow.isDestroyed()) {
+        console.log('[CAPTURE_UNDERLYING] restoring overlay after capture, click-through true')
         overlayWindow.show()
         overlayWindow.setIgnoreMouseEvents(true, { forward: true })
       }
@@ -327,18 +331,21 @@ app.whenReady().then(async () => {
 
     try {
       if (wasOverlayVisible && overlayWindow) {
+        console.log('[CAPTURE_UNDERLYING] hiding overlay before real-app target detection')
         overlayWindow.setIgnoreMouseEvents(true, { forward: true })
         overlayWindow.hide()
         await delay(160)
       }
 
+      console.log('[CAPTURE_UNDERLYING] starting screenshot capture for real-app targets')
       const screenshot = await captureScreenBase64()
-      console.log('[SCREEN_TARGETS] captured real app screen', {
+      console.log('[CAPTURE_UNDERLYING] screenshot captured for real-app targets', {
         prompt,
         bytesBase64: screenshot.length
       })
 
       if (wasOverlayVisible && overlayWindow && !overlayWindow.isDestroyed()) {
+        console.log('[CAPTURE_UNDERLYING] restoring overlay after real-app capture, click-through true')
         overlayWindow.show()
         overlayWindow.setIgnoreMouseEvents(true, { forward: true })
       }

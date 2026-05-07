@@ -352,6 +352,7 @@ export async function replayWalkthrough(steps: Step[], onStep: (step: Step, inde
     }
 
     if (!controller.cancelled) {
+      console.log('[WALKTHROUGH] complete')
       sendOverlay('replay:complete', {})
     }
   } finally {

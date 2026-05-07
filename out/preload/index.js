@@ -24,7 +24,7 @@ const api = {
   onOverlayToggle: (callback) => onIpc("overlay:toggle", callback),
   // Screen
   captureScreen: () => electron.ipcRenderer.invoke("screen:capture"),
-  analyzeScreen: (base64PNG) => electron.ipcRenderer.invoke("screen:analyze", base64PNG),
+  analyzeScreen: (base64PNG, options) => electron.ipcRenderer.invoke("screen:analyze", base64PNG, options),
   onScreenPermissionDenied: (callback) => onIpc("permissions:screen-denied", callback),
   // Real App Test
   detectRealAppTargets: (userIntent) => electron.ipcRenderer.invoke("realApp:detectTargets", userIntent),

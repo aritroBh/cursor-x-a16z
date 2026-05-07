@@ -75,6 +75,7 @@ export function setOverlayForReplay(): void {
   const overlayWindow = getOverlayWindow()
   if (!overlayWindow || overlayWindow.isDestroyed()) return
   if (!overlayWindow.isVisible()) overlayWindow.show()
+  console.log('[OVERLAY_INTERACTION] replay starting, enabled click-through')
   overlayWindow.setIgnoreMouseEvents(true, { forward: true })
 }
 
@@ -82,6 +83,7 @@ export function setOverlayForKeyboardFallback(): void {
   const overlayWindow = getOverlayWindow()
   if (!overlayWindow || overlayWindow.isDestroyed()) return
   if (!overlayWindow.isVisible()) overlayWindow.show()
+  console.log('[OVERLAY_INTERACTION] keyboard fallback, disabled click-through (interactive mode)')
   overlayWindow.setIgnoreMouseEvents(false)
   overlayWindow.focus()
 }
@@ -90,10 +92,12 @@ export function restoreOverlayAfterReplay(controller: ReplayController): void {
   const overlayWindow = getOverlayWindow()
   if (!overlayWindow || overlayWindow.isDestroyed()) return
   if (controller.overlayWasVisible && overlayWindow.isVisible()) {
+    console.log('[OVERLAY_INTERACTION] replay ended, restoring click-through true')
     overlayWindow.setIgnoreMouseEvents(true, { forward: true })
     return
   }
 
+  console.log('[OVERLAY_INTERACTION] replay ended, restoring click-through true and hiding overlay')
   overlayWindow.setIgnoreMouseEvents(true, { forward: true })
   overlayWindow.hide()
 }

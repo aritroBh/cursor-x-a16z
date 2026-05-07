@@ -112,11 +112,14 @@ const OverlayApp: React.FC = () => {
   const [showDebugTools, setShowDebugTools] = useState(false)
   const [screenState, setScreenState] = useState<any>(null)
   const [isInputFocused, setIsInputFocused] = useState(false)
+  const [isClickThrough, setIsClickThrough] = useState(true)
 
   const setInteractivity = (interactive: boolean) => {
     // Only go click-through if mouse is out AND input is not focused
     if (!interactive && isInputFocused) return
-    void api.setOverlayClickThrough(!interactive)
+    const next = !interactive
+    setIsClickThrough(next)
+    void api.setOverlayClickThrough(next)
   }
 
   // Overlay visibility + replay lifecycle events
@@ -166,12 +169,14 @@ const OverlayApp: React.FC = () => {
   // Detect current app context when overlay becomes visible
   useEffect(() => {
     if (isVisible) {
+      console.log('[OVERLAY_INTERACTION] overlay became visible')
       void api.analyzeScreen().then((res) => {
         setScreenState(res)
       }).catch((err) => {
         console.error('[Overlay] Initial screen analysis failed:', err)
       })
     } else {
+      console.log('[OVERLAY_INTERACTION] overlay hidden')
       setScreenState(null)
     }
   }, [isVisible])
@@ -191,6 +196,7 @@ const OverlayApp: React.FC = () => {
   // Return to click-through if input is blurred and mouse is not over UI
   useEffect(() => {
     if (!isInputFocused) {
+      console.log('[OVERLAY_INTERACTION] input blurred, restoring click-through')
       setInteractivity(false)
     }
   }, [isInputFocused])
@@ -353,7 +359,14 @@ const OverlayApp: React.FC = () => {
 
   const replaySavedWorkflow = async (kind: Exclude<ReplayMode, null>) => {
     if (!lastNodeId) return
-    if (kind === 'auto' && !window.confirm('Specter will control your real mouse. Continue?')) return
+    if (kind === 'auto') {
+      console.log('[AUTO_REAL_MOUSE] confirmation shown for auto-execute')
+      if (!window.confirm('Specter will control your real mouse. Continue?')) {
+        console.log('[AUTO_REAL_MOUSE] confirmation canceled')
+        return
+      }
+      console.log('[AUTO_REAL_MOUSE] confirmation accepted')
+    }
 
     setErrorMessage('')
     setIsLoading(true)
@@ -421,7 +434,7 @@ const OverlayApp: React.FC = () => {
     setLoadingMessage('Capturing real app...')
 
     try {
-      console.log('[REAL_APP_TEST] starting', { intent: testIntent })
+      console.log('[REAL_APP_FLOW] normal Enter started real-app test', { intent: testIntent })
       const result = await api.detectRealAppTargets(testIntent)
       const normalizedTargets = Array.isArray(result?.targets) ? result.targets.map((target: RealAppTarget) => normalizedRealAppTarget(target)) : []
       const nextTargets: RealAppTargetsResult = {
@@ -431,6 +444,13 @@ const OverlayApp: React.FC = () => {
       }
       const bestTarget = normalizedTargets[0] || null
       const threshold = nextTargets.confidenceThreshold || DEFAULT_CONFIDENCE_THRESHOLD
+
+      console.log('[REAL_APP_FLOW] targets detected', {
+        app: nextTargets.app,
+        targetCount: normalizedTargets.length,
+        topConfidence: bestTarget?.confidence ?? null,
+        needsConfirmation: !bestTarget || (bestTarget.confidence ?? 0) < threshold
+      })
 
       setRealAppTargets(nextTargets)
       setSelectedRealAppTarget(bestTarget)
@@ -453,7 +473,7 @@ const OverlayApp: React.FC = () => {
 
   const selectRealAppTarget = (target: RealAppTarget) => {
     const normalized = normalizedRealAppTarget(target)
-    console.log('[TARGET_CONFIRM] target selected', {
+    console.log('[REAL_APP_FLOW] target selected', {
       label: normalized.label,
       x: normalized.x,
       y: normalized.y,
@@ -486,7 +506,7 @@ const OverlayApp: React.FC = () => {
       source: 'manual'
     })
 
-    console.log('[MANUAL_TARGET] manual target picked', {
+    console.log('[REAL_APP_FLOW] manual target picked', {
       x: target.x,
       y: target.y
     })
@@ -726,6 +746,30 @@ const OverlayApp: React.FC = () => {
           </div>
         )}
 
+        {import.meta.env.DEV && isReplayRunning && currentStep && (
+          <div
+            style={{
+              position: 'fixed',
+              top: '12px',
+              right: '12px',
+              background: 'rgba(18, 18, 22, 0.72)',
+              color: 'rgba(255, 255, 255, 0.92)',
+              padding: '5px 8px',
+              borderRadius: '999px',
+              fontSize: '11px',
+              fontWeight: 700,
+              lineHeight: 1,
+              letterSpacing: 0,
+              boxShadow: '0 8px 20px rgba(0, 0, 0, 0.18)',
+              backdropFilter: 'blur(10px)',
+              pointerEvents: 'none',
+              zIndex: 10001
+            }}
+          >
+            {`click-through: ${isClickThrough ? 'ON' : 'OFF'} | step ${(currentStep.index ?? 0) + 1}/${currentStep.total ?? '?'} | target X ${formatCoordinate(currentStep.x)} Y ${formatCoordinate(currentStep.y)} | waiting: ${manualConfirmMessage ? 'fallback' : currentStep.ghostLocked ? 'click' : currentStep.ghostLoop !== false ? 'approach' : 'parked'}`}
+          </div>
+        )}
+
         {isLoading && (
           <div
             style={{
@@ -827,8 +871,14 @@ const OverlayApp: React.FC = () => {
         {isVisible && !isReplayRunning && (
           <>
             <div
-              onMouseEnter={() => setInteractivity(true)}
-              onMouseLeave={() => setInteractivity(false)}
+              onMouseEnter={() => {
+                console.log('[OVERLAY_INTERACTION] mouse entered Specter UI')
+                setInteractivity(true)
+              }}
+              onMouseLeave={() => {
+                console.log('[OVERLAY_INTERACTION] mouse left Specter UI')
+                setInteractivity(false)
+              }}
               style={{
                 position: 'absolute',
                 bottom: '10%',
@@ -869,11 +919,17 @@ const OverlayApp: React.FC = () => {
                 onMouseLeave={() => setInteractivity(false)}
                 style={{ width: '100%', position: 'relative' }}
               >
-                <InputBar 
-                  onSubmit={startRealAppTest} 
+                <InputBar
+                  onSubmit={startRealAppTest}
                   disabled={isLoading}
-                  onFocus={() => setIsInputFocused(true)}
-                  onBlur={() => setIsInputFocused(false)}
+                  onFocus={() => {
+                    console.log('[OVERLAY_INTERACTION] input focused')
+                    setIsInputFocused(true)
+                  }}
+                  onBlur={() => {
+                    console.log('[OVERLAY_INTERACTION] input blurred')
+                    setIsInputFocused(false)
+                  }}
                 />
                 {!intent && screenState?.app && (
                   <div style={{

@@ -512,9 +512,12 @@ const OverlayApp = () => {
   const [showDebugTools, setShowDebugTools] = reactExports.useState(false);
   const [screenState, setScreenState] = reactExports.useState(null);
   const [isInputFocused, setIsInputFocused] = reactExports.useState(false);
+  const [isClickThrough, setIsClickThrough] = reactExports.useState(true);
   const setInteractivity = (interactive) => {
     if (!interactive && isInputFocused) return;
-    void api.setOverlayClickThrough(!interactive);
+    const next = !interactive;
+    setIsClickThrough(next);
+    void api.setOverlayClickThrough(next);
   };
   reactExports.useEffect(() => {
     const offToggle = api.onOverlayToggle(() => {
@@ -554,12 +557,14 @@ const OverlayApp = () => {
   }, []);
   reactExports.useEffect(() => {
     if (isVisible) {
+      console.log("[OVERLAY_INTERACTION] overlay became visible");
       void api.analyzeScreen().then((res) => {
         setScreenState(res);
       }).catch((err) => {
         console.error("[Overlay] Initial screen analysis failed:", err);
       });
     } else {
+      console.log("[OVERLAY_INTERACTION] overlay hidden");
       setScreenState(null);
     }
   }, [isVisible]);
@@ -575,6 +580,7 @@ const OverlayApp = () => {
   }, []);
   reactExports.useEffect(() => {
     if (!isInputFocused) {
+      console.log("[OVERLAY_INTERACTION] input blurred, restoring click-through");
       setInteractivity(false);
     }
   }, [isInputFocused]);
@@ -651,7 +657,7 @@ const OverlayApp = () => {
       offProgress();
     };
   }, []);
-  const handleIntentSubmit = async (text) => {
+  const runLegacyPlannerFlow = async (text) => {
     const trimmed = text.trim();
     if (!trimmed) return;
     setIntent(trimmed);
@@ -665,10 +671,10 @@ const OverlayApp = () => {
     const startTime = Date.now();
     let selectedArm = null;
     try {
-      const res = await api.analyzeScreen();
+      const res = await api.analyzeScreen(void 0, { captureUnderlying: true });
       setScreenState(res);
       setLoadingMessage("Planning the walkthrough...");
-      const plan = await api.planSteps(trimmed, screenState, [], mode);
+      const plan = await api.planSteps(trimmed, res, [], mode);
       if (!plan || !Array.isArray(plan.steps) || plan.steps.length === 0) {
         throw new Error("Specter could not create a usable plan for that intent.");
       }
@@ -709,7 +715,14 @@ const OverlayApp = () => {
   };
   const replaySavedWorkflow = async (kind) => {
     if (!lastNodeId) return;
-    if (kind === "auto" && !window.confirm("Specter will control your real mouse. Continue?")) return;
+    if (kind === "auto") {
+      console.log("[AUTO_REAL_MOUSE] confirmation shown for auto-execute");
+      if (!window.confirm("Specter will control your real mouse. Continue?")) {
+        console.log("[AUTO_REAL_MOUSE] confirmation canceled");
+        return;
+      }
+      console.log("[AUTO_REAL_MOUSE] confirmation accepted");
+    }
     setErrorMessage("");
     setIsLoading(true);
     setLoadingMessage(kind === "walkthrough" ? "Starting walkthrough..." : "Starting auto-execute...");
@@ -770,7 +783,7 @@ const OverlayApp = () => {
     setIsLoading(true);
     setLoadingMessage("Capturing real app...");
     try {
-      console.log("[REAL_APP_TEST] starting", { intent: testIntent });
+      console.log("[REAL_APP_FLOW] normal Enter started real-app test", { intent: testIntent });
       const result = await api.detectRealAppTargets(testIntent);
       const normalizedTargets = Array.isArray(result?.targets) ? result.targets.map((target) => normalizedRealAppTarget(target)) : [];
       const nextTargets = {
@@ -780,6 +793,12 @@ const OverlayApp = () => {
       };
       const bestTarget = normalizedTargets[0] || null;
       const threshold = nextTargets.confidenceThreshold || DEFAULT_CONFIDENCE_THRESHOLD;
+      console.log("[REAL_APP_FLOW] targets detected", {
+        app: nextTargets.app,
+        targetCount: normalizedTargets.length,
+        topConfidence: bestTarget?.confidence ?? null,
+        needsConfirmation: !bestTarget || (bestTarget.confidence ?? 0) < threshold
+      });
       setRealAppTargets(nextTargets);
       setSelectedRealAppTarget(bestTarget);
       if (!bestTarget) {
@@ -799,7 +818,7 @@ const OverlayApp = () => {
   };
   const selectRealAppTarget = (target) => {
     const normalized = normalizedRealAppTarget(target);
-    console.log("[TARGET_CONFIRM] target selected", {
+    console.log("[REAL_APP_FLOW] target selected", {
       label: normalized.label,
       x: normalized.x,
       y: normalized.y,
@@ -828,7 +847,7 @@ const OverlayApp = () => {
       action: "click",
       source: "manual"
     });
-    console.log("[MANUAL_TARGET] manual target picked", {
+    console.log("[REAL_APP_FLOW] manual target picked", {
       x: target.x,
       y: target.y
     });
@@ -1017,6 +1036,7 @@ const OverlayApp = () => {
           }
         ),
         showWalkthroughDebug,
+        false,
         isLoading && /* @__PURE__ */ jsxRuntimeExports.jsx(
           "div",
           {
@@ -1114,8 +1134,14 @@ const OverlayApp = () => {
         isVisible && !isReplayRunning && /* @__PURE__ */ jsxRuntimeExports.jsx(jsxRuntimeExports.Fragment, { children: /* @__PURE__ */ jsxRuntimeExports.jsxs(
           "div",
           {
-            onMouseEnter: () => setInteractivity(true),
-            onMouseLeave: () => setInteractivity(false),
+            onMouseEnter: () => {
+              console.log("[OVERLAY_INTERACTION] mouse entered Specter UI");
+              setInteractivity(true);
+            },
+            onMouseLeave: () => {
+              console.log("[OVERLAY_INTERACTION] mouse left Specter UI");
+              setInteractivity(false);
+            },
             style: {
               position: "absolute",
               bottom: "10%",
@@ -1162,11 +1188,16 @@ const OverlayApp = () => {
                     /* @__PURE__ */ jsxRuntimeExports.jsx(
                       InputBar,
                       {
-                        onSubmit: handleIntentSubmit,
-                        onRealAppTest: showDebugTools ? startRealAppTest : void 0,
+                        onSubmit: startRealAppTest,
                         disabled: isLoading,
-                        onFocus: () => setIsInputFocused(true),
-                        onBlur: () => setIsInputFocused(false)
+                        onFocus: () => {
+                          console.log("[OVERLAY_INTERACTION] input focused");
+                          setIsInputFocused(true);
+                        },
+                        onBlur: () => {
+                          console.log("[OVERLAY_INTERACTION] input blurred");
+                          setIsInputFocused(false);
+                        }
                       }
                     ),
                     !intent && screenState?.app && /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { style: {
@@ -1232,6 +1263,25 @@ const OverlayApp = () => {
                         cursor: "pointer"
                       },
                       children: "Log calibration"
+                    }
+                  ),
+                  /* @__PURE__ */ jsxRuntimeExports.jsx(
+                    "button",
+                    {
+                      disabled: isLoading || !intent,
+                      onClick: () => runLegacyPlannerFlow(intent),
+                      style: {
+                        flex: 1,
+                        border: "1px solid rgba(255,255,255,0.12)",
+                        borderRadius: "10px",
+                        padding: "8px",
+                        color: "white",
+                        background: "rgba(191,90,242,0.15)",
+                        fontSize: "11px",
+                        fontWeight: 700,
+                        cursor: "pointer"
+                      },
+                      children: "Legacy planner"
                     }
                   ),
                   /* @__PURE__ */ jsxRuntimeExports.jsx(

@@ -1,5 +1,5 @@
 import 'dotenv/config'
-import { app, shell, BrowserWindow, ipcMain, globalShortcut } from 'electron'
+import { app, shell, BrowserWindow, ipcMain, globalShortcut, screen } from 'electron'
 import { join } from 'path'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import { uIOhook, UiohookKey } from 'uiohook-napi'
@@ -108,8 +108,13 @@ function createWindow(): void {
 }
 
 function createOverlayWindow(): void {
+  const { x, y, width, height } = screen.getPrimaryDisplay().bounds
+
   overlayWindow = new BrowserWindow({
-    fullscreen: true,
+    x,
+    y,
+    width,
+    height,
     transparent: true,
     frame: false,
     hasShadow: false,
@@ -117,6 +122,9 @@ function createOverlayWindow(): void {
     skipTaskbar: true,
     show: false,
     backgroundColor: '#00000000',
+    // 'panel' is the macOS-native overlay type: always-on-top across all
+    // Spaces without entering fullscreen mode, which would break transparency
+    ...(process.platform === 'darwin' ? { type: 'panel' } : {}),
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
       sandbox: false
@@ -125,7 +133,7 @@ function createOverlayWindow(): void {
 
   overlayWindow.setAlwaysOnTop(true, 'screen-saver')
   overlayWindow.setIgnoreMouseEvents(true, { forward: true })
-  overlayWindow.setVisibleOnAllWorkspaces(true)
+  overlayWindow.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true })
 
   overlayWindow.on('ready-to-show', () => {
     overlayWindow?.hide()

@@ -1246,8 +1246,12 @@ function createWindow() {
   }
 }
 function createOverlayWindow() {
+  const { x, y, width, height } = electron.screen.getPrimaryDisplay().bounds;
   overlayWindow = new electron.BrowserWindow({
-    fullscreen: true,
+    x,
+    y,
+    width,
+    height,
     transparent: true,
     frame: false,
     hasShadow: false,
@@ -1255,6 +1259,9 @@ function createOverlayWindow() {
     skipTaskbar: true,
     show: false,
     backgroundColor: "#00000000",
+    // 'panel' is the macOS-native overlay type: always-on-top across all
+    // Spaces without entering fullscreen mode, which would break transparency
+    ...process.platform === "darwin" ? { type: "panel" } : {},
     webPreferences: {
       preload: path.join(__dirname, "../preload/index.js"),
       sandbox: false
@@ -1262,7 +1269,7 @@ function createOverlayWindow() {
   });
   overlayWindow.setAlwaysOnTop(true, "screen-saver");
   overlayWindow.setIgnoreMouseEvents(true, { forward: true });
-  overlayWindow.setVisibleOnAllWorkspaces(true);
+  overlayWindow.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
   overlayWindow.on("ready-to-show", () => {
     overlayWindow?.hide();
   });

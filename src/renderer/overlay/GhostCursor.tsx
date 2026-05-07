@@ -10,8 +10,8 @@ export const GhostCursor: React.FC<GhostCursorProps> = ({ step }) => {
   return (
     <div className="ghost-cursor-container" style={{
       position: 'absolute',
-      left: `${step.targetX}%`,
-      top: `${step.targetY}%`,
+      left: `${step.x}%`,
+      top: `${step.y}%`,
       transform: 'translate(-50%, -50%)',
       pointerEvents: 'none',
       zIndex: 9999,

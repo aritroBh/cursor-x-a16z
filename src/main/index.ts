@@ -21,7 +21,7 @@ import {
   getResumePrompt
 } from './session/graph'
 import { startRecording, recordStep, stopRecording, saveToNode } from './session/recorder'
-import { registerReplayIpc } from './session/replay'
+import { registerReplayIpc, replayWalkthrough } from './session/replay'
 
 const icon = join(__dirname, '../../resources/icon.png')
 const DEFAULT_APP_NAME = 'Specter'
@@ -54,13 +54,18 @@ function toggleOverlay(): void {
 }
 
 let lastShiftTime = 0
+let lastToggleTime = 0
 const DOUBLE_TAP_MS = 300
+const TOGGLE_COOLDOWN_MS = 300
 
 uIOhook.on('keydown', (e) => {
   if (e.keycode === UiohookKey.Shift || e.keycode === UiohookKey.ShiftRight) {
     const now = Date.now()
     if (now - lastShiftTime < DOUBLE_TAP_MS) {
-      toggleOverlay()
+      if (now - lastToggleTime >= TOGGLE_COOLDOWN_MS) {
+        toggleOverlay()
+        lastToggleTime = now
+      }
       lastShiftTime = 0
     } else {
       lastShiftTime = now
@@ -280,6 +285,39 @@ app.whenReady().then(async () => {
   ipcMain.handle('bandit:style', async (_event, appName = DEFAULT_APP_NAME) =>
     getCurrentStyle(loadGraph(appName).bandtState)
   )
+
+  ipcMain.handle('bandit:selectStyle', async (_event, appName = DEFAULT_APP_NAME) =>
+    selectArm(loadGraph(appName).bandtState)
+  )
+
+  ipcMain.handle('bandit:recordReward', async (_event, arm, reward, appName = DEFAULT_APP_NAME) => {
+    const graph = loadGraph(appName)
+    graph.bandtState = recordReward(graph.bandtState, arm, reward)
+    saveGraph(graph)
+    return { bandtState: graph.bandtState, style: getCurrentStyle(graph.bandtState) }
+  })
+
+  ipcMain.handle('session:markComplete', async (_event, nodeId, appName = DEFAULT_APP_NAME) => {
+    const graph = markNodeComplete(loadGraph(appName), nodeId)
+    saveGraph(graph)
+    return graph
+  })
+
+  ipcMain.handle('session:saveNode', async (_event, nodeId, steps, appName = DEFAULT_APP_NAME) => {
+    const graph = saveToNode(loadGraph(appName), nodeId, steps)
+    saveGraph(graph)
+    return graph
+  })
+
+  ipcMain.handle('session:walkthrough', async (_event, nodeId, appName = DEFAULT_APP_NAME) => {
+    const graph = loadGraph(appName)
+    const sessions = nodeId
+      ? graph.sessions.filter((s) => s.nodesVisited.includes(nodeId))
+      : graph.sessions.filter((s) => s.steps.length > 0)
+    const latest = sessions.length > 0 ? sessions[sessions.length - 1] : null
+    const steps = latest?.steps || []
+    await replayWalkthrough(steps, () => {})
+  })
 
   ipcMain.handle('tts:speak', async (_event, text) => {
     console.log('[IPC] tts:speak', { text: text?.slice(0, 50) })

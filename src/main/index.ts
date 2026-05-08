@@ -248,16 +248,20 @@ function toggleOverlay(): void {
       return
     }
 
-    safeLog('[OVERLAY_INTERACTION] hiding overlay, enabled click-through')
-    safeLog('[STRESS_TEST] overlay hidden; click-through restored')
+    if (process.env.DEBUG_VERBOSE === 'true') {
+      safeLog('[OVERLAY_INTERACTION] hiding overlay, enabled click-through')
+      safeLog('[STRESS_TEST] overlay hidden; click-through restored')
+    }
     overlayWindow.setIgnoreMouseEvents(true, { forward: true })
     overlayWindow.hide()
   } else {
     routeVisibleWindowsToDisplay(display)
-    safeLog('[OVERLAY_INTERACTION] showing overlay, enabled click-through (ignore mouse: true)')
-    safeLog('[STRESS_TEST] overlay shown; duplicate window count', {
-      windows: BrowserWindow.getAllWindows().length
-    })
+    if (process.env.DEBUG_VERBOSE === 'true') {
+      safeLog('[OVERLAY_INTERACTION] showing overlay, enabled click-through (ignore mouse: true)')
+      safeLog('[STRESS_TEST] overlay shown; duplicate window count', {
+        windows: BrowserWindow.getAllWindows().length
+      })
+    }
     overlayWindow.setIgnoreMouseEvents(true, { forward: true })
     overlayWindow.showInactive()
     overlayWindow.moveTop()
@@ -433,7 +437,9 @@ app.whenReady().then(async () => {
 
   ipcMain.handle('overlay:setClickThrough', async (_event, clickThrough) => {
     if (!overlayWindow || overlayWindow.isDestroyed()) return
-    safeLog(`[OVERLAY_INTERACTION] ${clickThrough ? 'enabled click-through' : 'enabled interactive zone'}`)
+    if (process.env.DEBUG_VERBOSE === 'true') {
+      safeLog(`[OVERLAY_INTERACTION] ${clickThrough ? 'enabled click-through' : 'enabled interactive zone'}`)
+    }
     overlayWindow.setIgnoreMouseEvents(clickThrough, { forward: true })
   })
 

@@ -55,6 +55,8 @@ export const RecordingOverlay: React.FC<RecordingOverlayProps> = ({
   onConfirmRef.current = onConfirm;
 
   useEffect(() => {
+    if (isTranscribing) return;
+
     startRef.current = Date.now();
     const timer = window.setInterval(() => {
       const seconds = Math.floor((Date.now() - startRef.current) / 1000);
@@ -66,7 +68,7 @@ export const RecordingOverlay: React.FC<RecordingOverlayProps> = ({
       }
     }, 1000);
     return () => window.clearInterval(timer);
-  }, []);
+  }, [isTranscribing]);
 
   useEffect(() => {
     if (isTranscribing) return;

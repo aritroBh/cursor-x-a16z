@@ -5,6 +5,11 @@ import { safeLog, safeWarn, safeError } from '../logger'
 
 const WHISPER_TIMEOUT_MS = 20_000
 
+if (typeof globalThis.File === 'undefined') {
+  ;(globalThis as any).File = NodeFile
+  safeLog('[WHISPER] installed Node File polyfill for OpenAI uploads')
+}
+
 function timeoutPromise(ms: number): Promise<never> {
   return new Promise((_, reject) => {
     const timer = setTimeout(() => {
@@ -31,11 +36,6 @@ export async function transcribe(audioBuffer: Buffer): Promise<string> {
   if (!OPENAI_API_KEY) {
     safeWarn('[WHISPER] OPENAI_API_KEY missing; transcription unavailable')
     return ''
-  }
-
-  if (typeof globalThis.File === 'undefined') {
-    ;(globalThis as any).File = NodeFile
-    safeLog('[WHISPER] installed Node File polyfill for OpenAI uploads')
   }
 
   try {

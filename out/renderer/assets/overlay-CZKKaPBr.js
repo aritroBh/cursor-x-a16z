@@ -189,6 +189,7 @@ const RecordingOverlay = ({
   const onConfirmRef = reactExports.useRef(onConfirm);
   onConfirmRef.current = onConfirm;
   reactExports.useEffect(() => {
+    if (isTranscribing) return;
     startRef.current = Date.now();
     const timer = window.setInterval(() => {
       const seconds = Math.floor((Date.now() - startRef.current) / 1e3);
@@ -200,7 +201,7 @@ const RecordingOverlay = ({
       }
     }, 1e3);
     return () => window.clearInterval(timer);
-  }, []);
+  }, [isTranscribing]);
   reactExports.useEffect(() => {
     if (isTranscribing) return;
     const draw = () => {
@@ -455,7 +456,12 @@ const InputBar = ({
         return;
       }
       console.log("[MIC] transcription started", { size: buffer.byteLength });
-      const text = await window.api.transcribe(buffer);
+      const text = await Promise.race([
+        window.api.transcribe(buffer),
+        new Promise(
+          (_, reject) => setTimeout(() => reject(Object.assign(new Error("Transcription timed out"), { code: "WHISPER_TIMEOUT" })), 25e3)
+        )
+      ]);
       console.log("[MIC] transcription success", {
         length: typeof text === "string" ? text.length : 0
       });
@@ -482,7 +488,7 @@ const InputBar = ({
       setMicState("idle");
     } finally {
       recordingStartRef.current = null;
-      if (micState !== "idle") setMicState("idle");
+      setMicState("idle");
       console.log("[MIC] overlay reset to idle");
     }
   };
@@ -1105,6 +1111,11 @@ const OverlayApp = () => {
   const isHudHoveredRef = reactExports.useRef(false);
   const isHudDraggingRef = reactExports.useRef(false);
   const isInputFocusedRef = reactExports.useRef(false);
+  const modeRef = reactExports.useRef(mode);
+  const lastSpeechAtRef = reactExports.useRef(0);
+  reactExports.useEffect(() => {
+    modeRef.current = mode;
+  }, [mode]);
   const setInteractivity = (interactive) => {
     if (!interactive && (isInputFocusedRef.current || isHudDraggingRef.current))
       return;
@@ -1113,8 +1124,12 @@ const OverlayApp = () => {
     void api.setOverlayClickThrough(next);
   };
   const speakIfUltra = (text, moment) => {
-    console.log("[MODE] current mode", { mode, moment });
-    if (mode === "ultra") {
+    const currentMode = modeRef.current;
+    console.log("[MODE] current mode", { mode: currentMode, moment });
+    if (currentMode === "ultra") {
+      const now = Date.now();
+      if (now - lastSpeechAtRef.current < 1200) return;
+      lastSpeechAtRef.current = now;
       console.log("[ULTRA] speaking...", { moment });
       void api.speak(text).catch((error) => {
         console.error("[TTS] error fallback", error);
@@ -1258,7 +1273,7 @@ const OverlayApp = () => {
       setReplayState("idle");
       setReplayMode(null);
       setManualConfirmMessage("");
-      if (mode === "ultra") {
+      if (modeRef.current === "ultra") {
         setUltraState("idle");
       }
     });
@@ -1267,7 +1282,7 @@ const OverlayApp = () => {
       setReplayState("idle");
       setReplayMode(null);
       setManualConfirmMessage("");
-      if (mode === "ultra") {
+      if (modeRef.current === "ultra") {
         setUltraState("idle");
       }
     });
@@ -1314,9 +1329,6 @@ const OverlayApp = () => {
   }, []);
   reactExports.useEffect(() => {
     if (!isInputFocused) {
-      console.log(
-        "[OVERLAY_INTERACTION] input blurred, restoring click-through"
-      );
       setInteractivity(false);
     }
   }, [isInputFocused]);
@@ -1360,7 +1372,7 @@ const OverlayApp = () => {
       setReplayMode("walkthrough");
       setReplayState("running");
       setIsLoading(false);
-      if (mode === "ultra") {
+      if (modeRef.current === "ultra") {
         speakIfUltra("Follow the ghost cursor.", "step start");
         setUltraState("guiding");
       }
@@ -1380,7 +1392,7 @@ const OverlayApp = () => {
           ghostLocked: true
         };
       });
-      if (mode === "ultra") {
+      if (modeRef.current === "ultra") {
         speakIfUltra("Nice, you're close. Click when ready.", "target reached");
       }
     });
@@ -1516,6 +1528,14 @@ const OverlayApp = () => {
     } finally {
       setIsLoading(false);
     }
+  };
+  const handleInputSubmit = async (text) => {
+    const isTutorActive = currentStep || replayState === "running" || ultraReply || lastNodeId;
+    if (modeRef.current === "ultra" && isTutorActive) {
+      await handleUltraSpokenInput(text);
+      return;
+    }
+    await startRealAppTest(text);
   };
   const startRealAppTest = async (text) => {
     const testIntent = text.trim() || intent.trim() || DEFAULT_REAL_APP_PROMPT;
@@ -2038,12 +2058,10 @@ const OverlayApp = () => {
             ref: hudRef,
             className: `specter-hud-shell ${isHudDragging ? "is-dragging" : ""}`,
             onMouseEnter: () => {
-              console.log("[OVERLAY_INTERACTION] mouse entered Specter UI");
               isHudHoveredRef.current = true;
               setInteractivity(true);
             },
             onMouseLeave: () => {
-              console.log("[OVERLAY_INTERACTION] mouse left Specter UI");
               isHudHoveredRef.current = false;
               setInteractivity(false);
             },
@@ -2218,17 +2236,15 @@ const OverlayApp = () => {
                     /* @__PURE__ */ jsxRuntimeExports.jsx(
                       InputBar,
                       {
-                        onSubmit: startRealAppTest,
+                        onSubmit: handleInputSubmit,
                         onNewChat: startNewChat,
                         disabled: isLoading,
                         mode,
                         onUltraSpokenInput: handleUltraSpokenInput,
                         onFocus: () => {
-                          console.log("[OVERLAY_INTERACTION] input focused");
                           setIsInputFocused(true);
                         },
                         onBlur: () => {
-                          console.log("[OVERLAY_INTERACTION] input blurred");
                           setIsInputFocused(false);
                         },
                         onRecordingOverlayMouseEnter: () => setInteractivity(true),

@@ -234,7 +234,10 @@ async function main() {
   check(whisper.includes('WHISPER_TIMEOUT_MS') && whisper.includes('Promise.race'), 'whisper.ts implements transcription timeout via Promise.race')
   check(inputBar.includes('Transcription timed out'), 'InputBar displays timeout message on WHISPER_TIMEOUT')
   check(inputBar.includes('error?.userMessage || "Microphone unavailable'), 'InputBar displays friendly microphone unavailable errors')
-  check(inputBar.includes('if (micState !== "idle") setMicState("idle")'), 'InputBar guarantees mic state resets to idle after failure')
+  check(inputBar.includes('setMicState("idle")') && inputBar.includes('recordingStartRef.current = null'), 'InputBar guarantees mic state resets to idle after failure')
+  check(inputBar.includes('Promise.race') && inputBar.includes('api.transcribe'), 'InputBar uses Promise.race for api.transcribe timeout')
+  check(!/if\s*\(\s*micState\s*!==\s*["']idle["']\s*\)\s*setMicState\(\s*["']idle["']\s*\)/.test(inputBar), 'InputBar mic reset does not use stale micState condition')
+  check(!/export\s+async\s+function\s+transcribe[\s\S]*?typeof\s+globalThis\.File/.test(whisper), 'whisper.ts installs globalThis.File at module load, not inside transcribe')
 
   printHeader('Planner and Screener Safety')
 
@@ -427,6 +430,8 @@ async function main() {
     !overlayAppBody.includes('api.analyzeScreen()') || !/useEffect\(\s*\(\)\s*=>\s*{[\s\S]*?api\.analyzeScreen\(\)/.test(overlayAppBody),
     'OverlayApp does not unconditionally call api.analyzeScreen() inside a useEffect tied to isVisible'
   )
+  check(!/api\.onReplayStep\s*\([\s\S]{1,200}?mode\s*===\s*["']ultra["']/.test(overlayAppBody), 'OverlayApp does not read mode === "ultra" directly inside useEffect() replay listeners')
+  check(overlayAppBody.includes('modeRef = useRef(mode)'), 'OverlayApp contains modeRef')
 
   printHeader('Ultra Mode')
 

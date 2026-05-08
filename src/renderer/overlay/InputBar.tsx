@@ -172,7 +172,12 @@ export const InputBar: React.FC<InputBarProps> = ({
       }
 
       console.log("[MIC] transcription started", { size: buffer.byteLength });
-      const text = await (window as any).api.transcribe(buffer);
+      const text = await Promise.race([
+        (window as any).api.transcribe(buffer),
+        new Promise((_, reject) =>
+          setTimeout(() => reject(Object.assign(new Error("Transcription timed out"), { code: "WHISPER_TIMEOUT" })), 25_000)
+        )
+      ]);
       console.log("[MIC] transcription success", {
         length: typeof text === "string" ? text.length : 0,
       });
@@ -199,7 +204,7 @@ export const InputBar: React.FC<InputBarProps> = ({
       setMicState("idle");
     } finally {
       recordingStartRef.current = null;
-      if (micState !== "idle") setMicState("idle");
+      setMicState("idle");
       console.log("[MIC] overlay reset to idle");
     }
   };

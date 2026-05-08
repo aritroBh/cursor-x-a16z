@@ -261,6 +261,13 @@ const OverlayApp: React.FC = () => {
   const isHudDraggingRef = useRef(false);
   const isInputFocusedRef = useRef(false);
 
+  const modeRef = useRef(mode);
+  const lastSpeechAtRef = useRef(0);
+
+  useEffect(() => {
+    modeRef.current = mode;
+  }, [mode]);
+
   const setInteractivity = (interactive: boolean) => {
     // Only go click-through if mouse is out AND input is not focused
     if (!interactive && (isInputFocusedRef.current || isHudDraggingRef.current))
@@ -271,8 +278,13 @@ const OverlayApp: React.FC = () => {
   };
 
   const speakIfUltra = (text: string, moment: string) => {
-    console.log("[MODE] current mode", { mode, moment });
-    if (mode === "ultra") {
+    const currentMode = modeRef.current;
+    console.log("[MODE] current mode", { mode: currentMode, moment });
+    if (currentMode === "ultra") {
+      const now = Date.now();
+      if (now - lastSpeechAtRef.current < 1200) return;
+      lastSpeechAtRef.current = now;
+
       console.log("[ULTRA] speaking...", { moment });
       void api.speak(text).catch((error: unknown) => {
         console.error("[TTS] error fallback", error);
@@ -454,7 +466,7 @@ const OverlayApp: React.FC = () => {
       setReplayState("idle");
       setReplayMode(null);
       setManualConfirmMessage("");
-      if (mode === "ultra") {
+      if (modeRef.current === "ultra") {
         setUltraState("idle");
       }
     });
@@ -464,7 +476,7 @@ const OverlayApp: React.FC = () => {
       setReplayState("idle");
       setReplayMode(null);
       setManualConfirmMessage("");
-      if (mode === "ultra") {
+      if (modeRef.current === "ultra") {
         setUltraState("idle");
       }
     });
@@ -523,7 +535,7 @@ const OverlayApp: React.FC = () => {
   // Return to click-through if input is blurred and mouse is not over UI
   useEffect(() => {
     if (!isInputFocused) {
-      console.log(
+      if (import.meta.env.VITE_DEBUG_VERBOSE === "true") console.log(
         "[OVERLAY_INTERACTION] input blurred, restoring click-through",
       );
       setInteractivity(false);
@@ -581,7 +593,7 @@ const OverlayApp: React.FC = () => {
       setReplayState("running");
       setIsLoading(false);
       
-      if (mode === "ultra") {
+      if (modeRef.current === "ultra") {
         speakIfUltra("Follow the ghost cursor.", "step start");
         setUltraState("guiding");
       }
@@ -604,7 +616,7 @@ const OverlayApp: React.FC = () => {
         };
       });
       
-      if (mode === "ultra") {
+      if (modeRef.current === "ultra") {
         speakIfUltra("Nice, you're close. Click when ready.", "target reached");
       }
     });
@@ -764,6 +776,15 @@ const OverlayApp: React.FC = () => {
     } finally {
       setIsLoading(false);
     }
+  };
+
+  const handleInputSubmit = async (text: string) => {
+    const isTutorActive = currentStep || replayState === "running" || ultraReply || lastNodeId;
+    if (modeRef.current === "ultra" && isTutorActive) {
+      await handleUltraSpokenInput(text);
+      return;
+    }
+    await startRealAppTest(text);
   };
 
   const startRealAppTest = async (text: string) => {
@@ -1414,12 +1435,12 @@ const OverlayApp: React.FC = () => {
               ref={hudRef}
               className={`specter-hud-shell ${isHudDragging ? "is-dragging" : ""}`}
               onMouseEnter={() => {
-                console.log("[OVERLAY_INTERACTION] mouse entered Specter UI");
+                if (import.meta.env.VITE_DEBUG_VERBOSE === "true") console.log("[OVERLAY_INTERACTION] mouse entered Specter UI");
                 isHudHoveredRef.current = true;
                 setInteractivity(true);
               }}
               onMouseLeave={() => {
-                console.log("[OVERLAY_INTERACTION] mouse left Specter UI");
+                if (import.meta.env.VITE_DEBUG_VERBOSE === "true") console.log("[OVERLAY_INTERACTION] mouse left Specter UI");
                 isHudHoveredRef.current = false;
                 setInteractivity(false);
               }}
@@ -1602,17 +1623,17 @@ const OverlayApp: React.FC = () => {
                   <UltraReplyBubble reply={ultraReply} state={ultraState} />
                 )}
                 <InputBar
-                  onSubmit={startRealAppTest}
+                  onSubmit={handleInputSubmit}
                   onNewChat={startNewChat}
                   disabled={isLoading}
                   mode={mode}
                   onUltraSpokenInput={handleUltraSpokenInput}
                   onFocus={() => {
-                    console.log("[OVERLAY_INTERACTION] input focused");
+                    if (import.meta.env.VITE_DEBUG_VERBOSE === "true") console.log("[OVERLAY_INTERACTION] input focused");
                     setIsInputFocused(true);
                   }}
                   onBlur={() => {
-                    console.log("[OVERLAY_INTERACTION] input blurred");
+                    if (import.meta.env.VITE_DEBUG_VERBOSE === "true") console.log("[OVERLAY_INTERACTION] input blurred");
                     setIsInputFocused(false);
                   }}
                   onRecordingOverlayMouseEnter={() => setInteractivity(true)}

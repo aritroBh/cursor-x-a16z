@@ -198,7 +198,7 @@ function getActiveCoordinateDisplay() {
 function getPrimaryDisplayMetrics() {
   const primary = electron.screen.getPrimaryDisplay();
   const active = getActiveCoordinateDisplay();
-  const metrics2 = {
+  const metrics = {
     id: primary.id,
     scaleFactor: primary.scaleFactor,
     bounds: rectSnapshot(primary.bounds),
@@ -216,9 +216,9 @@ function getPrimaryDisplayMetrics() {
   };
   safeLog("[COORD_CALIBRATION] Primary display metrics retrieved", {
     coordinateMode: COORDINATE_MODE,
-    ...metrics2
+    ...metrics
   });
-  return metrics2;
+  return metrics;
 }
 async function toScreenPoint(x, y) {
   const display = getActiveCoordinateDisplay();
@@ -392,8 +392,9 @@ async function getCoordinateCalibrationDiagnostics() {
     const currentMousePosition = await nutJs.mouse.getPosition();
     const computedPercent = screenPointToPercent(currentMousePosition.x, currentMousePosition.y);
     const centerTarget = await toScreenPoint(50, 50);
+    const metrics = getPrimaryDisplayMetrics();
     const diagnostics = {
-      primaryDisplay: getPrimaryDisplayMetrics(),
+      primaryDisplay: metrics,
       currentMousePosition: {
         x: currentMousePosition.x,
         y: currentMousePosition.y
@@ -1286,6 +1287,10 @@ async function speak(text) {
   }
 }
 const WHISPER_TIMEOUT_MS = 2e4;
+if (typeof globalThis.File === "undefined") {
+  globalThis.File = node_buffer.File;
+  safeLog("[WHISPER] installed Node File polyfill for OpenAI uploads");
+}
 function timeoutPromise(ms) {
   return new Promise((_, reject) => {
     const timer = setTimeout(() => {
@@ -1308,10 +1313,6 @@ async function transcribe(audioBuffer) {
   if (!OPENAI_API_KEY) {
     safeWarn("[WHISPER] OPENAI_API_KEY missing; transcription unavailable");
     return "";
-  }
-  if (typeof globalThis.File === "undefined") {
-    globalThis.File = node_buffer.File;
-    safeLog("[WHISPER] installed Node File polyfill for OpenAI uploads");
   }
   try {
     const openai = new OpenAI({ apiKey: OPENAI_API_KEY });
@@ -1935,14 +1936,18 @@ function setOverlayForReplay() {
   const overlayWindow2 = getOverlayWindow();
   if (!overlayWindow2 || overlayWindow2.isDestroyed()) return;
   if (!overlayWindow2.isVisible()) overlayWindow2.show();
-  safeLog("[OVERLAY_INTERACTION] replay starting, enabled click-through");
+  if (process.env.DEBUG_VERBOSE === "true") {
+    safeLog("[OVERLAY_INTERACTION] replay starting, enabled click-through");
+  }
   overlayWindow2.setIgnoreMouseEvents(true, { forward: true });
 }
 function setOverlayForKeyboardFallback() {
   const overlayWindow2 = getOverlayWindow();
   if (!overlayWindow2 || overlayWindow2.isDestroyed()) return;
   if (!overlayWindow2.isVisible()) overlayWindow2.show();
-  safeLog("[OVERLAY_INTERACTION] keyboard fallback, disabled click-through (interactive mode)");
+  if (process.env.DEBUG_VERBOSE === "true") {
+    safeLog("[OVERLAY_INTERACTION] keyboard fallback, disabled click-through (interactive mode)");
+  }
   overlayWindow2.setIgnoreMouseEvents(false);
   overlayWindow2.focus();
 }
@@ -1950,11 +1955,15 @@ function restoreOverlayAfterReplay(controller) {
   const overlayWindow2 = getOverlayWindow();
   if (!overlayWindow2 || overlayWindow2.isDestroyed()) return;
   if (controller.overlayWasVisible && overlayWindow2.isVisible()) {
-    safeLog("[OVERLAY_INTERACTION] replay ended, restoring click-through true");
+    if (process.env.DEBUG_VERBOSE === "true") {
+      safeLog("[OVERLAY_INTERACTION] replay ended, restoring click-through true");
+    }
     overlayWindow2.setIgnoreMouseEvents(true, { forward: true });
     return;
   }
-  safeLog("[OVERLAY_INTERACTION] replay ended, restoring click-through true and hiding overlay");
+  if (process.env.DEBUG_VERBOSE === "true") {
+    safeLog("[OVERLAY_INTERACTION] replay ended, restoring click-through true and hiding overlay");
+  }
   overlayWindow2.setIgnoreMouseEvents(true, { forward: true });
   overlayWindow2.hide();
 }
@@ -2571,16 +2580,20 @@ function toggleOverlay() {
       overlayWindow.setIgnoreMouseEvents(true, { forward: true });
       return;
     }
-    safeLog("[OVERLAY_INTERACTION] hiding overlay, enabled click-through");
-    safeLog("[STRESS_TEST] overlay hidden; click-through restored");
+    if (process.env.DEBUG_VERBOSE === "true") {
+      safeLog("[OVERLAY_INTERACTION] hiding overlay, enabled click-through");
+      safeLog("[STRESS_TEST] overlay hidden; click-through restored");
+    }
     overlayWindow.setIgnoreMouseEvents(true, { forward: true });
     overlayWindow.hide();
   } else {
     routeVisibleWindowsToDisplay(display);
-    safeLog("[OVERLAY_INTERACTION] showing overlay, enabled click-through (ignore mouse: true)");
-    safeLog("[STRESS_TEST] overlay shown; duplicate window count", {
-      windows: electron.BrowserWindow.getAllWindows().length
-    });
+    if (process.env.DEBUG_VERBOSE === "true") {
+      safeLog("[OVERLAY_INTERACTION] showing overlay, enabled click-through (ignore mouse: true)");
+      safeLog("[STRESS_TEST] overlay shown; duplicate window count", {
+        windows: electron.BrowserWindow.getAllWindows().length
+      });
+    }
     overlayWindow.setIgnoreMouseEvents(true, { forward: true });
     overlayWindow.showInactive();
     overlayWindow.moveTop();
@@ -2729,7 +2742,9 @@ electron.app.whenReady().then(async () => {
   });
   electron.ipcMain.handle("overlay:setClickThrough", async (_event, clickThrough) => {
     if (!overlayWindow || overlayWindow.isDestroyed()) return;
-    safeLog(`[OVERLAY_INTERACTION] ${clickThrough ? "enabled click-through" : "enabled interactive zone"}`);
+    if (process.env.DEBUG_VERBOSE === "true") {
+      safeLog(`[OVERLAY_INTERACTION] ${clickThrough ? "enabled click-through" : "enabled interactive zone"}`);
+    }
     overlayWindow.setIgnoreMouseEvents(clickThrough, { forward: true });
   });
   electron.ipcMain.handle("screen:capture", async (event) => {

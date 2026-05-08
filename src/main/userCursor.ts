@@ -40,8 +40,9 @@ export async function getCoordinateCalibrationDiagnostics(): Promise<any> {
     const currentMousePosition = await mouse.getPosition()
     const computedPercent = screenPointToPercent(currentMousePosition.x, currentMousePosition.y)
     const centerTarget = await toScreenPoint(50, 50)
+    const metrics = getPrimaryDisplayMetrics()
     const diagnostics = {
-      primaryDisplay: getPrimaryDisplayMetrics(),
+      primaryDisplay: metrics,
       currentMousePosition: {
         x: currentMousePosition.x,
         y: currentMousePosition.y

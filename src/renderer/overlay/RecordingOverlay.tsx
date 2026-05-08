@@ -6,6 +6,8 @@ interface RecordingOverlayProps {
   isTranscribing: boolean;
   onCancel: () => void;
   onConfirm: () => void;
+  onMouseEnter?: () => void;
+  onMouseLeave?: () => void;
 }
 
 const CancelIcon = () => (
@@ -34,21 +36,34 @@ const ConfirmIcon = () => (
   </svg>
 );
 
+const MAX_RECORDING_SECONDS = 30;
+
 export const RecordingOverlay: React.FC<RecordingOverlayProps> = ({
   recorder,
   isTranscribing,
   onCancel,
   onConfirm,
+  onMouseEnter,
+  onMouseLeave,
 }) => {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const animRef = useRef<number>(0);
   const [elapsed, setElapsed] = useState(0);
   const startRef = useRef(Date.now());
 
+  const onConfirmRef = useRef(onConfirm);
+  onConfirmRef.current = onConfirm;
+
   useEffect(() => {
     startRef.current = Date.now();
     const timer = window.setInterval(() => {
-      setElapsed(Math.floor((Date.now() - startRef.current) / 1000));
+      const seconds = Math.floor((Date.now() - startRef.current) / 1000);
+      setElapsed(seconds);
+      if (seconds >= MAX_RECORDING_SECONDS) {
+        window.clearInterval(timer);
+        console.log("[MIC] max recording duration reached, auto-stopping");
+        onConfirmRef.current();
+      }
     }, 1000);
     return () => window.clearInterval(timer);
   }, []);
@@ -129,6 +144,8 @@ export const RecordingOverlay: React.FC<RecordingOverlayProps> = ({
       className={`recording-overlay ${isTranscribing ? "is-transcribing" : ""}`}
       role="dialog"
       aria-label="Recording overlay"
+      onMouseEnter={onMouseEnter}
+      onMouseLeave={onMouseLeave}
     >
       <div className="recording-overlay-inner">
         <canvas
@@ -139,7 +156,11 @@ export const RecordingOverlay: React.FC<RecordingOverlayProps> = ({
           aria-hidden="true"
         />
         <span className="recording-timer">
-          {isTranscribing ? "Transcribing…" : `Listening… ${formatTime(elapsed)}`}
+          {isTranscribing
+            ? "Transcribing…"
+            : elapsed >= MAX_RECORDING_SECONDS
+              ? "Recording limit reached"
+              : `Listening… ${formatTime(elapsed)}`}
         </span>
         <div className="recording-overlay-actions">
           <button
@@ -157,8 +178,8 @@ export const RecordingOverlay: React.FC<RecordingOverlayProps> = ({
             className="recording-overlay-button recording-confirm"
             onClick={onConfirm}
             disabled={isTranscribing}
-            aria-label="Confirm and send"
-            title="Confirm and send"
+            aria-label="Transcribe recording"
+            title="Transcribe recording"
           >
             <ConfirmIcon />
           </button>

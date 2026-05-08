@@ -1277,6 +1277,10 @@ async function checkAIHealth() {
   const baseURL = getAnthropicBaseUrlForMode();
   const result = {
     ok: false,
+    overall: {
+      readyForRealAppAI: false,
+      readyForVoice: false
+    },
     anthropic: {
       key: anthropicKey,
       configured: anthropicKey.present && !anthropicKey.placeholderDetected,
@@ -1339,9 +1343,12 @@ async function checkAIHealth() {
       }
     }
   }
-  result.ok = result.anthropic.testRequest.pass && result.openai.whisperConfigured;
+  result.overall.readyForRealAppAI = result.anthropic.configured && result.anthropic.testRequest.pass;
+  result.overall.readyForVoice = result.openai.whisperConfigured;
+  result.ok = result.overall.readyForRealAppAI && result.overall.readyForVoice;
   safeLog("[AI_BACKEND] health check result", {
     ok: result.ok,
+    overall: result.overall,
     anthropic: {
       keyPresent: result.anthropic.key.present,
       keyLength: result.anthropic.key.keyLength,

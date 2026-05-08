@@ -39,8 +39,14 @@ interface OpenAIHealth {
   whisperConfigured: boolean
 }
 
+interface OverallHealth {
+  readyForRealAppAI: boolean
+  readyForVoice: boolean
+}
+
 export interface AIHealthResult {
   ok: boolean
+  overall: OverallHealth
   anthropic: AnthropicHealth
   openai: OpenAIHealth
 }
@@ -82,6 +88,10 @@ export async function checkAIHealth(): Promise<AIHealthResult> {
 
   const result: AIHealthResult = {
     ok: false,
+    overall: {
+      readyForRealAppAI: false,
+      readyForVoice: false
+    },
     anthropic: {
       key: anthropicKey,
       configured: anthropicKey.present && !anthropicKey.placeholderDetected,
@@ -150,9 +160,12 @@ export async function checkAIHealth(): Promise<AIHealthResult> {
     }
   }
 
-  result.ok = result.anthropic.testRequest.pass && result.openai.whisperConfigured
+  result.overall.readyForRealAppAI = result.anthropic.configured && result.anthropic.testRequest.pass
+  result.overall.readyForVoice = result.openai.whisperConfigured
+  result.ok = result.overall.readyForRealAppAI && result.overall.readyForVoice
   safeLog('[AI_BACKEND] health check result', {
     ok: result.ok,
+    overall: result.overall,
     anthropic: {
       keyPresent: result.anthropic.key.present,
       keyLength: result.anthropic.key.keyLength,

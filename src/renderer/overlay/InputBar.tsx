@@ -2,14 +2,14 @@ import React, { useRef, useState, useEffect } from "react";
 import { MicRecorder } from "./MicRecorder";
 import { RecordingOverlay } from "./RecordingOverlay";
 
-const recorder = new MicRecorder();
-
 interface InputBarProps {
   onSubmit: (text: string) => void;
   onNewChat?: () => void;
   disabled?: boolean;
   onFocus?: () => void;
   onBlur?: () => void;
+  onRecordingOverlayMouseEnter?: () => void;
+  onRecordingOverlayMouseLeave?: () => void;
 }
 
 const SpecterMarkIcon = () => (
@@ -75,14 +75,26 @@ export const InputBar: React.FC<InputBarProps> = ({
   disabled = false,
   onFocus,
   onBlur,
+  onRecordingOverlayMouseEnter,
+  onRecordingOverlayMouseLeave,
 }) => {
+  const recorderRef = useRef(new MicRecorder());
   const [value, setValue] = useState("");
   const [micState, setMicState] = useState<"idle" | "recording" | "transcribing" | "error">("idle");
   const [micMessage, setMicMessage] = useState("");
   const inputRef = useRef<HTMLInputElement | null>(null);
   const recordingActiveRef = useRef(false);
   const recordingStartRef = useRef<Promise<void> | null>(null);
+  const recorder = recorderRef.current;
   const canSubmit = Boolean(value.trim()) && !disabled;
+
+  useEffect(() => {
+    return () => {
+      if (recorderRef.current.isRecording) {
+        void recorderRef.current.stop().catch(() => undefined);
+      }
+    };
+  }, []);
 
   const submitValue = () => {
     if (!canSubmit) return;
@@ -117,8 +129,8 @@ export const InputBar: React.FC<InputBarProps> = ({
     } catch (error) {
       console.error("[InputBar] Microphone recording failed:", error);
       recordingActiveRef.current = false;
-      setMicState("error");
       setMicMessage("Microphone unavailable. Check permission and try again.");
+      setMicState("idle");
     }
   };
 
@@ -199,6 +211,8 @@ export const InputBar: React.FC<InputBarProps> = ({
           isTranscribing={micState === "transcribing"}
           onCancel={handleCancel}
           onConfirm={handleConfirm}
+          onMouseEnter={onRecordingOverlayMouseEnter}
+          onMouseLeave={onRecordingOverlayMouseLeave}
         />
       )}
       <div className={`input-bar ${disabled ? "is-disabled" : ""}`}>

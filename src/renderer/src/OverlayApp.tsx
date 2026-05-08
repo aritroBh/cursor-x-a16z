@@ -146,19 +146,26 @@ function formatAIHealthStatus(health: any): string {
   const testRequest = anthropic.testRequest || {};
   const openai = health?.openai || {};
   const openaiKey = openai.key || {};
-  const claudeStatus = testRequest.pass
-    ? "Claude health: pass"
-    : `Claude health: failed (${testRequest.category || "unknown"})`;
+  const overall = health?.overall || {};
+
+  const claudeTextStatus = testRequest.pass
+    ? "Claude text test: pass"
+    : `Claude text test: failed (${testRequest.category || "unknown"})`;
+  const claudeVisionStatus = `Claude vision/config: ${anthropic.configured ? "ready" : "not configured"}`;
+  const whisperStatus = `Whisper voice: ${openai.whisperConfigured ? "ready" : "missing key"}`;
+  const overallAppAI = overall.readyForRealAppAI ? "ready" : "not ready";
+  const overallVoice = overall.readyForVoice ? "ready" : "not ready";
   const reason = testRequest.reason ? `\nReason: ${testRequest.reason}` : "";
 
   return [
-    `Claude configured: ${anthropic.configured ? "true" : "false"}`,
-    claudeStatus,
-    `ANTHROPIC_API_KEY present: ${anthropicKey.present ? "true" : "false"}, length: ${anthropicKey.keyLength || 0}, placeholder: ${anthropicKey.placeholderDetected ? "true" : "false"}`,
-    `Local model: ${anthropic.useLocalModel ? "enabled" : "disabled"}, base: ${anthropic.baseURLKind || "unknown"}`,
+    `Real-app AI: ${overallAppAI} | Voice: ${overallVoice}`,
+    claudeTextStatus,
+    claudeVisionStatus,
     `Planner: ${anthropic.plannerModel || "unknown"}, Vision: ${anthropic.visionModel || "unknown"}`,
+    whisperStatus,
+    `ANTHROPIC_API_KEY present: ${anthropicKey.present ? "true" : "false"}, length: ${anthropicKey.keyLength || 0}, placeholder: ${anthropicKey.placeholderDetected ? "true" : "false"}`,
     `OPENAI_API_KEY present: ${openaiKey.present ? "true" : "false"}, length: ${openaiKey.keyLength || 0}, placeholder: ${openaiKey.placeholderDetected ? "true" : "false"}`,
-    `Whisper configured: ${openai.whisperConfigured ? "true" : "false"}${reason}`,
+    `Local model: ${anthropic.useLocalModel ? "enabled" : "disabled"}, base: ${anthropic.baseURLKind || "unknown"}${reason}`,
   ].join("\n");
 }
 
@@ -1532,6 +1539,8 @@ const OverlayApp: React.FC = () => {
                     console.log("[OVERLAY_INTERACTION] input blurred");
                     setIsInputFocused(false);
                   }}
+                  onRecordingOverlayMouseEnter={() => setInteractivity(true)}
+                  onRecordingOverlayMouseLeave={() => setInteractivity(false)}
                 />
                 {!intent && screenState?.app && (
                   <div

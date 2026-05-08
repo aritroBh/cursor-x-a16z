@@ -78,8 +78,8 @@ class MicRecorder {
     this.audioContext = null;
     this.analyser = null;
     this.dataArray = null;
-    const recorder2 = this.mediaRecorder;
-    if (!recorder2) {
+    const recorder = this.mediaRecorder;
+    if (!recorder) {
       this.isRecording = false;
       this.stopTracks();
       return new ArrayBuffer(0);
@@ -99,17 +99,17 @@ class MicRecorder {
         this.stopTracks();
         resolve(buffer);
       };
-      recorder2.onstop = finish;
-      if (recorder2.state === "inactive") {
+      recorder.onstop = finish;
+      if (recorder.state === "inactive") {
         void finish();
         return;
       }
       try {
-        recorder2.requestData();
+        recorder.requestData();
       } catch (error) {
         console.warn("[MIC] requestData failed before stop", error);
       }
-      recorder2.stop();
+      recorder.stop();
     });
   }
 }
@@ -135,20 +135,31 @@ const ConfirmIcon = () => /* @__PURE__ */ jsxRuntimeExports.jsx("svg", { viewBox
     strokeWidth: "2"
   }
 ) });
+const MAX_RECORDING_SECONDS = 30;
 const RecordingOverlay = ({
-  recorder: recorder2,
+  recorder,
   isTranscribing,
   onCancel,
-  onConfirm
+  onConfirm,
+  onMouseEnter,
+  onMouseLeave
 }) => {
   const canvasRef = reactExports.useRef(null);
   const animRef = reactExports.useRef(0);
   const [elapsed, setElapsed] = reactExports.useState(0);
   const startRef = reactExports.useRef(Date.now());
+  const onConfirmRef = reactExports.useRef(onConfirm);
+  onConfirmRef.current = onConfirm;
   reactExports.useEffect(() => {
     startRef.current = Date.now();
     const timer = window.setInterval(() => {
-      setElapsed(Math.floor((Date.now() - startRef.current) / 1e3));
+      const seconds = Math.floor((Date.now() - startRef.current) / 1e3);
+      setElapsed(seconds);
+      if (seconds >= MAX_RECORDING_SECONDS) {
+        window.clearInterval(timer);
+        console.log("[MIC] max recording duration reached, auto-stopping");
+        onConfirmRef.current();
+      }
     }, 1e3);
     return () => window.clearInterval(timer);
   }, []);
@@ -162,7 +173,7 @@ const RecordingOverlay = ({
       }
       const ctx = canvas.getContext("2d");
       if (!ctx) return;
-      const levels = recorder2.getAudioLevels();
+      const levels = recorder.getAudioLevels();
       const width = canvas.width;
       const height = canvas.height;
       ctx.clearRect(0, 0, width, height);
@@ -204,7 +215,7 @@ const RecordingOverlay = ({
     return () => {
       cancelAnimationFrame(animRef.current);
     };
-  }, [recorder2, isTranscribing]);
+  }, [recorder, isTranscribing]);
   const formatTime = (s) => {
     const m = Math.floor(s / 60);
     const secs = s % 60;
@@ -216,6 +227,8 @@ const RecordingOverlay = ({
       className: `recording-overlay ${isTranscribing ? "is-transcribing" : ""}`,
       role: "dialog",
       "aria-label": "Recording overlay",
+      onMouseEnter,
+      onMouseLeave,
       children: /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "recording-overlay-inner", children: [
         /* @__PURE__ */ jsxRuntimeExports.jsx(
           "canvas",
@@ -227,7 +240,7 @@ const RecordingOverlay = ({
             "aria-hidden": "true"
           }
         ),
-        /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "recording-timer", children: isTranscribing ? "Transcribing…" : `Listening… ${formatTime(elapsed)}` }),
+        /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "recording-timer", children: isTranscribing ? "Transcribing…" : elapsed >= MAX_RECORDING_SECONDS ? "Recording limit reached" : `Listening… ${formatTime(elapsed)}` }),
         /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "recording-overlay-actions", children: [
           /* @__PURE__ */ jsxRuntimeExports.jsx(
             "button",
@@ -248,8 +261,8 @@ const RecordingOverlay = ({
               className: "recording-overlay-button recording-confirm",
               onClick: onConfirm,
               disabled: isTranscribing,
-              "aria-label": "Confirm and send",
-              title: "Confirm and send",
+              "aria-label": "Transcribe recording",
+              title: "Transcribe recording",
               children: /* @__PURE__ */ jsxRuntimeExports.jsx(ConfirmIcon, {})
             }
           )
@@ -258,7 +271,6 @@ const RecordingOverlay = ({
     }
   );
 };
-const recorder = new MicRecorder();
 const SpecterMarkIcon = () => /* @__PURE__ */ jsxRuntimeExports.jsxs("svg", { className: "input-bar-brand-icon", viewBox: "0 0 24 24", "aria-hidden": "true", children: [
   /* @__PURE__ */ jsxRuntimeExports.jsx(
     "path",
@@ -320,15 +332,26 @@ const InputBar = ({
   onNewChat,
   disabled = false,
   onFocus,
-  onBlur
+  onBlur,
+  onRecordingOverlayMouseEnter,
+  onRecordingOverlayMouseLeave
 }) => {
+  const recorderRef = reactExports.useRef(new MicRecorder());
   const [value, setValue] = reactExports.useState("");
   const [micState, setMicState] = reactExports.useState("idle");
   const [micMessage, setMicMessage] = reactExports.useState("");
   const inputRef = reactExports.useRef(null);
   const recordingActiveRef = reactExports.useRef(false);
   const recordingStartRef = reactExports.useRef(null);
+  const recorder = recorderRef.current;
   const canSubmit = Boolean(value.trim()) && !disabled;
+  reactExports.useEffect(() => {
+    return () => {
+      if (recorderRef.current.isRecording) {
+        void recorderRef.current.stop().catch(() => void 0);
+      }
+    };
+  }, []);
   const submitValue = () => {
     if (!canSubmit) return;
     onSubmit(value.trim());
@@ -358,8 +381,8 @@ const InputBar = ({
     } catch (error) {
       console.error("[InputBar] Microphone recording failed:", error);
       recordingActiveRef.current = false;
-      setMicState("error");
       setMicMessage("Microphone unavailable. Check permission and try again.");
+      setMicState("idle");
     }
   };
   const handleCancel = async () => {
@@ -431,7 +454,9 @@ const InputBar = ({
         recorder,
         isTranscribing: micState === "transcribing",
         onCancel: handleCancel,
-        onConfirm: handleConfirm
+        onConfirm: handleConfirm,
+        onMouseEnter: onRecordingOverlayMouseEnter,
+        onMouseLeave: onRecordingOverlayMouseLeave
       }
     ),
     /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: `input-bar ${disabled ? "is-disabled" : ""}`, children: [
@@ -863,17 +888,23 @@ function formatAIHealthStatus(health) {
   const testRequest = anthropic.testRequest || {};
   const openai = health?.openai || {};
   const openaiKey = openai.key || {};
-  const claudeStatus = testRequest.pass ? "Claude health: pass" : `Claude health: failed (${testRequest.category || "unknown"})`;
+  const overall = health?.overall || {};
+  const claudeTextStatus = testRequest.pass ? "Claude text test: pass" : `Claude text test: failed (${testRequest.category || "unknown"})`;
+  const claudeVisionStatus = `Claude vision/config: ${anthropic.configured ? "ready" : "not configured"}`;
+  const whisperStatus = `Whisper voice: ${openai.whisperConfigured ? "ready" : "missing key"}`;
+  const overallAppAI = overall.readyForRealAppAI ? "ready" : "not ready";
+  const overallVoice = overall.readyForVoice ? "ready" : "not ready";
   const reason = testRequest.reason ? `
 Reason: ${testRequest.reason}` : "";
   return [
-    `Claude configured: ${anthropic.configured ? "true" : "false"}`,
-    claudeStatus,
-    `ANTHROPIC_API_KEY present: ${anthropicKey.present ? "true" : "false"}, length: ${anthropicKey.keyLength || 0}, placeholder: ${anthropicKey.placeholderDetected ? "true" : "false"}`,
-    `Local model: ${anthropic.useLocalModel ? "enabled" : "disabled"}, base: ${anthropic.baseURLKind || "unknown"}`,
+    `Real-app AI: ${overallAppAI} | Voice: ${overallVoice}`,
+    claudeTextStatus,
+    claudeVisionStatus,
     `Planner: ${anthropic.plannerModel || "unknown"}, Vision: ${anthropic.visionModel || "unknown"}`,
+    whisperStatus,
+    `ANTHROPIC_API_KEY present: ${anthropicKey.present ? "true" : "false"}, length: ${anthropicKey.keyLength || 0}, placeholder: ${anthropicKey.placeholderDetected ? "true" : "false"}`,
     `OPENAI_API_KEY present: ${openaiKey.present ? "true" : "false"}, length: ${openaiKey.keyLength || 0}, placeholder: ${openaiKey.placeholderDetected ? "true" : "false"}`,
-    `Whisper configured: ${openai.whisperConfigured ? "true" : "false"}${reason}`
+    `Local model: ${anthropic.useLocalModel ? "enabled" : "disabled"}, base: ${anthropic.baseURLKind || "unknown"}${reason}`
   ].join("\n");
 }
 function realAppInstruction(target) {
@@ -2010,7 +2041,9 @@ const OverlayApp = () => {
                         onBlur: () => {
                           console.log("[OVERLAY_INTERACTION] input blurred");
                           setIsInputFocused(false);
-                        }
+                        },
+                        onRecordingOverlayMouseEnter: () => setInteractivity(true),
+                        onRecordingOverlayMouseLeave: () => setInteractivity(false)
                       }
                     ),
                     !intent && screenState?.app && /* @__PURE__ */ jsxRuntimeExports.jsxs(

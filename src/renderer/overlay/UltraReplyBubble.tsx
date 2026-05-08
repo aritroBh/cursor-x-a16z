@@ -5,17 +5,19 @@ export type UltraState = 'idle' | 'listening' | 'transcribing' | 'thinking' | 's
 interface UltraReplyBubbleProps {
   reply: string
   state: UltraState
+  /** True when natural voice is unavailable and macOS TTS fallback is active */
+  voiceFallback?: boolean
 }
 
-export const UltraReplyBubble: React.FC<UltraReplyBubbleProps> = ({ reply, state }) => {
+export const UltraReplyBubble: React.FC<UltraReplyBubbleProps> = ({ reply, state, voiceFallback }) => {
   if (state === 'idle' && !reply) return null
 
   const getStateText = () => {
     switch (state) {
       case 'listening': return 'Listening...'
-      case 'transcribing': return 'Thinking...' // Usually we map transcribe/thinking together for the user
+      case 'transcribing': return 'Thinking...'
       case 'thinking': return 'Thinking...'
-      case 'speaking': return 'Speaking...'
+      case 'speaking': return voiceFallback ? 'Speaking (fallback)...' : 'Speaking...'
       case 'guiding': return 'Guiding...'
       case 'error': return 'Error'
       case 'waitingForUser':
@@ -75,7 +77,7 @@ export const UltraReplyBubble: React.FC<UltraReplyBubbleProps> = ({ reply, state
         )}
         {getStateText()}
       </div>
-      
+
       {reply && (
         <div style={{
           fontSize: '14px',
@@ -84,6 +86,26 @@ export const UltraReplyBubble: React.FC<UltraReplyBubbleProps> = ({ reply, state
           color: 'rgba(255, 255, 255, 0.95)'
         }}>
           {reply}
+        </div>
+      )}
+
+      {voiceFallback && (
+        <div style={{
+          marginTop: '6px',
+          padding: '4px 8px',
+          background: 'rgba(255, 159, 10, 0.12)',
+          border: '1px solid rgba(255, 159, 10, 0.25)',
+          borderRadius: '8px',
+          fontSize: '10px',
+          fontWeight: 600,
+          color: 'rgba(255, 159, 10, 0.85)',
+          letterSpacing: '0.2px',
+          display: 'flex',
+          alignItems: 'center',
+          gap: '5px'
+        }}>
+          <span>🔇</span>
+          <span>Voice fallback active · Text tutoring still works</span>
         </div>
       )}
     </div>

@@ -262,6 +262,8 @@ const OverlayApp: React.FC = () => {
   const [realAppNotice, setRealAppNotice] = useState("");
   const [showDebugTools, setShowDebugTools] = useState(false);
   const [aiHealthMessage, setAiHealthMessage] = useState("");
+  const [aiHealthPills, setAiHealthPills] = useState<any>(null);
+  const [lastTTSProvider, setLastTTSProvider] = useState<'elevenlabs' | 'openai' | 'macos' | null>(null);
   const [screenState, setScreenState] = useState<any>(null);
   const [isInputFocused, setIsInputFocused] = useState(false);
   const [isClickThrough, setIsClickThrough] = useState(true);
@@ -302,6 +304,9 @@ const OverlayApp: React.FC = () => {
 
       void api.speak(text).then((result: any) => {
         clearTimeout(timeout);
+        if (result?.providerUsed) {
+          setLastTTSProvider(result.providerUsed);
+        }
         if (result?.providerUsed === "macos" && result?.fallbackReason) {
           console.warn("[TTS] used macOS fallback", result.fallbackReason);
         } else if (result?.providerUsed === "openai") {
@@ -311,6 +316,7 @@ const OverlayApp: React.FC = () => {
       }).catch((error: unknown) => {
         clearTimeout(timeout);
         console.error("[TTS] error fallback", error);
+        setLastTTSProvider("macos");
         setUltraState("waitingForUser");
       });
       return;
@@ -836,7 +842,7 @@ const OverlayApp: React.FC = () => {
     try {
       const result = await api.detectRealAppTargets(testIntent);
       if (result?.error === "AI_BACKEND_UNAVAILABLE") {
-        const msg = "AI vision unavailable. Use controlled demo, pick target manually, or check backend.";
+        const msg = "I couldn't confidently detect the target. Pick it manually or use Practice Mode.";
         setRealAppTargets({
           error: "AI_BACKEND_UNAVAILABLE",
           fallbackAvailable: true,
@@ -847,13 +853,13 @@ const OverlayApp: React.FC = () => {
         });
         setSelectedRealAppTarget(null);
         setIsLoading(false);
-        
+
         if (mode === "ultra") {
-          setUltraReply("I can't inspect the screen right now, but I can still guide you through the controlled demo or let you pick a target manually.");
+          setUltraReply("I couldn't inspect the screen right now. Click something you want to learn, and the ghost cursor will guide you to it.");
           setUltraState("waitingForUser");
-          speakIfUltra("I can't inspect the screen right now, but I can still guide you through the controlled demo or let you pick a target manually.", "fallback");
+          speakIfUltra("I couldn't inspect the screen right now. Click something you want to learn, and the ghost cursor will guide you to it.", "fallback");
         }
-        
+
         return;
       }
       const normalizedTargets = Array.isArray(result?.targets)
@@ -877,16 +883,16 @@ const OverlayApp: React.FC = () => {
       setSelectedRealAppTarget(bestTarget);
 
       if (!bestTarget) {
-        setRealAppNotice("No clear target found. Pick a target manually.");
+        setRealAppNotice("I couldn't confidently see the target. Click the thing you want Specter to teach.");
         setIsManualTargetPicking(true);
       } else if ((bestTarget.confidence ?? 0) < threshold) {
         speakIfUltra(`I found a possible target: ${bestTarget.label}. Confirm it before we start.`, "target found");
         setRealAppNotice(
-          "Low confidence. Confirm one target or pick manually.",
+          "Low confidence — confirm or pick a different target manually.",
         );
       } else {
         speakIfUltra(`Target found: ${bestTarget.label}. Confirm it before we start.`, "target found");
-        setRealAppNotice("Confirm the target before the ghost starts.");
+        setRealAppNotice("Target found — confirm it and the ghost will start.");
       }
     } catch (error) {
       setErrorMessage(messageFromError(error));
@@ -913,7 +919,7 @@ const OverlayApp: React.FC = () => {
     console.log("[MANUAL_TARGET] manual target picking armed");
     setIsManualTargetPicking(true);
     setRealAppNotice(
-      "Click the real-app target location. Press Escape to cancel.",
+      "Click the thing you want Specter to teach. Press Escape to cancel.",
     );
   };
 
@@ -1033,19 +1039,22 @@ const OverlayApp: React.FC = () => {
   const checkAIBackend = async () => {
     setErrorMessage("");
     setAiHealthMessage("Checking AI backend...");
+    setAiHealthPills(null);
 
     try {
       const health = await api.checkAIBackend();
       console.log("[AI_BACKEND] health check", health);
       setAiHealthMessage(formatAIHealthStatus(health));
+      setAiHealthPills(health);
       if (!health?.anthropic?.testRequest?.pass) {
         setRealAppNotice(
-          "AI vision unavailable. Use controlled demo, pick target manually, or check backend.",
+          "I couldn't confidently detect the target. Pick it manually or use Practice Mode.",
         );
       }
     } catch (error) {
       console.error("[AI_BACKEND] health check failed:", error);
       setAiHealthMessage(`AI backend check failed: ${messageFromError(error)}`);
+      setAiHealthPills(null);
     }
   };
 
@@ -1490,21 +1499,21 @@ const OverlayApp: React.FC = () => {
                   className="specter-workflow-card"
                   onClick={(event) => event.stopPropagation()}
                 >
-                    <div className="specter-workflow-header">
+                  <div className="specter-workflow-header">
                     <div>
                       <div className="specter-kicker">
-                        {showFallbackWorkflow ? "Fallback" : "Guided Workspace"}
+                        {showFallbackWorkflow ? "Vision unavailable" : "Guided Workspace"}
                       </div>
                       <div className="specter-workflow-title">
                         {showFallbackWorkflow
-                          ? "AI vision unavailable. Use controlled demo, pick target manually, or check backend."
+                          ? "I couldn't confidently detect the target. Pick it manually or use Practice Mode."
                           : realAppTargets?.microTask ||
                             "First, I will teach one visible action."}
                       </div>
                     </div>
                     <div className="specter-workflow-meta">
                       {showFallbackWorkflow
-                        ? "Local demo safe"
+                        ? "Real app still works"
                         : realAppTargets?.app || "Real app"}
                     </div>
                   </div>
@@ -1544,20 +1553,13 @@ const OverlayApp: React.FC = () => {
                       </div>
                     ) : (
                       <div className="specter-workflow-note">
-                        Pick a numbered marker, or set the target manually.
+                        Pick a numbered marker, or click anywhere to set manually.
                       </div>
                     ))}
 
                   <div className="specter-action-row">
                     {showFallbackWorkflow ? (
                       <>
-                        <button
-                          className="specter-action-button primary"
-                          disabled={isLoading}
-                          onClick={prepareControlledDemo}
-                        >
-                          Controlled Demo
-                        </button>
                         <button
                           className="specter-action-button blue"
                           disabled={isLoading}
@@ -1579,6 +1581,13 @@ const OverlayApp: React.FC = () => {
                         >
                           Retry AI
                         </button>
+                        <button
+                          className="specter-action-button"
+                          disabled={isLoading}
+                          onClick={prepareControlledDemo}
+                        >
+                          Practice Mode
+                        </button>
                       </>
                     ) : (
                       <>
@@ -1595,13 +1604,6 @@ const OverlayApp: React.FC = () => {
                           onClick={startManualTargetPicking}
                         >
                           Pick manually
-                        </button>
-                        <button
-                          className="specter-action-button"
-                          disabled={isLoading}
-                          onClick={prepareControlledDemo}
-                        >
-                          Controlled Demo
                         </button>
                       </>
                     )}
@@ -1648,7 +1650,11 @@ const OverlayApp: React.FC = () => {
                 style={{ width: "100%", position: "relative" }}
               >
                 {mode === "ultra" && (
-                  <UltraReplyBubble reply={ultraReply} state={ultraState} />
+                  <UltraReplyBubble
+                    reply={ultraReply}
+                    state={ultraState}
+                    voiceFallback={lastTTSProvider === "macos"}
+                  />
                 )}
                 <InputBar
                   onSubmit={handleInputSubmit}
@@ -1728,6 +1734,59 @@ const OverlayApp: React.FC = () => {
                   >
                     Debug / Demo Tools
                   </div>
+
+                  {/* Provider status pills */}
+                  {aiHealthPills && (
+                    <div style={{
+                      display: "flex",
+                      gap: "6px",
+                      flexWrap: "wrap",
+                      marginBottom: "2px"
+                    }}>
+                      {([
+                        {
+                          label: "Claude vision",
+                          ok: aiHealthPills?.anthropic?.testRequest?.pass,
+                          detail: aiHealthPills?.anthropic?.testRequest?.pass ? "ready" : (aiHealthPills?.anthropic?.testRequest?.category || "failing")
+                        },
+                        {
+                          label: "Whisper",
+                          ok: aiHealthPills?.openai?.whisperConfigured,
+                          detail: aiHealthPills?.openai?.whisperConfigured ? "ready" : "missing key"
+                        },
+                        {
+                          label: "Voice",
+                          ok: aiHealthPills?.elevenlabs?.configured || aiHealthPills?.openaiTTS?.configured,
+                          detail: aiHealthPills?.elevenlabs?.configured
+                            ? "ElevenLabs"
+                            : aiHealthPills?.openaiTTS?.configured
+                              ? "OpenAI TTS"
+                              : lastTTSProvider === "macos"
+                                ? "macOS fallback"
+                                : "macOS fallback"
+                        }
+                      ] as Array<{label: string; ok: boolean; detail: string}>).map((pill) => (
+                        <div
+                          key={pill.label}
+                          style={{
+                            display: "flex",
+                            alignItems: "center",
+                            gap: "5px",
+                            padding: "3px 8px",
+                            borderRadius: "999px",
+                            background: pill.ok ? "rgba(48,209,88,0.12)" : "rgba(255,69,58,0.12)",
+                            border: `1px solid ${pill.ok ? "rgba(48,209,88,0.3)" : "rgba(255,69,58,0.3)"}`,
+                            fontSize: "10px",
+                            fontWeight: 600,
+                            color: pill.ok ? "rgba(48,209,88,0.9)" : "rgba(255,100,80,0.9)",
+                          }}
+                        >
+                          <span>{pill.ok ? "✓" : "✗"}</span>
+                          <span>{pill.label}: {pill.detail}</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
                   <div
                     style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}
                   >

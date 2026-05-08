@@ -250,7 +250,7 @@ export const InputBar: React.FC<InputBarProps> = ({
         autoFocus
         className="input-bar-field"
         type="text"
-        placeholder="What can I help you with today?"
+        placeholder="Ask Specter about the app in front of you"
         value={value}
         disabled={disabled}
         onChange={(e) => setValue(e.target.value)}

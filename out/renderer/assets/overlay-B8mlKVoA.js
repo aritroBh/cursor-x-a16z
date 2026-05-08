@@ -7,6 +7,9 @@ class MicRecorder {
   mimeType = "audio/webm";
   startedAt = 0;
   isRecording = false;
+  audioContext = null;
+  analyser = null;
+  dataArray = null;
   chooseMimeType() {
     if (typeof MediaRecorder.isTypeSupported !== "function") return void 0;
     for (const mimeType of ["audio/webm;codecs=opus", "audio/webm"]) {
@@ -46,9 +49,35 @@ class MicRecorder {
     this.mediaRecorder.start(250);
     this.startedAt = Date.now();
     this.isRecording = true;
+    try {
+      this.audioContext = new AudioContext();
+      const source = this.audioContext.createMediaStreamSource(stream);
+      this.analyser = this.audioContext.createAnalyser();
+      this.analyser.fftSize = 64;
+      this.analyser.smoothingTimeConstant = 0.7;
+      source.connect(this.analyser);
+      this.dataArray = new Uint8Array(this.analyser.frequencyBinCount);
+      console.log("[MIC] waveform analyser active");
+    } catch (error) {
+      console.warn("[MIC] analyser setup failed", error);
+    }
+  }
+  getAudioLevels() {
+    if (!this.analyser || !this.dataArray) return null;
+    this.analyser.getByteFrequencyData(this.dataArray);
+    return this.dataArray;
   }
   async stop() {
     console.log("[MIC] stop requested");
+    if (this.audioContext && this.audioContext.state !== "closed") {
+      try {
+        await this.audioContext.close();
+      } catch (_) {
+      }
+    }
+    this.audioContext = null;
+    this.analyser = null;
+    this.dataArray = null;
     const recorder2 = this.mediaRecorder;
     if (!recorder2) {
       this.isRecording = false;
@@ -84,6 +113,151 @@ class MicRecorder {
     });
   }
 }
+const CancelIcon = () => /* @__PURE__ */ jsxRuntimeExports.jsx("svg", { viewBox: "0 0 24 24", width: "18", height: "18", "aria-hidden": "true", children: /* @__PURE__ */ jsxRuntimeExports.jsx(
+  "path",
+  {
+    d: "M6 6l12 12M18 6L6 18",
+    fill: "none",
+    stroke: "currentColor",
+    strokeLinecap: "round",
+    strokeLinejoin: "round",
+    strokeWidth: "2"
+  }
+) });
+const ConfirmIcon = () => /* @__PURE__ */ jsxRuntimeExports.jsx("svg", { viewBox: "0 0 24 24", width: "18", height: "18", "aria-hidden": "true", children: /* @__PURE__ */ jsxRuntimeExports.jsx(
+  "path",
+  {
+    d: "M5 13l4 4L19 7",
+    fill: "none",
+    stroke: "currentColor",
+    strokeLinecap: "round",
+    strokeLinejoin: "round",
+    strokeWidth: "2"
+  }
+) });
+const RecordingOverlay = ({
+  recorder: recorder2,
+  isTranscribing,
+  onCancel,
+  onConfirm
+}) => {
+  const canvasRef = reactExports.useRef(null);
+  const animRef = reactExports.useRef(0);
+  const [elapsed, setElapsed] = reactExports.useState(0);
+  const startRef = reactExports.useRef(Date.now());
+  reactExports.useEffect(() => {
+    startRef.current = Date.now();
+    const timer = window.setInterval(() => {
+      setElapsed(Math.floor((Date.now() - startRef.current) / 1e3));
+    }, 1e3);
+    return () => window.clearInterval(timer);
+  }, []);
+  reactExports.useEffect(() => {
+    if (isTranscribing) return;
+    const draw = () => {
+      const canvas = canvasRef.current;
+      if (!canvas) {
+        animRef.current = requestAnimationFrame(draw);
+        return;
+      }
+      const ctx = canvas.getContext("2d");
+      if (!ctx) return;
+      const levels = recorder2.getAudioLevels();
+      const width = canvas.width;
+      const height = canvas.height;
+      ctx.clearRect(0, 0, width, height);
+      if (levels && levels.length > 0) {
+        const barCount = 20;
+        const gap = 2;
+        const barWidth = (width - (barCount - 1) * gap) / barCount;
+        for (let i = 0; i < barCount; i++) {
+          const idx = Math.floor(i / barCount * levels.length);
+          const value = levels[idx] || 0;
+          const percent = value / 255;
+          const barHeight = Math.max(4, percent * height * 0.9);
+          const x = i * (barWidth + gap);
+          const y = (height - barHeight) / 2;
+          const gradient = ctx.createLinearGradient(0, y, 0, y + barHeight);
+          gradient.addColorStop(0, "rgba(10, 132, 255, 0.92)");
+          gradient.addColorStop(1, "rgba(191, 90, 242, 0.82)");
+          ctx.fillStyle = gradient;
+          ctx.beginPath();
+          ctx.roundRect(x, y, barWidth, barHeight, barWidth / 2);
+          ctx.fill();
+        }
+      } else {
+        const t = Date.now() / 400;
+        const pulse = 0.5 + 0.5 * Math.sin(t);
+        const barHeight = Math.max(4, pulse * height * 0.6);
+        const barWidth = width * 0.2;
+        const x = (width - barWidth) / 2;
+        const y = (height - barHeight) / 2;
+        ctx.fillStyle = "rgba(10, 132, 255, 0.72)";
+        ctx.beginPath();
+        ctx.roundRect(x, y, barWidth, barHeight, barWidth / 2);
+        ctx.fill();
+      }
+      animRef.current = requestAnimationFrame(draw);
+    };
+    animRef.current = requestAnimationFrame(draw);
+    console.log("[MIC] waveform active");
+    return () => {
+      cancelAnimationFrame(animRef.current);
+    };
+  }, [recorder2, isTranscribing]);
+  const formatTime = (s) => {
+    const m = Math.floor(s / 60);
+    const secs = s % 60;
+    return `${m}:${secs.toString().padStart(2, "0")}`;
+  };
+  return /* @__PURE__ */ jsxRuntimeExports.jsx(
+    "div",
+    {
+      className: `recording-overlay ${isTranscribing ? "is-transcribing" : ""}`,
+      role: "dialog",
+      "aria-label": "Recording overlay",
+      children: /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "recording-overlay-inner", children: [
+        /* @__PURE__ */ jsxRuntimeExports.jsx(
+          "canvas",
+          {
+            ref: canvasRef,
+            width: 160,
+            height: 32,
+            className: "recording-waveform",
+            "aria-hidden": "true"
+          }
+        ),
+        /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "recording-timer", children: isTranscribing ? "Transcribing…" : `Listening… ${formatTime(elapsed)}` }),
+        /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "recording-overlay-actions", children: [
+          /* @__PURE__ */ jsxRuntimeExports.jsx(
+            "button",
+            {
+              type: "button",
+              className: "recording-overlay-button recording-cancel",
+              onClick: onCancel,
+              disabled: isTranscribing,
+              "aria-label": "Cancel recording",
+              title: "Cancel recording",
+              children: /* @__PURE__ */ jsxRuntimeExports.jsx(CancelIcon, {})
+            }
+          ),
+          /* @__PURE__ */ jsxRuntimeExports.jsx(
+            "button",
+            {
+              type: "button",
+              className: "recording-overlay-button recording-confirm",
+              onClick: onConfirm,
+              disabled: isTranscribing,
+              "aria-label": "Confirm and send",
+              title: "Confirm and send",
+              children: /* @__PURE__ */ jsxRuntimeExports.jsx(ConfirmIcon, {})
+            }
+          )
+        ] })
+      ] })
+    }
+  );
+};
 const recorder = new MicRecorder();
 const SpecterMarkIcon = () => /* @__PURE__ */ jsxRuntimeExports.jsxs("svg", { className: "input-bar-brand-icon", viewBox: "0 0 24 24", "aria-hidden": "true", children: [
   /* @__PURE__ */ jsxRuntimeExports.jsx(
@@ -149,12 +323,11 @@ const InputBar = ({
   onBlur
 }) => {
   const [value, setValue] = reactExports.useState("");
-  const [isRecording, setIsRecording] = reactExports.useState(false);
+  const [micState, setMicState] = reactExports.useState("idle");
   const [micMessage, setMicMessage] = reactExports.useState("");
   const inputRef = reactExports.useRef(null);
   const recordingActiveRef = reactExports.useRef(false);
   const recordingStartRef = reactExports.useRef(null);
-  const stoppingRef = reactExports.useRef(false);
   const canSubmit = Boolean(value.trim()) && !disabled;
   const submitValue = () => {
     if (!canSubmit) return;
@@ -172,37 +345,55 @@ const InputBar = ({
     setValue("");
     onNewChat?.();
   };
-  const startRecording = async (event) => {
-    if (disabled || recordingActiveRef.current) return;
-    event.currentTarget.setPointerCapture(event.pointerId);
+  const startRecording = async () => {
+    if (disabled || recordingActiveRef.current || micState !== "idle") return;
     setMicMessage("");
     recordingActiveRef.current = true;
-    setIsRecording(true);
+    setMicState("recording");
+    console.log("[MIC] recording overlay opened");
     recordingStartRef.current = recorder.start();
     try {
       await recordingStartRef.current;
+      console.log("[MIC] recording started");
     } catch (error) {
       console.error("[InputBar] Microphone recording failed:", error);
       recordingActiveRef.current = false;
-      setIsRecording(false);
+      setMicState("error");
       setMicMessage("Microphone unavailable. Check permission and try again.");
     }
   };
-  const stopRecording = async () => {
-    if (disabled || !recordingActiveRef.current || stoppingRef.current) return;
-    stoppingRef.current = true;
+  const handleCancel = async () => {
+    if (micState !== "recording") return;
+    console.log("[MIC] cancel clicked");
     recordingActiveRef.current = false;
-    setIsRecording(false);
+    setMicState("idle");
+    try {
+      await recordingStartRef.current;
+      await recorder.stop();
+    } catch (error) {
+      console.warn("[MIC] cancel cleanup error", error);
+    } finally {
+      recordingStartRef.current = null;
+    }
+    console.log("[MIC] overlay closed");
+  };
+  const handleConfirm = async () => {
+    if (micState !== "recording" || !recordingActiveRef.current) return;
+    console.log("[MIC] confirm clicked");
+    recordingActiveRef.current = false;
+    setMicState("transcribing");
     try {
       await recordingStartRef.current;
       const buffer = await recorder.stop();
+      console.log("[MIC] recording stopped");
       if (!buffer.byteLength) {
-        setMicMessage("No audio captured. Hold the mic a little longer.");
+        setMicMessage("No audio captured. Speak a little longer.");
+        setMicState("idle");
         return;
       }
-      console.log("[MIC] sent to whisper", { size: buffer.byteLength });
+      console.log("[MIC] transcription started", { size: buffer.byteLength });
       const text = await window.api.transcribe(buffer);
-      console.log("[MIC] transcription received", {
+      console.log("[MIC] transcription success", {
         length: typeof text === "string" ? text.length : 0
       });
       if (typeof text === "string" && text.trim()) {
@@ -210,79 +401,100 @@ const InputBar = ({
         setMicMessage("");
         window.setTimeout(() => inputRef.current?.focus(), 0);
       } else {
-        setMicMessage("No transcription returned. Try holding the mic longer.");
+        setMicMessage("No transcription returned. Try speaking again.");
       }
     } catch (error) {
-      console.error("[InputBar] Microphone transcription failed:", error);
+      console.error("[MIC] transcription failed", error);
       setMicMessage("Voice transcription failed. You can type instead.");
     } finally {
       recordingStartRef.current = null;
-      stoppingRef.current = false;
+      setMicState("idle");
+      console.log("[MIC] overlay closed");
     }
   };
-  return /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: `input-bar ${disabled ? "is-disabled" : ""}`, children: [
-    /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "input-bar-brand", title: "Specter", "aria-hidden": "true", children: /* @__PURE__ */ jsxRuntimeExports.jsx(SpecterMarkIcon, {}) }),
-    /* @__PURE__ */ jsxRuntimeExports.jsx(
-      "input",
+  reactExports.useEffect(() => {
+    if (micState !== "recording") return;
+    const onKeyDown = (e) => {
+      if (e.key === "Escape") {
+        e.preventDefault();
+        void handleCancel();
+      }
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [micState]);
+  const isOverlayVisible = micState === "recording" || micState === "transcribing";
+  return /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "input-bar-wrapper", children: [
+    isOverlayVisible && /* @__PURE__ */ jsxRuntimeExports.jsx(
+      RecordingOverlay,
       {
-        ref: inputRef,
-        autoFocus: true,
-        className: "input-bar-field",
-        type: "text",
-        placeholder: "What can I help you with today?",
-        value,
-        disabled,
-        onChange: (e) => setValue(e.target.value),
-        onKeyDown: handleKeyDown,
-        onFocus,
-        onBlur
+        recorder,
+        isTranscribing: micState === "transcribing",
+        onCancel: handleCancel,
+        onConfirm: handleConfirm
       }
     ),
-    /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "input-bar-actions", children: [
+    /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: `input-bar ${disabled ? "is-disabled" : ""}`, children: [
+      /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "input-bar-brand", title: "Specter", "aria-hidden": "true", children: /* @__PURE__ */ jsxRuntimeExports.jsx(SpecterMarkIcon, {}) }),
       /* @__PURE__ */ jsxRuntimeExports.jsx(
-        "button",
+        "input",
         {
-          type: "button",
-          className: `input-bar-icon-button input-bar-mic-button ${isRecording ? "is-recording" : ""}`,
+          ref: inputRef,
+          autoFocus: true,
+          className: "input-bar-field",
+          type: "text",
+          placeholder: "What can I help you with today?",
+          value,
           disabled,
-          onPointerDown: startRecording,
-          onPointerUp: stopRecording,
-          onPointerCancel: stopRecording,
-          onPointerLeave: stopRecording,
-          "aria-label": isRecording ? "Release to stop recording" : "Record voice input",
-          title: isRecording ? "Release to stop recording" : "Record voice input",
-          children: /* @__PURE__ */ jsxRuntimeExports.jsx(MicrophoneIcon, {})
+          onChange: (e) => setValue(e.target.value),
+          onKeyDown: handleKeyDown,
+          onFocus,
+          onBlur
         }
       ),
-      onNewChat && /* @__PURE__ */ jsxRuntimeExports.jsxs(
-        "button",
-        {
-          type: "button",
-          className: "input-bar-new-chat",
-          disabled,
-          onClick: handleNewChat,
-          "aria-label": "Start a new chat",
-          title: "Start a new chat",
-          children: [
-            /* @__PURE__ */ jsxRuntimeExports.jsx("span", { children: "New Chat" }),
-            /* @__PURE__ */ jsxRuntimeExports.jsx(ChevronDownIcon, {})
-          ]
-        }
-      ),
-      /* @__PURE__ */ jsxRuntimeExports.jsx(
-        "button",
-        {
-          type: "button",
-          className: "input-bar-send-button",
-          disabled: !canSubmit,
-          onClick: submitValue,
-          "aria-label": "Send message",
-          title: "Send message",
-          children: /* @__PURE__ */ jsxRuntimeExports.jsx(SendArrowIcon, {})
-        }
-      )
-    ] }),
-    micMessage && /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "input-bar-mic-message", children: micMessage })
+      /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "input-bar-actions", children: [
+        /* @__PURE__ */ jsxRuntimeExports.jsx(
+          "button",
+          {
+            type: "button",
+            className: `input-bar-icon-button input-bar-mic-button ${micState === "recording" ? "is-recording" : ""}`,
+            disabled: disabled || micState !== "idle",
+            onClick: startRecording,
+            "aria-label": micState === "recording" ? "Recording in progress" : "Record voice input",
+            title: micState === "recording" ? "Recording in progress" : "Record voice input",
+            children: /* @__PURE__ */ jsxRuntimeExports.jsx(MicrophoneIcon, {})
+          }
+        ),
+        onNewChat && /* @__PURE__ */ jsxRuntimeExports.jsxs(
+          "button",
+          {
+            type: "button",
+            className: "input-bar-new-chat",
+            disabled,
+            onClick: handleNewChat,
+            "aria-label": "Start a new chat",
+            title: "Start a new chat",
+            children: [
+              /* @__PURE__ */ jsxRuntimeExports.jsx("span", { children: "New Chat" }),
+              /* @__PURE__ */ jsxRuntimeExports.jsx(ChevronDownIcon, {})
+            ]
+          }
+        ),
+        /* @__PURE__ */ jsxRuntimeExports.jsx(
+          "button",
+          {
+            type: "button",
+            className: "input-bar-send-button",
+            disabled: !canSubmit,
+            onClick: submitValue,
+            "aria-label": "Send message",
+            title: "Send message",
+            children: /* @__PURE__ */ jsxRuntimeExports.jsx(SendArrowIcon, {})
+          }
+        )
+      ] }),
+      micMessage && /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "input-bar-mic-message", children: micMessage })
+    ] })
   ] });
 };
 const DEMO_LOOP_MS = 1700;

@@ -5,6 +5,9 @@ export class MicRecorder {
   private mimeType = 'audio/webm'
   private startedAt = 0
   isRecording = false
+  private audioContext: AudioContext | null = null
+  private analyser: AnalyserNode | null = null
+  private dataArray: Uint8Array<ArrayBuffer> | null = null
 
   private chooseMimeType(): string | undefined {
     if (typeof MediaRecorder.isTypeSupported !== 'function') return undefined
@@ -53,10 +56,36 @@ export class MicRecorder {
     this.mediaRecorder.start(250)
     this.startedAt = Date.now()
     this.isRecording = true
+
+    try {
+      this.audioContext = new AudioContext()
+      const source = this.audioContext.createMediaStreamSource(stream)
+      this.analyser = this.audioContext.createAnalyser()
+      this.analyser.fftSize = 64
+      this.analyser.smoothingTimeConstant = 0.7
+      source.connect(this.analyser)
+      this.dataArray = new Uint8Array(this.analyser.frequencyBinCount) as Uint8Array<ArrayBuffer>
+      console.log('[MIC] waveform analyser active')
+    } catch (error) {
+      console.warn('[MIC] analyser setup failed', error)
+    }
+  }
+
+  getAudioLevels(): Uint8Array | null {
+    if (!this.analyser || !this.dataArray) return null
+    this.analyser.getByteFrequencyData(this.dataArray as any)
+    return this.dataArray
   }
 
   async stop(): Promise<ArrayBuffer> {
     console.log('[MIC] stop requested')
+
+    if (this.audioContext && this.audioContext.state !== 'closed') {
+      try { await this.audioContext.close() } catch (_) { /* ignore */ }
+    }
+    this.audioContext = null
+    this.analyser = null
+    this.dataArray = null
 
     const recorder = this.mediaRecorder
     if (!recorder) {

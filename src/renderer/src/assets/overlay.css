@@ -468,6 +468,143 @@
   background: rgba(10, 132, 255, 0.24);
 }
 
+/* Recording overlay */
+.input-bar-wrapper {
+  position: relative;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.recording-overlay {
+  position: absolute;
+  bottom: calc(100% + 10px);
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 10005;
+  pointer-events: auto;
+}
+
+.recording-overlay-inner {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 14px;
+  border-radius: 16px;
+  background:
+    linear-gradient(135deg, rgba(22, 24, 31, 0.92), rgba(12, 14, 20, 0.88)),
+    rgba(14, 14, 18, 0.86);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  box-shadow:
+    0 16px 44px rgba(0, 0, 0, 0.42),
+    inset 0 1px 0 rgba(255, 255, 255, 0.08);
+  -webkit-backdrop-filter: blur(18px) saturate(1.18);
+  backdrop-filter: blur(18px) saturate(1.18);
+  min-width: 240px;
+  max-width: 90vw;
+}
+
+.recording-overlay.is-transcribing .recording-overlay-inner {
+  opacity: 0.72;
+}
+
+.recording-waveform {
+  flex: 0 0 auto;
+  width: 160px;
+  height: 32px;
+  border-radius: 8px;
+}
+
+.recording-timer {
+  font-size: 12px;
+  font-weight: 650;
+  color: rgba(255, 255, 255, 0.72);
+  white-space: nowrap;
+  min-width: 90px;
+  text-align: center;
+}
+
+.recording-overlay-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 0 0 auto;
+}
+
+.recording-overlay-button {
+  width: 34px;
+  height: 34px;
+  border-radius: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  color: rgba(255, 255, 255, 0.92);
+  transition:
+    transform 0.18s ease,
+    background 0.18s ease,
+    border-color 0.18s ease;
+}
+
+.recording-overlay-button:disabled {
+  cursor: default;
+  opacity: 0.42;
+  transform: none;
+}
+
+.recording-overlay-button:not(:disabled):hover {
+  transform: translateY(-1px);
+}
+
+.recording-overlay-button:not(:disabled):active {
+  transform: translateY(1px);
+}
+
+.recording-cancel {
+  background: rgba(255, 69, 58, 0.18);
+  border-color: rgba(255, 69, 58, 0.3);
+  color: #ff453a;
+}
+
+.recording-cancel:not(:disabled):hover {
+  background: rgba(255, 69, 58, 0.28);
+}
+
+.recording-confirm {
+  background: rgba(48, 209, 88, 0.18);
+  border-color: rgba(48, 209, 88, 0.3);
+  color: #30d158;
+}
+
+.recording-confirm:not(:disabled):hover {
+  background: rgba(48, 209, 88, 0.28);
+}
+
+@media (max-width: 520px) {
+  .recording-overlay-inner {
+    gap: 8px;
+    padding: 6px 10px;
+    min-width: 200px;
+  }
+
+  .recording-waveform {
+    width: 120px;
+    height: 28px;
+  }
+
+  .recording-timer {
+    font-size: 11px;
+    min-width: 80px;
+  }
+
+  .recording-overlay-button {
+    width: 30px;
+    height: 30px;
+  }
+}
+
 /* Input bar is now clean and glassy */
 .input-bar {
   position: relative;

@@ -12,6 +12,7 @@ const promises = require("fs/promises");
 const os = require("os");
 const OpenAI = require("openai");
 const uploads = require("openai/uploads");
+const node_buffer = require("node:buffer");
 const fs = require("fs");
 const crypto = require("crypto");
 function _interopNamespaceDefault(e) {
@@ -1216,12 +1217,16 @@ async function transcribe(audioBuffer) {
   const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
   safeLog("[WHISPER] transcribe called", { bufferSize: audioBuffer?.length || 0 });
   if (!audioBuffer || audioBuffer.length === 0) {
-    safeWarn("[WHISPER] empty audio buffer");
+    safeWarn("[WHISPER] empty audio buffer, skipping OpenAI");
     return "";
   }
   if (!OPENAI_API_KEY) {
     safeWarn("[WHISPER] OPENAI_API_KEY missing; transcription unavailable");
     return "";
+  }
+  if (typeof globalThis.File === "undefined") {
+    globalThis.File = node_buffer.File;
+    safeLog("[WHISPER] installed Node File polyfill for OpenAI uploads");
   }
   try {
     safeLog("[WHISPER] Calling OpenAI...");
@@ -1229,14 +1234,17 @@ async function transcribe(audioBuffer) {
     const file = await uploads.toFile(audioBuffer, "audio.webm", {
       type: "audio/webm"
     });
+    safeLog("[WHISPER] created upload file", { name: "audio.webm", type: "audio/webm" });
     const response = await openai.audio.transcriptions.create({
       file,
       model: "whisper-1"
     });
-    safeLog("[WHISPER] transcription received", { length: response.text?.length || 0 });
+    safeLog("[WHISPER] transcription success", { textLength: response.text?.length || 0 });
     return response.text || "";
   } catch (error) {
-    safeError("[WHISPER] Error:", error);
+    const category = error?.name || "Error";
+    const message = error?.message || String(error);
+    safeError("[WHISPER] transcription failed", { category, message });
     return "";
   }
 }

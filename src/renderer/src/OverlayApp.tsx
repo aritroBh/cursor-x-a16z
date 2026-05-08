@@ -147,6 +147,10 @@ function formatAIHealthStatus(health: any): string {
   const testRequest = anthropic.testRequest || {};
   const openai = health?.openai || {};
   const openaiKey = openai.key || {};
+  const elevenlabs = health?.elevenlabs || {};
+  const elevenlabsKey = elevenlabs.key || {};
+  const openaiTTS = health?.openaiTTS || {};
+  const openaiTTSKey = openaiTTS.key || {};
   const overall = health?.overall || {};
 
   const claudeTextStatus = testRequest.pass
@@ -154,18 +158,27 @@ function formatAIHealthStatus(health: any): string {
     : `Claude text test: failed (${testRequest.category || "unknown"})`;
   const claudeVisionStatus = `Claude vision/config: ${anthropic.configured ? "ready" : "not configured"}`;
   const whisperStatus = `Whisper voice: ${openai.whisperConfigured ? "ready" : "missing key"}`;
+  const elevenlabsStatus = `ElevenLabs TTS: ${elevenlabs.configured ? "ready" : "fallback mode"}`;
+  const openaiTTSStatus = `OpenAI TTS: ${openaiTTS.configured ? "ready" : "not configured"}`;
+  
   const overallAppAI = overall.readyForRealAppAI ? "ready" : "not ready";
-  const overallVoice = overall.readyForVoice ? "ready" : "not ready";
+  const overallVoiceInput = overall.readyForVoiceInput ? "ready" : "not ready";
+  const overallVoiceOutput = overall.readyForNaturalVoiceOutput ? "Natural" : "macOS say";
   const reason = testRequest.reason ? `\nReason: ${testRequest.reason}` : "";
 
   return [
-    `Real-app AI: ${overallAppAI} | Voice: ${overallVoice}`,
+    `Real-app AI: ${overallAppAI}`,
+    `Voice Input: ${overallVoiceInput} | Voice Output: ${overallVoiceOutput}`,
     claudeTextStatus,
     claudeVisionStatus,
     `Planner: ${anthropic.plannerModel || "unknown"}, Vision: ${anthropic.visionModel || "unknown"}`,
     whisperStatus,
-    `ANTHROPIC_API_KEY present: ${anthropicKey.present ? "true" : "false"}, length: ${anthropicKey.keyLength || 0}, placeholder: ${anthropicKey.placeholderDetected ? "true" : "false"}`,
-    `OPENAI_API_KEY present: ${openaiKey.present ? "true" : "false"}, length: ${openaiKey.keyLength || 0}, placeholder: ${openaiKey.placeholderDetected ? "true" : "false"}`,
+    elevenlabsStatus,
+    openaiTTSStatus,
+    `Voice: ${elevenlabs.voiceId || "default"}, Model: ${elevenlabs.modelId || "default"}`,
+    `ANTHROPIC_API_KEY: ${anthropicKey.present ? "present" : "missing"}, len: ${anthropicKey.keyLength || 0}, placeholder: ${anthropicKey.placeholderDetected ? "true" : "false"}`,
+    `OPENAI_API_KEY: ${openaiKey.present ? "present" : "missing"}, len: ${openaiKey.keyLength || 0}, placeholder: ${openaiKey.placeholderDetected ? "true" : "false"}`,
+    `ELEVENLABS_API_KEY: ${elevenlabsKey.present ? "present" : "missing"}, len: ${elevenlabsKey.keyLength || 0}, placeholder: ${elevenlabsKey.placeholderDetected ? "true" : "false"}`,
     `Local model: ${anthropic.useLocalModel ? "enabled" : "disabled"}, base: ${anthropic.baseURLKind || "unknown"}${reason}`,
   ].join("\n");
 }
@@ -281,21 +294,29 @@ const OverlayApp: React.FC = () => {
     const currentMode = modeRef.current;
     console.log("[MODE] current mode", { mode: currentMode, moment });
     if (currentMode === "ultra") {
-      const now = Date.now();
-      if (now - lastSpeechAtRef.current < 1200) return;
-      lastSpeechAtRef.current = now;
+      setUltraState("speaking");
+      const timeout = setTimeout(() => {
+        console.warn("[TTS] speak timeout");
+        setUltraState("waitingForUser");
+      }, 20_000);
 
-      console.log("[ULTRA] speaking...", { moment });
-      void api.speak(text).catch((error: unknown) => {
+      void api.speak(text).then((result: any) => {
+        clearTimeout(timeout);
+        if (result?.providerUsed === "macos" && result?.fallbackReason) {
+          console.warn("[TTS] used macOS fallback", result.fallbackReason);
+        } else if (result?.providerUsed === "openai") {
+          console.log("[TTS] used OpenAI fallback");
+        }
+        setUltraState("waitingForUser");
+      }).catch((error: unknown) => {
+        clearTimeout(timeout);
         console.error("[TTS] error fallback", error);
+        setUltraState("waitingForUser");
       });
       return;
     }
-
-    console.log("[ULTRA] skipped because silent mode", { moment });
-    if (api.stopSpeaking) {
-      void api.stopSpeaking().catch(() => undefined);
-    }
+    console.log("[ULTRA] skipped because silent mode");
+    api.stopSpeaking().catch(() => undefined);
   };
 
   const handleUltraSpokenInput = async (text: string) => {
@@ -304,6 +325,12 @@ const OverlayApp: React.FC = () => {
     setUltraState("thinking");
     console.log("[ULTRA] user said", { text });
     
+    const timeout = setTimeout(() => {
+      console.warn("[ULTRA] converse timeout");
+      setUltraState("waitingForUser");
+      setErrorMessage("Tutor is taking too long to respond. Try again.");
+    }, 20_000);
+
     try {
       const result = await api.ultraConverse({
         message: text,
@@ -313,6 +340,7 @@ const OverlayApp: React.FC = () => {
         screenState,
         sessionHistory: ultraSessionHistory
       });
+      clearTimeout(timeout);
       
       console.log("[ULTRA] tutor reply", result);
       setUltraReply(result.reply);
@@ -324,20 +352,20 @@ const OverlayApp: React.FC = () => {
       ]);
       
       if (result.shouldSpeak) {
-        setUltraState("speaking");
         console.log("[TTS] speak called");
         speakIfUltra(result.reply, "tutor reply");
+      } else {
+        setUltraState("waitingForUser");
       }
       
       if (result.shouldStartWalkthrough && !currentStep && replayState === "idle" && lastNodeId) {
         void replaySavedWorkflow("walkthrough");
       }
-      
-      setUltraState("waitingForUser");
-      console.log("[ULTRA] waiting for user");
     } catch (error) {
+      clearTimeout(timeout);
       console.error("[ULTRA] error", error);
       setUltraState("error");
+      setTimeout(() => setUltraState("waitingForUser"), 3000);
     }
   };
 
@@ -1462,7 +1490,7 @@ const OverlayApp: React.FC = () => {
                   className="specter-workflow-card"
                   onClick={(event) => event.stopPropagation()}
                 >
-                  <div className="specter-workflow-header">
+                    <div className="specter-workflow-header">
                     <div>
                       <div className="specter-kicker">
                         {showFallbackWorkflow ? "Fallback" : "Guided Workspace"}
@@ -1628,6 +1656,12 @@ const OverlayApp: React.FC = () => {
                   disabled={isLoading}
                   mode={mode}
                   onUltraSpokenInput={handleUltraSpokenInput}
+                  onTranscriptionStart={() => {
+                    if (mode === "ultra") setUltraState("transcribing");
+                  }}
+                  onTranscriptionEnd={() => {
+                    if (mode === "ultra" && ultraState === "transcribing") setUltraState("waitingForUser");
+                  }}
                   onFocus={() => {
                     if (import.meta.env.VITE_DEBUG_VERBOSE === "true") console.log("[OVERLAY_INTERACTION] input focused");
                     setIsInputFocused(true);
@@ -1649,9 +1683,23 @@ const OverlayApp: React.FC = () => {
                       fontWeight: 600,
                       color: "rgba(255,255,255,0.42)",
                       letterSpacing: "0.2px",
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '8px'
                     }}
                   >
-                    Looking at {screenState.app}
+                    <span>Looking at {screenState.app}</span>
+                    {mode === "ultra" && (
+                      <span style={{ 
+                        color: ultraState === 'thinking' || ultraState === 'speaking' || ultraState === 'transcribing' ? '#30d158' : 'rgba(255,255,255,0.25)',
+                        fontSize: '9px',
+                        textTransform: 'uppercase',
+                        letterSpacing: '1px',
+                        fontWeight: 800
+                      }}>
+                        {ultraState === 'waitingForUser' ? 'Ready' : ultraState}
+                      </span>
+                    )}
                   </div>
                 )}
               </div>
@@ -1719,7 +1767,10 @@ const OverlayApp: React.FC = () => {
                     </button>
                     <button
                       disabled={isLoading}
-                      onClick={checkAIBackend}
+                      onClick={async () => {
+                        const health = await api.healthCheck();
+                        setAiHealthMessage(formatAIHealthStatus(health));
+                      }}
                       style={{
                         flex: 1,
                         minWidth: "130px",
@@ -1733,7 +1784,40 @@ const OverlayApp: React.FC = () => {
                         cursor: "pointer",
                       }}
                     >
-                      Check AI Backend
+                      Check Voice Backend
+                    </button>
+                    <button
+                      disabled={isLoading}
+                      onClick={async () => {
+                        try {
+                          const res = await api.testVoiceOutput();
+                          const providerNames = {
+                            elevenlabs: "ElevenLabs",
+                            openai: "OpenAI TTS",
+                            macos: "macOS Fallback (Robotic)"
+                          };
+                          let msg = `Voice test successful using ${providerNames[res.providerUsed as keyof typeof providerNames] || res.providerUsed}.`;
+                          if (res.providerUsed !== "elevenlabs" && res.fallbackReason) {
+                            msg += `\nElevenLabs failed: ${res.fallbackReason}`;
+                          }
+                          setAiHealthMessage(msg);
+                        } catch (err) {
+                          setAiHealthMessage(`Voice test failed: ${messageFromError(err)}`);
+                        }
+                      }}
+                      style={{
+                        flex: 1,
+                        border: "1px solid rgba(255,255,255,0.12)",
+                        borderRadius: "10px",
+                        padding: "8px",
+                        color: "white",
+                        background: "rgba(255,105,180,0.14)",
+                        fontSize: "11px",
+                        fontWeight: 700,
+                        cursor: "pointer",
+                      }}
+                    >
+                      Test Voice Output
                     </button>
                     <button
                       disabled={isLoading || !intent}

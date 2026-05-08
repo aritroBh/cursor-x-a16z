@@ -12,6 +12,8 @@ interface InputBarProps {
   onRecordingOverlayMouseLeave?: () => void;
   mode?: "silent" | "ultra";
   onUltraSpokenInput?: (text: string) => void;
+  onTranscriptionStart?: () => void;
+  onTranscriptionEnd?: () => void;
 }
 
 const SpecterMarkIcon = () => (
@@ -172,27 +174,30 @@ export const InputBar: React.FC<InputBarProps> = ({
       }
 
       console.log("[MIC] transcription started", { size: buffer.byteLength });
-      const text = await Promise.race([
+      onTranscriptionStart?.();
+      const result = await Promise.race([
         (window as any).api.transcribe(buffer),
         new Promise((_, reject) =>
           setTimeout(() => reject(Object.assign(new Error("Transcription timed out"), { code: "WHISPER_TIMEOUT" })), 25_000)
         )
       ]);
-      console.log("[MIC] transcription success", {
-        length: typeof text === "string" ? text.length : 0,
-      });
-      if (typeof text === "string" && text.trim()) {
+
+      if (result.ok && typeof result.text === "string" && result.text.trim()) {
+        const text = result.text.trim();
+        console.log("[MIC] transcription success", { length: text.length });
         if (mode === "ultra" && onUltraSpokenInput) {
           console.log("[MIC] ultra mode auto-sending transcription");
-          onUltraSpokenInput(text.trim());
+          onUltraSpokenInput(text);
           setMicState("idle");
         } else {
-          setValue(text.trim());
+          setValue(text);
           setMicMessage("");
           window.setTimeout(() => inputRef.current?.focus(), 0);
         }
       } else {
-        setMicMessage("No transcription returned. Try speaking again.");
+        const msg = result.message || "No transcription returned. Try speaking again.";
+        setMicMessage(msg);
+        console.warn("[MIC] transcription failed/empty", { error: result.error, message: msg });
       }
     } catch (error: any) {
       console.error("[MIC] transcription failed", error);
@@ -203,6 +208,7 @@ export const InputBar: React.FC<InputBarProps> = ({
       }
       setMicState("idle");
     } finally {
+      onTranscriptionEnd?.();
       recordingStartRef.current = null;
       setMicState("idle");
       console.log("[MIC] overlay reset to idle");

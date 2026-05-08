@@ -39,9 +39,25 @@ interface OpenAIHealth {
   whisperConfigured: boolean
 }
 
+interface ElevenLabsHealth {
+  key: KeyHealth
+  configured: boolean
+  voiceId: string
+  modelId: string
+  reason?: string
+}
+
+interface OpenAITTSHealth {
+  key: KeyHealth
+  configured: boolean
+  model: string
+  voice: string
+}
+
 interface OverallHealth {
   readyForRealAppAI: boolean
-  readyForVoice: boolean
+  readyForVoiceInput: boolean
+  readyForNaturalVoiceOutput: boolean
 }
 
 export interface AIHealthResult {
@@ -49,6 +65,8 @@ export interface AIHealthResult {
   overall: OverallHealth
   anthropic: AnthropicHealth
   openai: OpenAIHealth
+  openaiTTS: OpenAITTSHealth
+  elevenlabs: ElevenLabsHealth
 }
 
 function keyHealth(value: string | undefined): KeyHealth {
@@ -80,9 +98,13 @@ function friendlyAnthropicReason(category: string, status?: number): string {
   return status ? `Anthropic request failed with status ${status}.` : 'Anthropic request failed.'
 }
 
+const RACHEL_VOICE_ID = '21m00Tcm4TlvDq8ikWAM'
+const DEFAULT_MODEL_ID = 'eleven_turbo_v2'
+
 export async function checkAIHealth(): Promise<AIHealthResult> {
   const anthropicKey = keyHealth(getAnthropicApiKey())
   const openaiKey = keyHealth(process.env.OPENAI_API_KEY)
+  const elevenlabsKey = keyHealth(process.env.ELEVENLABS_API_KEY)
   const useLocalModel = getUseLocalModel()
   const baseURL = getAnthropicBaseUrlForMode()
 
@@ -90,7 +112,8 @@ export async function checkAIHealth(): Promise<AIHealthResult> {
     ok: false,
     overall: {
       readyForRealAppAI: false,
-      readyForVoice: false
+      readyForVoiceInput: false,
+      readyForNaturalVoiceOutput: false
     },
     anthropic: {
       key: anthropicKey,
@@ -108,6 +131,18 @@ export async function checkAIHealth(): Promise<AIHealthResult> {
     openai: {
       key: openaiKey,
       whisperConfigured: openaiKey.present && !openaiKey.placeholderDetected
+    },
+    openaiTTS: {
+      key: openaiKey,
+      configured: openaiKey.present && !openaiKey.placeholderDetected,
+      model: process.env.OPENAI_TTS_MODEL || 'gpt-4o-mini-tts',
+      voice: process.env.OPENAI_TTS_VOICE || 'nova'
+    },
+    elevenlabs: {
+      key: elevenlabsKey,
+      configured: elevenlabsKey.present && !elevenlabsKey.placeholderDetected,
+      voiceId: process.env.ELEVENLABS_VOICE_ID || RACHEL_VOICE_ID,
+      modelId: process.env.ELEVENLABS_MODEL_ID || DEFAULT_MODEL_ID
     }
   }
 
@@ -161,30 +196,9 @@ export async function checkAIHealth(): Promise<AIHealthResult> {
   }
 
   result.overall.readyForRealAppAI = result.anthropic.configured && result.anthropic.testRequest.pass
-  result.overall.readyForVoice = result.openai.whisperConfigured
-  result.ok = result.overall.readyForRealAppAI && result.overall.readyForVoice
-  safeLog('[AI_BACKEND] health check result', {
-    ok: result.ok,
-    overall: result.overall,
-    anthropic: {
-      keyPresent: result.anthropic.key.present,
-      keyLength: result.anthropic.key.keyLength,
-      placeholderDetected: result.anthropic.key.placeholderDetected,
-      configured: result.anthropic.configured,
-      useLocalModel: result.anthropic.useLocalModel,
-      baseURLKind: result.anthropic.baseURLKind,
-      baseURLOfficial: result.anthropic.baseURLOfficial,
-      plannerModel: result.anthropic.plannerModel,
-      visionModel: result.anthropic.visionModel,
-      testRequest: result.anthropic.testRequest
-    },
-    openai: {
-      keyPresent: result.openai.key.present,
-      keyLength: result.openai.key.keyLength,
-      placeholderDetected: result.openai.key.placeholderDetected,
-      whisperConfigured: result.openai.whisperConfigured
-    }
-  })
-
+  result.overall.readyForVoiceInput = result.openai.whisperConfigured
+  result.overall.readyForNaturalVoiceOutput = result.elevenlabs.configured || result.openaiTTS.configured
+  result.ok = result.overall.readyForRealAppAI && result.overall.readyForVoiceInput && result.overall.readyForNaturalVoiceOutput
+  
   return result
 }

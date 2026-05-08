@@ -730,6 +730,10 @@ app.whenReady().then(async () => {
   })
 
   ipcMain.handle('tts:stop', async () => stopSpeaking())
+  ipcMain.handle('ai:testVoiceOutput', async () => {
+    safeLog('[IPC] ai:testVoiceOutput')
+    return speak('Specter voice test. This is a check of the natural speech system.')
+  })
 
   ipcMain.handle('whisper:transcribe', async (_event, audioData) => {
     const buffer = bufferFromAudioData(audioData)

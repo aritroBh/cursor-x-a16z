@@ -329,3 +329,102 @@ export async function converse(userMessage: string, screenState: any, conversati
     return 'I hit a temporary issue answering that. Keep going with the highlighted next step.'
   }
 }
+
+export interface UltraConversePayload {
+  message: string
+  mode: 'silent' | 'ultra'
+  currentGoal?: string
+  currentStep?: any
+  screenState?: any
+  sessionHistory?: any[]
+}
+
+export interface UltraConverseResult {
+  reply: string
+  intent?: 'answer' | 'start_walkthrough' | 'repeat_step' | 'clarify' | 'stop'
+  suggestedPrompt?: string
+  shouldSpeak?: boolean
+  shouldStartWalkthrough?: boolean
+}
+
+function fallbackUltraReply(message: string): UltraConverseResult {
+  const lower = message.toLowerCase()
+  if (lower.includes('what') && lower.includes('next')) {
+    return {
+      reply: 'Move your cursor toward the highlighted target. I will wait until you are close.',
+      intent: 'repeat_step',
+      shouldSpeak: true
+    }
+  }
+  if (lower.includes('why')) {
+    return {
+      reply: 'This is the next step to accomplish your goal. Keep going!',
+      intent: 'clarify',
+      shouldSpeak: true
+    }
+  }
+  return {
+    reply: 'I am here to help you through the steps. Just follow the ghost cursor.',
+    intent: 'answer',
+    shouldSpeak: true
+  }
+}
+
+export async function ultraConverse(payload: UltraConversePayload): Promise<UltraConverseResult> {
+  const { message, mode, currentGoal, screenState, sessionHistory } = payload
+  const client = createAnthropicClient()
+  
+  if (!client || mode === 'silent') {
+    return fallbackUltraReply(message)
+  }
+
+  try {
+    const history = (sessionHistory || []).slice(-8).map((msg) => ({
+      role: msg.role,
+      content: msg.content
+    }))
+
+    const response = await client.messages.create({
+      model: CLAUDE_MODEL,
+      max_tokens: 700,
+      system:
+        'You are Specter, an encouraging and concise software tutor. You guide the user through tasks on their computer. Keep your responses short (under 2 sentences) because they will be read aloud. Return ONLY valid JSON.',
+      messages: [
+        ...history,
+        {
+          role: 'user',
+          content: JSON.stringify(
+            {
+              userMessage: message,
+              currentGoal,
+              screenState,
+              requiredShape: {
+                reply: 'string (short, conversational)',
+                intent: 'answer | start_walkthrough | repeat_step | clarify | stop',
+                shouldSpeak: 'boolean',
+                shouldStartWalkthrough: 'boolean'
+              }
+            },
+            null,
+            2
+          )
+        }
+      ]
+    })
+
+    const rawText = response.content
+      .flatMap((part) => (part.type === 'text' && 'text' in part && typeof part.text === 'string' ? [part.text] : []))
+      .join('\n')
+
+    const result = extractJson(rawText)
+    return {
+      reply: typeof result.reply === 'string' ? result.reply : fallbackUltraReply(message).reply,
+      intent: result.intent || 'answer',
+      shouldSpeak: typeof result.shouldSpeak === 'boolean' ? result.shouldSpeak : true,
+      shouldStartWalkthrough: typeof result.shouldStartWalkthrough === 'boolean' ? result.shouldStartWalkthrough : false
+    }
+  } catch (error: any) {
+    safeError('[ULTRA] Anthropic converse failed', error)
+    return fallbackUltraReply(message)
+  }
+}

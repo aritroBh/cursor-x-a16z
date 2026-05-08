@@ -1,3 +1,39 @@
+export class MicError extends Error {
+  userMessage: string
+  constructor(message: string, userMessage: string) {
+    super(message)
+    this.name = 'MicError'
+    this.userMessage = userMessage
+  }
+}
+
+function classifyGetUserMediaError(error: unknown): MicError {
+  const name = (error instanceof Error ? error.name : '') || ''
+  const message = (error instanceof Error ? error.message : String(error)) || ''
+
+  if (name === 'NotAllowedError' || name === 'PermissionDeniedError') {
+    return new MicError(message, 'Microphone permission denied. Allow access in System Preferences.')
+  }
+  if (
+    name === 'NotReadableError' ||
+    name === 'AbortError' ||
+    message.toLowerCase().includes('failed to allocate') ||
+    message.toLowerCase().includes('could not start')
+  ) {
+    return new MicError(
+      message,
+      'Microphone unavailable. Close other voice apps (e.g. ChatGPT voice, Meet) and try again.'
+    )
+  }
+  if (name === 'NotFoundError' || name === 'DevicesNotFoundError') {
+    return new MicError(message, 'No microphone found. Plug in a mic and try again.')
+  }
+  if (name === 'SecurityError') {
+    return new MicError(message, 'Microphone access blocked by security policy.')
+  }
+  return new MicError(message, 'Microphone unavailable. Check permission and try again.')
+}
+
 export class MicRecorder {
   private mediaRecorder: MediaRecorder | null = null
   private stream: MediaStream | null = null
@@ -28,10 +64,20 @@ export class MicRecorder {
     console.log('[MIC] start requested')
 
     if (!navigator.mediaDevices?.getUserMedia) {
-      throw new Error('Microphone capture is not available in this browser context.')
+      throw new MicError(
+        'Microphone capture is not available in this browser context.',
+        'Microphone capture is not available. Check browser permissions.'
+      )
     }
 
-    const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
+    let stream: MediaStream
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({ audio: true })
+    } catch (error) {
+      const micError = classifyGetUserMediaError(error)
+      console.error('[MIC] getUserMedia failed', { name: (error as any)?.name, userMessage: micError.userMessage })
+      throw micError
+    }
     console.log('[MIC] permission granted')
 
     const mimeType = this.chooseMimeType()
@@ -43,7 +89,7 @@ export class MicRecorder {
       this.mediaRecorder = new MediaRecorder(stream, options)
     } catch (error) {
       this.stopTracks()
-      throw error
+      throw classifyGetUserMediaError(error)
     }
     this.mimeType = this.mediaRecorder.mimeType || mimeType || 'audio/webm'
     this.mediaRecorder.ondataavailable = (e) => {

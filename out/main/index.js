@@ -1096,6 +1096,78 @@ async function converse(userMessage, screenState, conversationHistory) {
     return "I hit a temporary issue answering that. Keep going with the highlighted next step.";
   }
 }
+function fallbackUltraReply(message) {
+  const lower = message.toLowerCase();
+  if (lower.includes("what") && lower.includes("next")) {
+    return {
+      reply: "Move your cursor toward the highlighted target. I will wait until you are close.",
+      intent: "repeat_step",
+      shouldSpeak: true
+    };
+  }
+  if (lower.includes("why")) {
+    return {
+      reply: "This is the next step to accomplish your goal. Keep going!",
+      intent: "clarify",
+      shouldSpeak: true
+    };
+  }
+  return {
+    reply: "I am here to help you through the steps. Just follow the ghost cursor.",
+    intent: "answer",
+    shouldSpeak: true
+  };
+}
+async function ultraConverse(payload) {
+  const { message, mode, currentGoal, screenState, sessionHistory } = payload;
+  const client = createAnthropicClient();
+  if (!client || mode === "silent") {
+    return fallbackUltraReply(message);
+  }
+  try {
+    const history = (sessionHistory || []).slice(-8).map((msg) => ({
+      role: msg.role,
+      content: msg.content
+    }));
+    const response = await client.messages.create({
+      model: CLAUDE_MODEL,
+      max_tokens: 700,
+      system: "You are Specter, an encouraging and concise software tutor. You guide the user through tasks on their computer. Keep your responses short (under 2 sentences) because they will be read aloud. Return ONLY valid JSON.",
+      messages: [
+        ...history,
+        {
+          role: "user",
+          content: JSON.stringify(
+            {
+              userMessage: message,
+              currentGoal,
+              screenState,
+              requiredShape: {
+                reply: "string (short, conversational)",
+                intent: "answer | start_walkthrough | repeat_step | clarify | stop",
+                shouldSpeak: "boolean",
+                shouldStartWalkthrough: "boolean"
+              }
+            },
+            null,
+            2
+          )
+        }
+      ]
+    });
+    const rawText = response.content.flatMap((part) => part.type === "text" && "text" in part && typeof part.text === "string" ? [part.text] : []).join("\n");
+    const result = extractJson(rawText);
+    return {
+      reply: typeof result.reply === "string" ? result.reply : fallbackUltraReply(message).reply,
+      intent: result.intent || "answer",
+      shouldSpeak: typeof result.shouldSpeak === "boolean" ? result.shouldSpeak : true,
+      shouldStartWalkthrough: typeof result.shouldStartWalkthrough === "boolean" ? result.shouldStartWalkthrough : false
+    };
+  } catch (error) {
+    safeError("[ULTRA] Anthropic converse failed", error);
+    return fallbackUltraReply(message);
+  }
+}
 const ELEVENLABS_API_URL = "https://api.elevenlabs.io/v1/text-to-speech";
 const RACHEL_VOICE_ID = "21m00Tcm4TlvDq8ikWAM";
 const DEFAULT_MODEL_ID = "eleven_turbo_v2";
@@ -1213,9 +1285,22 @@ async function speak(text) {
     await speakFallback(text);
   }
 }
+const WHISPER_TIMEOUT_MS = 2e4;
+function timeoutPromise(ms) {
+  return new Promise((_, reject) => {
+    const timer = setTimeout(() => {
+      const err = new Error(`Whisper transcription timed out after ${ms}ms`);
+      err.code = "WHISPER_TIMEOUT";
+      reject(err);
+    }, ms);
+    if (typeof timer === "object" && timer !== null && "unref" in timer) {
+      timer.unref();
+    }
+  });
+}
 async function transcribe(audioBuffer) {
   const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
-  safeLog("[WHISPER] transcribe called", { bufferSize: audioBuffer?.length || 0 });
+  safeLog("[WHISPER] received buffer", { bufferSize: audioBuffer?.length || 0 });
   if (!audioBuffer || audioBuffer.length === 0) {
     safeWarn("[WHISPER] empty audio buffer, skipping OpenAI");
     return "";
@@ -1229,23 +1314,27 @@ async function transcribe(audioBuffer) {
     safeLog("[WHISPER] installed Node File polyfill for OpenAI uploads");
   }
   try {
-    safeLog("[WHISPER] Calling OpenAI...");
     const openai = new OpenAI({ apiKey: OPENAI_API_KEY });
     const file = await uploads.toFile(audioBuffer, "audio.webm", {
       type: "audio/webm"
     });
     safeLog("[WHISPER] created upload file", { name: "audio.webm", type: "audio/webm" });
-    const response = await openai.audio.transcriptions.create({
-      file,
-      model: "whisper-1"
-    });
+    safeLog("[WHISPER] OpenAI request started");
+    const response = await Promise.race([
+      openai.audio.transcriptions.create({ file, model: "whisper-1" }),
+      timeoutPromise(WHISPER_TIMEOUT_MS)
+    ]);
     safeLog("[WHISPER] transcription success", { textLength: response.text?.length || 0 });
     return response.text || "";
   } catch (error) {
-    const category = error?.name || "Error";
-    const message = error?.message || String(error);
-    safeError("[WHISPER] transcription failed", { category, message });
-    return "";
+    if (error?.code === "WHISPER_TIMEOUT") {
+      safeWarn("[WHISPER] OpenAI request timed out", { timeoutMs: WHISPER_TIMEOUT_MS });
+    } else {
+      const category = error?.name || "Error";
+      const message = error?.message || String(error);
+      safeError("[WHISPER] transcription failed", { category, message });
+    }
+    throw error;
   }
 }
 function keyHealth(value) {
@@ -2784,6 +2873,10 @@ electron.app.whenReady().then(async () => {
     "planner:converse",
     async (_event, userMessage, screenState, conversationHistory) => converse(userMessage, screenState, conversationHistory)
   );
+  electron.ipcMain.handle("ultra:converse", async (_event, payload) => {
+    safeLog("[ULTRA_IPC] ultra:converse received");
+    return ultraConverse(payload);
+  });
   electron.ipcMain.handle("ai:healthCheck", async () => checkAIHealth());
   electron.ipcMain.handle("session:save", async (_event, graph) => {
     if (isLearningGraph(graph)) {

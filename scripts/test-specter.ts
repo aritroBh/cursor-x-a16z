@@ -231,6 +231,10 @@ async function main() {
   check(micRecorder.includes('[MIC] final blob size') && inputBar.includes('No audio captured. Speak a little longer.'), 'MicRecorder/InputBar handle zero-byte recordings without Whisper')
   check(inputBar.includes('handleCancel') && inputBar.includes('onCancel={handleCancel}') && inputBar.includes('Escape'), 'InputBar safely stops recording via cancel button or Escape')
   check(inputBar.includes('setValue(text.trim())') && !inputBar.includes('onSubmit(text)'), 'transcription populates input instead of submitting empty/implicit text')
+  check(whisper.includes('WHISPER_TIMEOUT_MS') && whisper.includes('Promise.race'), 'whisper.ts implements transcription timeout via Promise.race')
+  check(inputBar.includes('Transcription timed out'), 'InputBar displays timeout message on WHISPER_TIMEOUT')
+  check(inputBar.includes('error?.userMessage || "Microphone unavailable'), 'InputBar displays friendly microphone unavailable errors')
+  check(inputBar.includes('if (micState !== "idle") setMicState("idle")'), 'InputBar guarantees mic state resets to idle after failure')
 
   printHeader('Planner and Screener Safety')
 
@@ -430,6 +434,14 @@ async function main() {
   check(overlayAppBody.includes('[ULTRA] speaking...') && overlayAppBody.includes('[ULTRA] skipped because silent mode'), 'renderer logs ultra speech and silent skips')
   check(overlayAppBody.includes('mode,') && mainIndex.includes('[MODE] current mode'), 'real-app flow passes and logs current mode')
   check(readFile('src/main/ai/tts.ts').includes('[TTS] speak called'), 'TTS speak path logs speak calls')
+  check(planner.includes('export async function ultraConverse'), 'planner exports ultraConverse')
+  check(mainIndex.includes("ipcMain.handle('ultra:converse'"), 'index.ts registers ultra:converse IPC')
+  check(preload.includes('ultraConverse:'), 'preload exposes ultraConverse')
+  check(fileExists('src/renderer/overlay/UltraReplyBubble.tsx'), 'UltraReplyBubble component exists')
+  check(overlayAppBody.includes('handleUltraSpokenInput') && overlayAppBody.includes('ultraState'), 'OverlayApp has handleUltraSpokenInput and ultraState')
+  check(overlayAppBody.includes('[ULTRA] user said') && overlayAppBody.includes('[ULTRA] tutor reply'), 'OverlayApp logs user said and tutor reply')
+  check(inputBar.includes('mode === "ultra" && onUltraSpokenInput'), 'InputBar auto-sends to tutor in Ultra mode')
+  check(planner.includes('fallbackUltraReply'), 'ultraConverse provides fallback replies')
 
   printHeader('AI Backend Fallback Safety')
 

@@ -1,5 +1,33 @@
 import { r as reactExports, j as jsxRuntimeExports, c as client } from "./client-CciThgMB.js";
 const api = window.api;
+class MicError extends Error {
+  userMessage;
+  constructor(message, userMessage) {
+    super(message);
+    this.name = "MicError";
+    this.userMessage = userMessage;
+  }
+}
+function classifyGetUserMediaError(error) {
+  const name = (error instanceof Error ? error.name : "") || "";
+  const message = (error instanceof Error ? error.message : String(error)) || "";
+  if (name === "NotAllowedError" || name === "PermissionDeniedError") {
+    return new MicError(message, "Microphone permission denied. Allow access in System Preferences.");
+  }
+  if (name === "NotReadableError" || name === "AbortError" || message.toLowerCase().includes("failed to allocate") || message.toLowerCase().includes("could not start")) {
+    return new MicError(
+      message,
+      "Microphone unavailable. Close other voice apps (e.g. ChatGPT voice, Meet) and try again."
+    );
+  }
+  if (name === "NotFoundError" || name === "DevicesNotFoundError") {
+    return new MicError(message, "No microphone found. Plug in a mic and try again.");
+  }
+  if (name === "SecurityError") {
+    return new MicError(message, "Microphone access blocked by security policy.");
+  }
+  return new MicError(message, "Microphone unavailable. Check permission and try again.");
+}
 class MicRecorder {
   mediaRecorder = null;
   stream = null;
@@ -24,9 +52,19 @@ class MicRecorder {
   async start() {
     console.log("[MIC] start requested");
     if (!navigator.mediaDevices?.getUserMedia) {
-      throw new Error("Microphone capture is not available in this browser context.");
+      throw new MicError(
+        "Microphone capture is not available in this browser context.",
+        "Microphone capture is not available. Check browser permissions."
+      );
     }
-    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    let stream;
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    } catch (error) {
+      const micError = classifyGetUserMediaError(error);
+      console.error("[MIC] getUserMedia failed", { name: error?.name, userMessage: micError.userMessage });
+      throw micError;
+    }
     console.log("[MIC] permission granted");
     const mimeType = this.chooseMimeType();
     const options = mimeType ? { mimeType } : void 0;
@@ -36,7 +74,7 @@ class MicRecorder {
       this.mediaRecorder = new MediaRecorder(stream, options);
     } catch (error) {
       this.stopTracks();
-      throw error;
+      throw classifyGetUserMediaError(error);
     }
     this.mimeType = this.mediaRecorder.mimeType || mimeType || "audio/webm";
     this.mediaRecorder.ondataavailable = (e) => {
@@ -334,7 +372,9 @@ const InputBar = ({
   onFocus,
   onBlur,
   onRecordingOverlayMouseEnter,
-  onRecordingOverlayMouseLeave
+  onRecordingOverlayMouseLeave,
+  mode = "silent",
+  onUltraSpokenInput
 }) => {
   const recorderRef = reactExports.useRef(new MicRecorder());
   const [value, setValue] = reactExports.useState("");
@@ -381,7 +421,7 @@ const InputBar = ({
     } catch (error) {
       console.error("[InputBar] Microphone recording failed:", error);
       recordingActiveRef.current = false;
-      setMicMessage("Microphone unavailable. Check permission and try again.");
+      setMicMessage(error?.userMessage || "Microphone unavailable. Check permission and try again.");
       setMicState("idle");
     }
   };
@@ -420,19 +460,30 @@ const InputBar = ({
         length: typeof text === "string" ? text.length : 0
       });
       if (typeof text === "string" && text.trim()) {
-        setValue(text.trim());
-        setMicMessage("");
-        window.setTimeout(() => inputRef.current?.focus(), 0);
+        if (mode === "ultra" && onUltraSpokenInput) {
+          console.log("[MIC] ultra mode auto-sending transcription");
+          onUltraSpokenInput(text.trim());
+          setMicState("idle");
+        } else {
+          setValue(text.trim());
+          setMicMessage("");
+          window.setTimeout(() => inputRef.current?.focus(), 0);
+        }
       } else {
         setMicMessage("No transcription returned. Try speaking again.");
       }
     } catch (error) {
       console.error("[MIC] transcription failed", error);
-      setMicMessage("Voice transcription failed. You can type instead.");
+      if (error?.code === "WHISPER_TIMEOUT") {
+        setMicMessage("Transcription timed out. Try again.");
+      } else {
+        setMicMessage("Voice transcription failed. You can type instead.");
+      }
+      setMicState("idle");
     } finally {
       recordingStartRef.current = null;
-      setMicState("idle");
-      console.log("[MIC] overlay closed");
+      if (micState !== "idle") setMicState("idle");
+      console.log("[MIC] overlay reset to idle");
     }
   };
   reactExports.useEffect(() => {
@@ -816,6 +867,84 @@ const SessionPanel = ({
     ] })
   ] });
 };
+const UltraReplyBubble = ({ reply, state }) => {
+  if (state === "idle" && !reply) return null;
+  const getStateText = () => {
+    switch (state) {
+      case "listening":
+        return "Listening...";
+      case "transcribing":
+        return "Thinking...";
+      case "thinking":
+        return "Thinking...";
+      case "speaking":
+        return "Speaking...";
+      case "guiding":
+        return "Guiding...";
+      case "error":
+        return "Error";
+      case "waitingForUser":
+      case "idle":
+      default:
+        return "Ready";
+    }
+  };
+  const isBusy = ["listening", "transcribing", "thinking", "speaking"].includes(state);
+  return /* @__PURE__ */ jsxRuntimeExports.jsxs(
+    "div",
+    {
+      className: `ultra-reply-bubble ${isBusy ? "is-busy" : ""}`,
+      style: {
+        marginBottom: "12px",
+        padding: "12px 16px",
+        background: "rgba(18, 18, 22, 0.85)",
+        backdropFilter: "blur(24px)",
+        border: "1px solid rgba(255, 255, 255, 0.1)",
+        borderRadius: "16px",
+        boxShadow: "0 8px 32px rgba(0, 0, 0, 0.4)",
+        display: "flex",
+        flexDirection: "column",
+        gap: "4px",
+        color: "#fff",
+        width: "100%",
+        boxSizing: "border-box"
+      },
+      children: [
+        /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { style: {
+          fontSize: "10px",
+          fontWeight: 700,
+          textTransform: "uppercase",
+          letterSpacing: "0.5px",
+          color: isBusy ? "rgba(191, 90, 242, 0.9)" : "rgba(255, 255, 255, 0.5)",
+          display: "flex",
+          alignItems: "center",
+          gap: "6px"
+        }, children: [
+          isBusy && /* @__PURE__ */ jsxRuntimeExports.jsx("div", { style: {
+            width: "6px",
+            height: "6px",
+            borderRadius: "50%",
+            background: "rgba(191, 90, 242, 0.9)",
+            animation: "pulse 1.5s infinite ease-in-out"
+          } }),
+          !isBusy && /* @__PURE__ */ jsxRuntimeExports.jsx("div", { style: {
+            width: "6px",
+            height: "6px",
+            borderRadius: "50%",
+            background: "rgba(255, 255, 255, 0.5)"
+          } }),
+          getStateText()
+        ] }),
+        reply && /* @__PURE__ */ jsxRuntimeExports.jsx("div", { style: {
+          fontSize: "14px",
+          fontWeight: 500,
+          lineHeight: 1.4,
+          color: "rgba(255, 255, 255, 0.95)"
+        }, children: reply })
+      ]
+    }
+  );
+};
 const SHOW_WALKTHROUGH_DEBUG = false;
 const DEFAULT_REAL_APP_PROMPT = "Teach me one visible action";
 const DEFAULT_CONFIDENCE_THRESHOLD = 0.65;
@@ -947,6 +1076,9 @@ const OverlayApp = () => {
   const [currentStep, setCurrentStep] = reactExports.useState(null);
   const [replayState, setReplayState] = reactExports.useState("idle");
   const [replayMode, setReplayMode] = reactExports.useState(null);
+  const [ultraState, setUltraState] = reactExports.useState("idle");
+  const [ultraReply, setUltraReply] = reactExports.useState("");
+  const [ultraSessionHistory, setUltraSessionHistory] = reactExports.useState([]);
   const [isLoading, setIsLoading] = reactExports.useState(false);
   const [loadingMessage, setLoadingMessage] = reactExports.useState(
     "Analyzing your screen..."
@@ -992,6 +1124,41 @@ const OverlayApp = () => {
     console.log("[ULTRA] skipped because silent mode", { moment });
     if (api.stopSpeaking) {
       void api.stopSpeaking().catch(() => void 0);
+    }
+  };
+  const handleUltraSpokenInput = async (text) => {
+    if (mode !== "ultra") return;
+    setUltraState("thinking");
+    console.log("[ULTRA] user said", { text });
+    try {
+      const result = await api.ultraConverse({
+        message: text,
+        mode,
+        currentGoal: intent,
+        currentStep,
+        screenState,
+        sessionHistory: ultraSessionHistory
+      });
+      console.log("[ULTRA] tutor reply", result);
+      setUltraReply(result.reply);
+      setUltraSessionHistory((prev) => [
+        ...prev,
+        { role: "user", content: text },
+        { role: "assistant", content: result.reply }
+      ]);
+      if (result.shouldSpeak) {
+        setUltraState("speaking");
+        console.log("[TTS] speak called");
+        speakIfUltra(result.reply, "tutor reply");
+      }
+      if (result.shouldStartWalkthrough && !currentStep && replayState === "idle" && lastNodeId) {
+        void replaySavedWorkflow("walkthrough");
+      }
+      setUltraState("waitingForUser");
+      console.log("[ULTRA] waiting for user");
+    } catch (error) {
+      console.error("[ULTRA] error", error);
+      setUltraState("error");
     }
   };
   reactExports.useEffect(() => {
@@ -1091,12 +1258,18 @@ const OverlayApp = () => {
       setReplayState("idle");
       setReplayMode(null);
       setManualConfirmMessage("");
+      if (mode === "ultra") {
+        setUltraState("idle");
+      }
     });
     const offStopped = api.onReplayStopped(() => {
       setCurrentStep(null);
       setReplayState("idle");
       setReplayMode(null);
       setManualConfirmMessage("");
+      if (mode === "ultra") {
+        setUltraState("idle");
+      }
     });
     const offConfirmNeeded = api.onReplayConfirmNeeded((data) => {
       setManualConfirmMessage(
@@ -1187,6 +1360,10 @@ const OverlayApp = () => {
       setReplayMode("walkthrough");
       setReplayState("running");
       setIsLoading(false);
+      if (mode === "ultra") {
+        speakIfUltra("Follow the ghost cursor.", "step start");
+        setUltraState("guiding");
+      }
     });
     const offRetry = api.onReplayRetry((data) => {
       setCurrentStep(walkthroughStepFromReplay(data));
@@ -1203,6 +1380,9 @@ const OverlayApp = () => {
           ghostLocked: true
         };
       });
+      if (mode === "ultra") {
+        speakIfUltra("Nice, you're close. Click when ready.", "target reached");
+      }
     });
     return () => {
       offStep();
@@ -1356,16 +1536,22 @@ const OverlayApp = () => {
     try {
       const result = await api.detectRealAppTargets(testIntent);
       if (result?.error === "AI_BACKEND_UNAVAILABLE") {
+        const msg = "AI vision unavailable. Use controlled demo, pick target manually, or check backend.";
         setRealAppTargets({
           error: "AI_BACKEND_UNAVAILABLE",
           fallbackAvailable: true,
           targets: [],
-          microTask: "AI vision unavailable. Use controlled demo, pick target manually, or check backend.",
+          microTask: msg,
           app: "Unavailable",
           confidenceThreshold: DEFAULT_CONFIDENCE_THRESHOLD
         });
         setSelectedRealAppTarget(null);
         setIsLoading(false);
+        if (mode === "ultra") {
+          setUltraReply("I can't inspect the screen right now, but I can still guide you through the controlled demo or let you pick a target manually.");
+          setUltraState("waitingForUser");
+          speakIfUltra("I can't inspect the screen right now, but I can still guide you through the controlled demo or let you pick a target manually.", "fallback");
+        }
         return;
       }
       const normalizedTargets = Array.isArray(result?.targets) ? result.targets.map(
@@ -2028,12 +2214,15 @@ const OverlayApp = () => {
                   onMouseLeave: () => setInteractivity(false),
                   style: { width: "100%", position: "relative" },
                   children: [
+                    mode === "ultra" && /* @__PURE__ */ jsxRuntimeExports.jsx(UltraReplyBubble, { reply: ultraReply, state: ultraState }),
                     /* @__PURE__ */ jsxRuntimeExports.jsx(
                       InputBar,
                       {
                         onSubmit: startRealAppTest,
                         onNewChat: startNewChat,
                         disabled: isLoading,
+                        mode,
+                        onUltraSpokenInput: handleUltraSpokenInput,
                         onFocus: () => {
                           console.log("[OVERLAY_INTERACTION] input focused");
                           setIsInputFocused(true);

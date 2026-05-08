@@ -42,6 +42,7 @@ const api = {
     ipcRenderer.invoke('planner:plan', userIntent, screenState, sessionHistory, mode),
   converse: (userMessage: string, screenState: any, conversationHistory: any[]) =>
     ipcRenderer.invoke('planner:converse', userMessage, screenState, conversationHistory),
+  ultraConverse: (payload: any) => ipcRenderer.invoke('ultra:converse', payload),
   checkAIBackend: () => ipcRenderer.invoke('ai:healthCheck'),
 
   // Session

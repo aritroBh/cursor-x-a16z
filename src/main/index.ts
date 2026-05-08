@@ -14,7 +14,7 @@ import {
 } from './cursor'
 import { getCoordinateCalibrationDiagnostics, getMousePercent, getMousePosition, waitForMouseAtTarget } from './userCursor'
 import { analyzeScreen, detectScreenTargets, fallbackScreenState, fallbackScreenTargets } from './ai/screener'
-import { planSteps, converse } from './ai/planner'
+import { planSteps, converse, ultraConverse } from './ai/planner'
 import { speak, stopSpeaking } from './ai/tts'
 import { transcribe } from './ai/whisper'
 import { checkAIHealth } from './ai/health'
@@ -590,6 +590,11 @@ app.whenReady().then(async () => {
   ipcMain.handle('planner:converse', async (_event, userMessage, screenState, conversationHistory) =>
     converse(userMessage, screenState, conversationHistory)
   )
+
+  ipcMain.handle('ultra:converse', async (_event, payload) => {
+    safeLog('[ULTRA_IPC] ultra:converse received')
+    return ultraConverse(payload)
+  })
 
   ipcMain.handle('ai:healthCheck', async () => checkAIHealth())
 

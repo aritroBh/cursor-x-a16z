@@ -4,6 +4,7 @@ import { InputBar } from "../overlay/InputBar";
 import { GhostCursor } from "../overlay/GhostCursor";
 import { ModeToggle } from "../overlay/ModeToggle";
 import { SessionPanel } from "../overlay/SessionPanel";
+import { UltraReplyBubble, UltraState } from "../overlay/UltraReplyBubble";
 
 type SpecterMode = "silent" | "ultra";
 type ReplayState = "idle" | "running" | "paused";
@@ -226,6 +227,11 @@ const OverlayApp: React.FC = () => {
   const [currentStep, setCurrentStep] = useState<any>(null);
   const [replayState, setReplayState] = useState<ReplayState>("idle");
   const [replayMode, setReplayMode] = useState<ReplayMode>(null);
+  
+  const [ultraState, setUltraState] = useState<UltraState>("idle");
+  const [ultraReply, setUltraReply] = useState("");
+  const [ultraSessionHistory, setUltraSessionHistory] = useState<any[]>([]);
+
   const [isLoading, setIsLoading] = useState(false);
   const [loadingMessage, setLoadingMessage] = useState(
     "Analyzing your screen...",
@@ -277,6 +283,49 @@ const OverlayApp: React.FC = () => {
     console.log("[ULTRA] skipped because silent mode", { moment });
     if (api.stopSpeaking) {
       void api.stopSpeaking().catch(() => undefined);
+    }
+  };
+
+  const handleUltraSpokenInput = async (text: string) => {
+    if (mode !== "ultra") return;
+    
+    setUltraState("thinking");
+    console.log("[ULTRA] user said", { text });
+    
+    try {
+      const result = await api.ultraConverse({
+        message: text,
+        mode,
+        currentGoal: intent,
+        currentStep,
+        screenState,
+        sessionHistory: ultraSessionHistory
+      });
+      
+      console.log("[ULTRA] tutor reply", result);
+      setUltraReply(result.reply);
+      
+      setUltraSessionHistory(prev => [
+        ...prev,
+        { role: "user", content: text },
+        { role: "assistant", content: result.reply }
+      ]);
+      
+      if (result.shouldSpeak) {
+        setUltraState("speaking");
+        console.log("[TTS] speak called");
+        speakIfUltra(result.reply, "tutor reply");
+      }
+      
+      if (result.shouldStartWalkthrough && !currentStep && replayState === "idle" && lastNodeId) {
+        void replaySavedWorkflow("walkthrough");
+      }
+      
+      setUltraState("waitingForUser");
+      console.log("[ULTRA] waiting for user");
+    } catch (error) {
+      console.error("[ULTRA] error", error);
+      setUltraState("error");
     }
   };
 
@@ -405,6 +454,9 @@ const OverlayApp: React.FC = () => {
       setReplayState("idle");
       setReplayMode(null);
       setManualConfirmMessage("");
+      if (mode === "ultra") {
+        setUltraState("idle");
+      }
     });
 
     const offStopped = api.onReplayStopped(() => {
@@ -412,6 +464,9 @@ const OverlayApp: React.FC = () => {
       setReplayState("idle");
       setReplayMode(null);
       setManualConfirmMessage("");
+      if (mode === "ultra") {
+        setUltraState("idle");
+      }
     });
 
     const offConfirmNeeded = api.onReplayConfirmNeeded((data: any) => {
@@ -525,6 +580,11 @@ const OverlayApp: React.FC = () => {
       setReplayMode("walkthrough");
       setReplayState("running");
       setIsLoading(false);
+      
+      if (mode === "ultra") {
+        speakIfUltra("Follow the ghost cursor.", "step start");
+        setUltraState("guiding");
+      }
     });
 
     const offRetry = api.onReplayRetry((data: any) => {
@@ -543,6 +603,10 @@ const OverlayApp: React.FC = () => {
           ghostLocked: true,
         };
       });
+      
+      if (mode === "ultra") {
+        speakIfUltra("Nice, you're close. Click when ready.", "target reached");
+      }
     });
 
     return () => {
@@ -723,17 +787,24 @@ const OverlayApp: React.FC = () => {
     try {
       const result = await api.detectRealAppTargets(testIntent);
       if (result?.error === "AI_BACKEND_UNAVAILABLE") {
+        const msg = "AI vision unavailable. Use controlled demo, pick target manually, or check backend.";
         setRealAppTargets({
           error: "AI_BACKEND_UNAVAILABLE",
           fallbackAvailable: true,
           targets: [],
-          microTask:
-            "AI vision unavailable. Use controlled demo, pick target manually, or check backend.",
+          microTask: msg,
           app: "Unavailable",
           confidenceThreshold: DEFAULT_CONFIDENCE_THRESHOLD,
         });
         setSelectedRealAppTarget(null);
         setIsLoading(false);
+        
+        if (mode === "ultra") {
+          setUltraReply("I can't inspect the screen right now, but I can still guide you through the controlled demo or let you pick a target manually.");
+          setUltraState("waitingForUser");
+          speakIfUltra("I can't inspect the screen right now, but I can still guide you through the controlled demo or let you pick a target manually.", "fallback");
+        }
+        
         return;
       }
       const normalizedTargets = Array.isArray(result?.targets)
@@ -1527,10 +1598,15 @@ const OverlayApp: React.FC = () => {
                 onMouseLeave={() => setInteractivity(false)}
                 style={{ width: "100%", position: "relative" }}
               >
+                {mode === "ultra" && (
+                  <UltraReplyBubble reply={ultraReply} state={ultraState} />
+                )}
                 <InputBar
                   onSubmit={startRealAppTest}
                   onNewChat={startNewChat}
                   disabled={isLoading}
+                  mode={mode}
+                  onUltraSpokenInput={handleUltraSpokenInput}
                   onFocus={() => {
                     console.log("[OVERLAY_INTERACTION] input focused");
                     setIsInputFocused(true);

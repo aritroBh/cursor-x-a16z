@@ -10,6 +10,8 @@ interface InputBarProps {
   onBlur?: () => void;
   onRecordingOverlayMouseEnter?: () => void;
   onRecordingOverlayMouseLeave?: () => void;
+  mode?: "silent" | "ultra";
+  onUltraSpokenInput?: (text: string) => void;
 }
 
 const SpecterMarkIcon = () => (
@@ -77,6 +79,8 @@ export const InputBar: React.FC<InputBarProps> = ({
   onBlur,
   onRecordingOverlayMouseEnter,
   onRecordingOverlayMouseLeave,
+  mode = "silent",
+  onUltraSpokenInput,
 }) => {
   const recorderRef = useRef(new MicRecorder());
   const [value, setValue] = useState("");
@@ -126,10 +130,10 @@ export const InputBar: React.FC<InputBarProps> = ({
     try {
       await recordingStartRef.current;
       console.log("[MIC] recording started");
-    } catch (error) {
+    } catch (error: any) {
       console.error("[InputBar] Microphone recording failed:", error);
       recordingActiveRef.current = false;
-      setMicMessage("Microphone unavailable. Check permission and try again.");
+      setMicMessage(error?.userMessage || "Microphone unavailable. Check permission and try again.");
       setMicState("idle");
     }
   };
@@ -173,19 +177,30 @@ export const InputBar: React.FC<InputBarProps> = ({
         length: typeof text === "string" ? text.length : 0,
       });
       if (typeof text === "string" && text.trim()) {
-        setValue(text.trim());
-        setMicMessage("");
-        window.setTimeout(() => inputRef.current?.focus(), 0);
+        if (mode === "ultra" && onUltraSpokenInput) {
+          console.log("[MIC] ultra mode auto-sending transcription");
+          onUltraSpokenInput(text.trim());
+          setMicState("idle");
+        } else {
+          setValue(text.trim());
+          setMicMessage("");
+          window.setTimeout(() => inputRef.current?.focus(), 0);
+        }
       } else {
         setMicMessage("No transcription returned. Try speaking again.");
       }
-    } catch (error) {
+    } catch (error: any) {
       console.error("[MIC] transcription failed", error);
-      setMicMessage("Voice transcription failed. You can type instead.");
+      if (error?.code === "WHISPER_TIMEOUT") {
+        setMicMessage("Transcription timed out. Try again.");
+      } else {
+        setMicMessage("Voice transcription failed. You can type instead.");
+      }
+      setMicState("idle");
     } finally {
       recordingStartRef.current = null;
-      setMicState("idle");
-      console.log("[MIC] overlay closed");
+      if (micState !== "idle") setMicState("idle");
+      console.log("[MIC] overlay reset to idle");
     }
   };
 

@@ -307,10 +307,6 @@ const OverlayApp: React.FC = () => {
   const [mirrorFeedbackArm, setMirrorFeedbackArm] = useState<string | null>(null);
   const [mirrorCorrectionCount, setMirrorCorrectionCount] = useState(0);
   const [pitchMode, setPitchMode] = useState(false);
-  const [cursorPercentForSpec, setCursorPercentForSpec] = useState<{
-    x: number;
-    y: number;
-  } | null>(null);
   const [lastTTSProvider, setLastTTSProvider] = useState<'elevenlabs' | 'openai' | 'macos' | null>(null);
   const [screenState, setScreenState] = useState<any>(null);
   const [isInputFocused, setIsInputFocused] = useState(false);
@@ -478,7 +474,6 @@ const OverlayApp: React.FC = () => {
         const overlay = overlayRef.current;
 
         if (overlay && cursorX !== null && cursorY !== null) {
-          setCursorPercentForSpec({ x: cursorX, y: cursorY });
           const distancePx =
             targetX !== null && targetY !== null
               ? cursorTargetDistancePx(cursorX, cursorY, targetX, targetY)
@@ -1555,6 +1550,7 @@ const OverlayApp: React.FC = () => {
     <>
       <div
         ref={overlayRef}
+        data-specter-boundary="true"
         className={overlayClassName}
         style={
           {
@@ -1592,7 +1588,7 @@ const OverlayApp: React.FC = () => {
           <SpecBuddy
             mood={specMood}
             state={displayedBehavior || undefined}
-            cursor={cursorPercentForSpec}
+            enabled={isVisible || isReplayRunning || isLoading}
             checkpointLabel={activeCheckpoint?.label}
             compact={!showDebugTools}
             pitchMode={pitchMode}

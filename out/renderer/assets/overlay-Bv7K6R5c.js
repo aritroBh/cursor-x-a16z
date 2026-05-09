@@ -584,153 +584,318 @@ const InputBar = ({
     ] })
   ] });
 };
-const DEMO_LOOP_MS = 1700;
-function clampPercent$1(value) {
+const GhostCursor = () => {
+  return null;
+};
+function clampPercent(value) {
   return Math.min(100, Math.max(0, value));
 }
-function fallbackStart(step) {
-  const offsetX = step.x > 58 ? -18 : 18;
-  const offsetY = step.y > 58 ? -12 : 12;
-  return {
-    x: clampPercent$1(step.x + offsetX),
-    y: clampPercent$1(step.y + offsetY)
-  };
-}
-const GhostCursor = ({ step }) => {
-  const isIdle = !step || step.type === "idle";
-  const idleX = 65;
-  const idleY = 70;
-  const displayX = isIdle ? idleX : step.x;
-  const displayY = isIdle ? idleY : step.y;
-  if (typeof displayX !== "number" || typeof displayY !== "number") return null;
-  const bubbleOnLeft = displayX > 70;
-  const fallback = !isIdle ? fallbackStart(step) : { x: idleX, y: idleY };
-  const startX = !isIdle && typeof step.ghostStartX === "number" ? step.ghostStartX : fallback.x;
-  const startY = !isIdle && typeof step.ghostStartY === "number" ? step.ghostStartY : fallback.y;
-  const fromX = clampPercent$1(startX) - clampPercent$1(displayX);
-  const fromY = clampPercent$1(startY) - clampPercent$1(displayY);
-  const shouldLoop = !isIdle && step.ghostLoop !== false && step.action !== "wait" && !step.ghostLocked;
-  const hasHint = !isIdle && Boolean(step.instruction || step.targetLabel);
-  const isLocked = !isIdle && step.ghostLocked;
-  const motionStyle = {
-    "--ghost-from-x": `${fromX}vw`,
-    "--ghost-from-y": `${fromY}vh`,
-    "--ghost-loop-ms": `${DEMO_LOOP_MS}ms`,
-    animation: shouldLoop ? "ghost-cursor-demo var(--ghost-loop-ms) cubic-bezier(0.23, 1, 0.32, 1) infinite" : void 0
-  };
-  return /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "ghost-cursor-container", style: {
-    position: "absolute",
-    left: `${displayX}%`,
-    top: `${displayY}%`,
-    transform: "translate(-2px, -2px)",
-    pointerEvents: "none",
-    zIndex: 9999,
-    transition: isIdle ? "left 0.8s ease, top 0.8s ease, opacity 0.5s ease" : "left 0.24s ease, top 0.24s ease",
-    opacity: isIdle ? 0.55 : 1
-  }, children: [
-    /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "ghost-cursor-ring", style: {
-      position: "absolute",
-      width: isLocked ? "48px" : "42px",
-      height: isLocked ? "48px" : "42px",
-      borderRadius: "50%",
-      border: isLocked ? "2px solid rgba(48, 209, 88, 0.72)" : "2px solid rgba(10, 132, 255, 0.45)",
-      background: isLocked ? "rgba(48, 209, 88, 0.14)" : "rgba(10, 132, 255, 0.10)",
-      animation: isLocked || isIdle ? void 0 : "ghost-ring-pulse 1.8s infinite",
-      left: isLocked ? "-23px" : "-20px",
-      top: isLocked ? "-23px" : "-20px",
-      transition: "all 0.18s ease",
-      opacity: isIdle ? 0 : 1
-    } }),
-    /* @__PURE__ */ jsxRuntimeExports.jsxs(
-      "div",
-      {
-        className: "ghost-cursor-motion",
-        style: motionStyle,
-        children: [
-          /* @__PURE__ */ jsxRuntimeExports.jsx(
-            "svg",
-            {
-              className: "ghost-cursor-pointer",
-              width: "34",
-              height: "42",
-              viewBox: "0 0 28 34",
-              "aria-hidden": "true",
-              style: {
-                display: "block",
-                opacity: isLocked ? 0.88 : 0.72,
-                filter: "drop-shadow(0 3px 5px rgba(0,0,0,0.38))",
-                transition: "opacity 0.18s ease"
-              },
-              children: /* @__PURE__ */ jsxRuntimeExports.jsx(
-                "path",
-                {
-                  d: "M2.4 2.3v27.1l7.2-7.4 4.3 10 5.1-2.2-4.3-9.8h10.6L2.4 2.3Z",
-                  fill: "white",
-                  stroke: "rgba(8, 10, 14, 0.92)",
-                  strokeWidth: "2.2",
-                  strokeLinejoin: "round"
-                }
-              )
-            }
-          ),
-          hasHint && /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "instruction-bubble", style: {
-            position: "absolute",
-            ...bubbleOnLeft ? { right: "32px" } : { left: "32px" },
-            top: "18px",
-            background: "rgba(18, 18, 20, 0.72)",
-            color: "white",
-            padding: "6px 9px",
-            borderRadius: "10px",
-            fontSize: "12px",
-            fontWeight: 500,
-            maxWidth: "220px",
-            lineHeight: 1.25,
-            boxShadow: "0 4px 12px rgba(0,0,0,0.24)",
-            border: "1px solid rgba(255,255,255,0.1)",
-            opacity: 0.78
-          }, children: step.instruction || step.targetLabel })
-        ]
+const WalkthroughGuide = ({ step }) => {
+  if (!step || step.type === "idle" || step.action === "wait") return null;
+  const x = clampPercent(step.x ?? 50);
+  const y = clampPercent(step.y ?? 50);
+  const bubbleOnLeft = x > 70;
+  const hasHint = Boolean(step.instruction || step.targetLabel);
+  const isLocked = step.ghostLocked === true;
+  return /* @__PURE__ */ jsxRuntimeExports.jsxs(
+    "div",
+    {
+      className: "walkthrough-guide-container",
+      style: {
+        position: "absolute",
+        left: `${x}%`,
+        top: `${y}%`,
+        transform: "translate(-2px, -2px)",
+        pointerEvents: "none",
+        zIndex: 9998,
+        transition: "left 0.24s ease, top 0.24s ease"
       },
-      isIdle ? "idle" : step.ghostReplayKey || `${step.index ?? "step"}:${step.x}:${step.y}`
-    ),
-    /* @__PURE__ */ jsxRuntimeExports.jsx("style", { children: `
-        .ghost-cursor-motion {
-          transform: translate(0, 0);
-          transform-origin: 3px 3px;
-          will-change: transform, opacity;
-        }
-
-        @keyframes ghost-cursor-demo {
-          0% {
-            opacity: 0;
-            transform: translate(var(--ghost-from-x), var(--ghost-from-y)) scale(0.96);
+      children: [
+        /* @__PURE__ */ jsxRuntimeExports.jsx(
+          "div",
+          {
+            className: "walkthrough-guide-ring",
+            style: {
+              position: "absolute",
+              width: isLocked ? "48px" : "42px",
+              height: isLocked ? "48px" : "42px",
+              borderRadius: "50%",
+              border: isLocked ? "2px solid rgba(48, 209, 88, 0.72)" : "2px solid rgba(10, 132, 255, 0.45)",
+              background: isLocked ? "rgba(48, 209, 88, 0.14)" : "rgba(10, 132, 255, 0.10)",
+              animation: isLocked ? void 0 : "wt-ring-pulse 1.8s infinite",
+              left: isLocked ? "-23px" : "-20px",
+              top: isLocked ? "-23px" : "-20px",
+              transition: "all 0.18s ease"
+            }
           }
-          12% {
-            opacity: 0.5;
+        ),
+        /* @__PURE__ */ jsxRuntimeExports.jsx(
+          "svg",
+          {
+            className: "walkthrough-guide-pointer",
+            width: "34",
+            height: "42",
+            viewBox: "0 0 28 34",
+            "aria-hidden": "true",
+            style: {
+              display: "block",
+              opacity: isLocked ? 0.88 : 0.72,
+              filter: "drop-shadow(0 3px 5px rgba(0,0,0,0.38))",
+              transition: "opacity 0.18s ease"
+            },
+            children: /* @__PURE__ */ jsxRuntimeExports.jsx(
+              "path",
+              {
+                d: "M2.4 2.3v27.1l7.2-7.4 4.3 10 5.1-2.2-4.3-9.8h10.6L2.4 2.3Z",
+                fill: "white",
+                stroke: "rgba(8, 10, 14, 0.92)",
+                strokeWidth: "2.2",
+                strokeLinejoin: "round"
+              }
+            )
           }
-          58% {
-            opacity: 0.76;
-            transform: translate(0, 0) scale(1);
+        ),
+        hasHint && /* @__PURE__ */ jsxRuntimeExports.jsx(
+          "div",
+          {
+            className: "walkthrough-guide-bubble",
+            style: {
+              position: "absolute",
+              ...bubbleOnLeft ? { right: "32px" } : { left: "32px" },
+              top: "18px",
+              background: "rgba(18, 18, 20, 0.72)",
+              color: "white",
+              padding: "6px 9px",
+              borderRadius: "10px",
+              fontSize: "12px",
+              fontWeight: 500,
+              maxWidth: "220px",
+              lineHeight: 1.25,
+              boxShadow: "0 4px 12px rgba(0,0,0,0.24)",
+              border: "1px solid rgba(255,255,255,0.1)",
+              opacity: 0.78
+            },
+            children: step.instruction || step.targetLabel
           }
-          82% {
-            opacity: 0.76;
-            transform: translate(0, 0) scale(1);
-          }
-          100% {
-            opacity: 0;
-            transform: translate(0, 0) scale(1);
-          }
-        }
-
-        @keyframes ghost-ring-pulse {
+        ),
+        /* @__PURE__ */ jsxRuntimeExports.jsx("style", { children: `
+        @keyframes wt-ring-pulse {
           0% { transform: scale(0.55); opacity: 0.72; }
           100% { transform: scale(1.35); opacity: 0; }
         }
       ` })
-  ] });
+      ]
+    }
+  );
 };
-function clampPercent(value, fallback) {
-  return typeof value === "number" && Number.isFinite(value) ? Math.min(100, Math.max(0, value)) : fallback;
+const DEFAULTS = {
+  ghostSize: 48,
+  minMargin: 18,
+  maxMargin: 32,
+  minTravelMs: 4e3,
+  maxTravelMs: 9e3,
+  minPauseMs: 1e3,
+  maxPauseMs: 3e3
+};
+function randomRange(min, max) {
+  return min + Math.random() * (max - min);
+}
+function randomEdge(exclude) {
+  const edges = ["top", "right", "bottom", "left"];
+  const pool = exclude ? edges.filter((e) => e !== exclude) : edges;
+  return pool[Math.floor(Math.random() * pool.length)];
+}
+function getBounds(boundaryRefOrSelector) {
+  {
+    const el = document.querySelector(boundaryRefOrSelector);
+    if (el) return el.getBoundingClientRect();
+  }
+  return {
+    left: 0,
+    top: 0,
+    right: window.innerWidth,
+    bottom: window.innerHeight,
+    width: window.innerWidth,
+    height: window.innerHeight,
+    x: 0,
+    y: 0,
+    toJSON() {
+      return this;
+    }
+  };
+}
+function pickTargetOnEdge(edge, rect, margin, ghostSize, avoidBottomCenter) {
+  const minX = rect.left + margin;
+  const minY = rect.top + margin;
+  const maxX = Math.max(minX, rect.right - margin - ghostSize);
+  const maxY = Math.max(minY, rect.bottom - margin - ghostSize);
+  switch (edge) {
+    case "top":
+      return { x: randomRange(minX, maxX), y: minY };
+    case "right":
+      return { x: maxX, y: randomRange(minY, maxY) };
+    case "bottom": {
+      if (avoidBottomCenter && rect.width > 0) {
+        const centerX = (rect.left + rect.right) / 2;
+        const safeW = rect.width * 0.35;
+        const leftMin = minX;
+        const leftMax = Math.max(leftMin, centerX - safeW);
+        const rightMin = Math.min(maxX, centerX + safeW);
+        const rightMax = maxX;
+        const side = Math.random() > 0.5 ? "left" : "right";
+        const x = side === "left" ? randomRange(leftMin, leftMax) : randomRange(rightMin, rightMax);
+        return { x, y: maxY };
+      }
+      return { x: randomRange(minX, maxX), y: maxY };
+    }
+    case "left":
+      return { x: minX, y: randomRange(minY, maxY) };
+  }
+}
+function clampPoint(point, rect, ghostSize, margin) {
+  const minX = rect.left + margin;
+  const minY = rect.top + margin;
+  const maxX = Math.max(minX, rect.right - margin - ghostSize);
+  const maxY = Math.max(minY, rect.bottom - margin - ghostSize);
+  return {
+    x: Math.min(maxX, Math.max(minX, point.x)),
+    y: Math.min(maxY, Math.max(minY, point.y))
+  };
+}
+function usePerimeterRoam(enabled, boundaryRefOrSelector, options) {
+  const {
+    ghostSize = DEFAULTS.ghostSize,
+    minMargin = DEFAULTS.minMargin,
+    maxMargin = DEFAULTS.maxMargin,
+    minTravelMs = DEFAULTS.minTravelMs,
+    maxTravelMs = DEFAULTS.maxTravelMs,
+    minPauseMs = DEFAULTS.minPauseMs,
+    maxPauseMs = DEFAULTS.maxPauseMs,
+    avoidBottomCenter = true
+  } = options || {};
+  const [position, setPosition] = reactExports.useState({ x: minMargin, y: minMargin });
+  const [edge, setEdge] = reactExports.useState("top");
+  const [transitionDuration, setTransitionDuration] = reactExports.useState(0);
+  const [isPaused, setIsPaused] = reactExports.useState(false);
+  const reducedMotionRef = reactExports.useRef(false);
+  const timerRef = reactExports.useRef(null);
+  const isMountedRef = reactExports.useRef(true);
+  const currentEdgeRef = reactExports.useRef("top");
+  const getBoundsCallback = reactExports.useCallback(
+    () => getBounds(boundaryRefOrSelector),
+    [boundaryRefOrSelector]
+  );
+  const moveToNextTarget = reactExports.useCallback(() => {
+    if (!isMountedRef.current) return;
+    const rect = getBoundsCallback();
+    const margin = Math.round(randomRange(minMargin, maxMargin));
+    const newEdge = randomEdge(currentEdgeRef.current);
+    currentEdgeRef.current = newEdge;
+    const target = pickTargetOnEdge(newEdge, rect, margin, ghostSize, avoidBottomCenter);
+    const clamped = clampPoint(target, rect, ghostSize, margin);
+    const travelMs = Math.round(randomRange(minTravelMs, maxTravelMs));
+    const pauseMs = Math.round(randomRange(minPauseMs, maxPauseMs));
+    setEdge(newEdge);
+    setTransitionDuration(travelMs);
+    setPosition(clamped);
+    setIsPaused(false);
+    if (reducedMotionRef.current) {
+      setTransitionDuration(0);
+      return;
+    }
+    timerRef.current = window.setTimeout(() => {
+      if (!isMountedRef.current) return;
+      setIsPaused(true);
+      timerRef.current = window.setTimeout(() => {
+        moveToNextTarget();
+      }, pauseMs);
+    }, travelMs);
+  }, [
+    getBoundsCallback,
+    ghostSize,
+    minMargin,
+    maxMargin,
+    minTravelMs,
+    maxTravelMs,
+    minPauseMs,
+    maxPauseMs,
+    avoidBottomCenter
+  ]);
+  reactExports.useEffect(() => {
+    isMountedRef.current = true;
+    const mql = window.matchMedia("(prefers-reduced-motion: reduce)");
+    reducedMotionRef.current = mql.matches;
+    const onChange = (e) => {
+      reducedMotionRef.current = e.matches;
+      if (e.matches) {
+        if (timerRef.current) {
+          window.clearTimeout(timerRef.current);
+          timerRef.current = null;
+        }
+        setTransitionDuration(0);
+        setIsPaused(true);
+      } else if (enabled) {
+        moveToNextTarget();
+      }
+    };
+    mql.addEventListener("change", onChange);
+    if (enabled && !reducedMotionRef.current) {
+      moveToNextTarget();
+    } else if (enabled && reducedMotionRef.current) {
+      const rect = getBoundsCallback();
+      const target = pickTargetOnEdge(randomEdge(), rect, minMargin, ghostSize, avoidBottomCenter);
+      setTransitionDuration(0);
+      setPosition(clampPoint(target, rect, ghostSize, minMargin));
+      setEdge(currentEdgeRef.current);
+      setIsPaused(true);
+    }
+    return () => {
+      isMountedRef.current = false;
+      mql.removeEventListener("change", onChange);
+      if (timerRef.current) {
+        window.clearTimeout(timerRef.current);
+        timerRef.current = null;
+      }
+    };
+  }, [
+    enabled,
+    moveToNextTarget,
+    getBoundsCallback,
+    ghostSize,
+    minMargin,
+    avoidBottomCenter
+  ]);
+  reactExports.useEffect(() => {
+    if (!enabled) return;
+    const onResize = () => {
+      const rect = getBoundsCallback();
+      setPosition((prev) => clampPoint(prev, rect, ghostSize, minMargin));
+    };
+    window.addEventListener("resize", onResize);
+    let ro = null;
+    if (typeof ResizeObserver !== "undefined") {
+      const el = document.querySelector(boundaryRefOrSelector);
+      if (el) {
+        ro = new ResizeObserver(() => {
+          const rect = getBoundsCallback();
+          setPosition((prev) => clampPoint(prev, rect, ghostSize, minMargin));
+        });
+        ro.observe(el);
+      }
+    }
+    return () => {
+      window.removeEventListener("resize", onResize);
+      if (ro) ro.disconnect();
+    };
+  }, [enabled, getBoundsCallback, ghostSize, minMargin, boundaryRefOrSelector]);
+  return {
+    x: position.x,
+    y: position.y,
+    edge,
+    isMoving: !isPaused,
+    isPaused,
+    transitionDuration
+  };
 }
 function labelForMood(mood, state) {
   if (mood === "flow") return `flow ${Math.round((state?.flowScore ?? 0.82) * 100)}%`;
@@ -741,74 +906,93 @@ function labelForMood(mood, state) {
   if (mood === "judging") return "judging your click";
   return state ? `confidence ${Math.round(state.decisionConfidence * 100)}%` : "measuring";
 }
+function resolveAnimationClass(mood, isMoving) {
+  if (isMoving) return "spec-buddy--moving";
+  if (mood === "thinking") return "spec-buddy--thinking";
+  if (mood === "stuck") return "spec-buddy--stuck";
+  if (mood === "celebrating") return "spec-buddy--celebrating";
+  if (mood === "flow") return "spec-buddy--flow";
+  if (mood === "mirroring") return "spec-buddy--mirroring";
+  if (mood === "judging") return "spec-buddy--judging";
+  return "spec-buddy--idle";
+}
 function renderEyes(mood) {
   if (mood === "thinking") {
     return /* @__PURE__ */ jsxRuntimeExports.jsxs(jsxRuntimeExports.Fragment, { children: [
-      /* @__PURE__ */ jsxRuntimeExports.jsx("path", { className: "spec-buddy__brow", d: "M28 31c5-4 10-4 15-1" }),
-      /* @__PURE__ */ jsxRuntimeExports.jsx("circle", { className: "spec-buddy__eye", cx: "34", cy: "40", r: "4.2" }),
-      /* @__PURE__ */ jsxRuntimeExports.jsx("circle", { className: "spec-buddy__eye", cx: "57", cy: "38", r: "4.2" }),
-      /* @__PURE__ */ jsxRuntimeExports.jsx("circle", { className: "spec-buddy__pupil", cx: "32.5", cy: "40.5", r: "1.7" }),
-      /* @__PURE__ */ jsxRuntimeExports.jsx("circle", { className: "spec-buddy__pupil", cx: "55.5", cy: "38.5", r: "1.7" })
+      /* @__PURE__ */ jsxRuntimeExports.jsx("path", { className: "spec-buddy__brow", d: "M22 26c4-3 8-3 12-1" }),
+      /* @__PURE__ */ jsxRuntimeExports.jsx("circle", { className: "spec-buddy__eye", cx: "27", cy: "33", r: "3.2" }),
+      /* @__PURE__ */ jsxRuntimeExports.jsx("circle", { className: "spec-buddy__eye", cx: "45", cy: "31", r: "3.2" }),
+      /* @__PURE__ */ jsxRuntimeExports.jsx("circle", { className: "spec-buddy__pupil", cx: "26", cy: "33.5", r: "1.2" }),
+      /* @__PURE__ */ jsxRuntimeExports.jsx("circle", { className: "spec-buddy__pupil", cx: "44", cy: "31.5", r: "1.2" })
     ] });
   }
   if (mood === "stuck") {
     return /* @__PURE__ */ jsxRuntimeExports.jsxs(jsxRuntimeExports.Fragment, { children: [
-      /* @__PURE__ */ jsxRuntimeExports.jsx("path", { className: "spec-buddy__eye-line", d: "M29 39c4-3 9-3 13 0" }),
-      /* @__PURE__ */ jsxRuntimeExports.jsx("path", { className: "spec-buddy__eye-line", d: "M51 39c4-3 9-3 13 0" }),
-      /* @__PURE__ */ jsxRuntimeExports.jsx("path", { className: "spec-buddy__mouth worried", d: "M41 53c5-4 10-4 15 0" })
+      /* @__PURE__ */ jsxRuntimeExports.jsx("path", { className: "spec-buddy__eye-line", d: "M23 32c3-2 7-2 10 0" }),
+      /* @__PURE__ */ jsxRuntimeExports.jsx("path", { className: "spec-buddy__eye-line", d: "M40 32c3-2 7-2 10 0" }),
+      /* @__PURE__ */ jsxRuntimeExports.jsx("path", { className: "spec-buddy__mouth worried", d: "M33 42c3-3 7-3 10 0" })
     ] });
   }
   if (mood === "flow") {
     return /* @__PURE__ */ jsxRuntimeExports.jsxs(jsxRuntimeExports.Fragment, { children: [
-      /* @__PURE__ */ jsxRuntimeExports.jsx("circle", { className: "spec-buddy__eye wide", cx: "34", cy: "39", r: "5.2" }),
-      /* @__PURE__ */ jsxRuntimeExports.jsx("circle", { className: "spec-buddy__eye wide", cx: "57", cy: "39", r: "5.2" }),
-      /* @__PURE__ */ jsxRuntimeExports.jsx("path", { className: "spec-buddy__mouth happy", d: "M39 52c4 5 14 5 18 0" })
+      /* @__PURE__ */ jsxRuntimeExports.jsx("circle", { className: "spec-buddy__eye wide", cx: "27", cy: "33", r: "4" }),
+      /* @__PURE__ */ jsxRuntimeExports.jsx("circle", { className: "spec-buddy__eye wide", cx: "45", cy: "33", r: "4" }),
+      /* @__PURE__ */ jsxRuntimeExports.jsx("path", { className: "spec-buddy__mouth happy", d: "M31 43c3 4 10 4 13 0" })
     ] });
   }
   if (mood === "celebrating") {
     return /* @__PURE__ */ jsxRuntimeExports.jsxs(jsxRuntimeExports.Fragment, { children: [
-      /* @__PURE__ */ jsxRuntimeExports.jsx("path", { className: "spec-buddy__star-eye", d: "M34 31l2.1 5 5.4.4-4.1 3.6 1.3 5.2-4.7-2.7-4.7 2.7 1.3-5.2-4.1-3.6 5.4-.4z" }),
-      /* @__PURE__ */ jsxRuntimeExports.jsx("path", { className: "spec-buddy__star-eye", d: "M58 31l2.1 5 5.4.4-4.1 3.6 1.3 5.2-4.7-2.7-4.7 2.7 1.3-5.2-4.1-3.6 5.4-.4z" }),
-      /* @__PURE__ */ jsxRuntimeExports.jsx("path", { className: "spec-buddy__mouth happy", d: "M39 54c4 5 14 5 18 0" })
+      /* @__PURE__ */ jsxRuntimeExports.jsx("path", { className: "spec-buddy__star-eye", d: "M27 27l1.6 3.8 4.2.3-3.1 2.7 1 4-3.7-2.1-3.7 2.1 1-4-3.1-2.7 4.2-.3z" }),
+      /* @__PURE__ */ jsxRuntimeExports.jsx("path", { className: "spec-buddy__star-eye", d: "M46 27l1.6 3.8 4.2.3-3.1 2.7 1 4-3.7-2.1-3.7 2.1 1-4-3.1-2.7 4.2-.3z" }),
+      /* @__PURE__ */ jsxRuntimeExports.jsx("path", { className: "spec-buddy__mouth happy", d: "M31 44c3 4 10 4 13 0" })
     ] });
   }
   if (mood === "mirroring") {
     return /* @__PURE__ */ jsxRuntimeExports.jsxs(jsxRuntimeExports.Fragment, { children: [
-      /* @__PURE__ */ jsxRuntimeExports.jsx("ellipse", { className: "spec-buddy__eye glow", cx: "34", cy: "39", rx: "5.8", ry: "4.6" }),
-      /* @__PURE__ */ jsxRuntimeExports.jsx("ellipse", { className: "spec-buddy__eye glow", cx: "57", cy: "39", rx: "5.8", ry: "4.6" }),
-      /* @__PURE__ */ jsxRuntimeExports.jsx("path", { className: "spec-buddy__mouth calm", d: "M42 54c4 2 9 2 13 0" })
+      /* @__PURE__ */ jsxRuntimeExports.jsx("ellipse", { className: "spec-buddy__eye glow", cx: "27", cy: "33", rx: "4.5", ry: "3.6" }),
+      /* @__PURE__ */ jsxRuntimeExports.jsx("ellipse", { className: "spec-buddy__eye glow", cx: "45", cy: "33", rx: "4.5", ry: "3.6" }),
+      /* @__PURE__ */ jsxRuntimeExports.jsx("path", { className: "spec-buddy__mouth calm", d: "M33 44c3 2 7 2 10 0" })
     ] });
   }
   if (mood === "judging") {
     return /* @__PURE__ */ jsxRuntimeExports.jsxs(jsxRuntimeExports.Fragment, { children: [
-      /* @__PURE__ */ jsxRuntimeExports.jsx("path", { className: "spec-buddy__eye-line judging", d: "M27 38c7-2 13-1 18 2" }),
-      /* @__PURE__ */ jsxRuntimeExports.jsx("path", { className: "spec-buddy__eye-line judging", d: "M51 39c6-3 12-3 18-1" }),
-      /* @__PURE__ */ jsxRuntimeExports.jsx("circle", { className: "spec-buddy__pupil judging", cx: "36", cy: "39", r: "1.9" }),
-      /* @__PURE__ */ jsxRuntimeExports.jsx("circle", { className: "spec-buddy__pupil judging", cx: "59", cy: "38", r: "1.9" }),
-      /* @__PURE__ */ jsxRuntimeExports.jsx("path", { className: "spec-buddy__mouth flat", d: "M41 54h15" })
+      /* @__PURE__ */ jsxRuntimeExports.jsx("path", { className: "spec-buddy__eye-line judging", d: "M21 31c5-2 10-1 14 2" }),
+      /* @__PURE__ */ jsxRuntimeExports.jsx("path", { className: "spec-buddy__eye-line judging", d: "M40 32c5-2 10-2 14-1" }),
+      /* @__PURE__ */ jsxRuntimeExports.jsx("circle", { className: "spec-buddy__pupil judging", cx: "29", cy: "33", r: "1.4" }),
+      /* @__PURE__ */ jsxRuntimeExports.jsx("circle", { className: "spec-buddy__pupil judging", cx: "47", cy: "32", r: "1.4" }),
+      /* @__PURE__ */ jsxRuntimeExports.jsx("path", { className: "spec-buddy__mouth flat", d: "M33 44h11" })
     ] });
   }
   return /* @__PURE__ */ jsxRuntimeExports.jsxs(jsxRuntimeExports.Fragment, { children: [
-    /* @__PURE__ */ jsxRuntimeExports.jsx("circle", { className: "spec-buddy__eye", cx: "34", cy: "39", r: "4.8" }),
-    /* @__PURE__ */ jsxRuntimeExports.jsx("circle", { className: "spec-buddy__eye", cx: "57", cy: "39", r: "4.8" }),
-    /* @__PURE__ */ jsxRuntimeExports.jsx("path", { className: "spec-buddy__mouth calm", d: "M41 53c4 3 11 3 15 0" })
+    /* @__PURE__ */ jsxRuntimeExports.jsx("circle", { className: "spec-buddy__eye", cx: "27", cy: "33", r: "3.6" }),
+    /* @__PURE__ */ jsxRuntimeExports.jsx("circle", { className: "spec-buddy__eye", cx: "45", cy: "33", r: "3.6" }),
+    /* @__PURE__ */ jsxRuntimeExports.jsx("path", { className: "spec-buddy__mouth calm", d: "M33 43c3 2 8 2 11 0" })
   ] });
 }
-const SpecBuddy = ({ mood, state, cursor, checkpointLabel, compact = false, pitchMode = false }) => {
-  const x = clampPercent(cursor?.x ?? 78, 78);
-  const y = clampPercent(cursor?.y ?? 74, 74);
-  const style = cursor ? {
-    left: `clamp(48px, ${x}vw, calc(100vw - 48px))`,
-    top: `clamp(74px, calc(${y}vh - 80px), calc(100vh - 56px))`
-  } : {
-    right: compact ? "18px" : "26px",
-    bottom: compact ? "86px" : "118px"
-  };
+const SpecBuddy = ({
+  mood,
+  state,
+  enabled = true,
+  checkpointLabel,
+  compact = false,
+  pitchMode = false
+}) => {
+  const { x, y, edge, isMoving, transitionDuration } = usePerimeterRoam(
+    enabled,
+    '[data-specter-boundary="true"]',
+    { ghostSize: 56, avoidBottomCenter: true }
+  );
+  const animClass = resolveAnimationClass(mood, isMoving);
+  const tiltClass = isMoving ? edge === "left" ? "spec-buddy--tilt-left" : edge === "right" ? "spec-buddy--tilt-right" : "" : "";
   return /* @__PURE__ */ jsxRuntimeExports.jsxs(
     "div",
     {
-      className: `spec-buddy spec-buddy--${mood} ${compact ? "spec-buddy--compact" : ""} ${pitchMode ? "spec-buddy--pitch" : ""}`,
-      style,
+      className: `spec-buddy spec-buddy--${mood} ${animClass} ${tiltClass} ${compact ? "spec-buddy--compact" : ""} ${pitchMode ? "spec-buddy--pitch" : ""}`,
+      style: {
+        left: `${x}px`,
+        top: `${y}px`,
+        transitionDuration: `${transitionDuration}ms`
+      },
       children: [
         pitchMode && /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "spec-buddy__pitch-tags", "aria-hidden": "true", children: [
           /* @__PURE__ */ jsxRuntimeExports.jsx("span", { children: "measured behavior" }),
@@ -822,7 +1006,7 @@ const SpecBuddy = ({ mood, state, cursor, checkpointLabel, compact = false, pitc
           /* @__PURE__ */ jsxRuntimeExports.jsx("span", {}),
           /* @__PURE__ */ jsxRuntimeExports.jsx("span", {})
         ] }),
-        /* @__PURE__ */ jsxRuntimeExports.jsxs("svg", { className: "spec-buddy__svg", width: "92", height: "98", viewBox: "0 0 92 98", "aria-hidden": "true", children: [
+        /* @__PURE__ */ jsxRuntimeExports.jsxs("svg", { className: "spec-buddy__svg", width: "72", height: "78", viewBox: "0 0 72 78", "aria-hidden": "true", children: [
           /* @__PURE__ */ jsxRuntimeExports.jsx("defs", { children: /* @__PURE__ */ jsxRuntimeExports.jsxs("filter", { id: "spec-soft-glow", x: "-40%", y: "-40%", width: "180%", height: "180%", children: [
             /* @__PURE__ */ jsxRuntimeExports.jsx("feGaussianBlur", { stdDeviation: "3", result: "blur" }),
             /* @__PURE__ */ jsxRuntimeExports.jsxs("feMerge", { children: [
@@ -834,15 +1018,13 @@ const SpecBuddy = ({ mood, state, cursor, checkpointLabel, compact = false, pitc
             "path",
             {
               className: "spec-buddy__body",
-              d: "M17 45c0-20 12-35 29-35s29 15 29 35v32c0 4-4 6-7 3l-6-5-6 8c-2 3-6 3-8 0l-4-6-5 6c-2 3-6 3-8 0l-5-7-6 5c-3 3-7 1-7-3V45Z"
+              d: "M36 4c18 0 32 14 32 32v24c0 3-2 5-4 3l-5-4-5 6c-2 2-4 2-6 0l-4-5-4 5c-2 2-4 2-6 0l-4-5-5 4c-2 2-4 0-4-3V36C16 18 18 4 36 4Z"
             }
           ),
-          /* @__PURE__ */ jsxRuntimeExports.jsx("path", { className: "spec-buddy__shine", d: "M28 25c4-7 10-11 18-12" }),
-          /* @__PURE__ */ jsxRuntimeExports.jsx("path", { className: "spec-buddy__arm left", d: "M20 55c-8 4-11 9-9 15" }),
-          /* @__PURE__ */ jsxRuntimeExports.jsx("path", { className: "spec-buddy__arm right", d: "M72 55c8 4 11 9 9 15" }),
+          /* @__PURE__ */ jsxRuntimeExports.jsx("path", { className: "spec-buddy__shine", d: "M22 16c3-5 8-8 14-9" }),
           mood === "judging" && /* @__PURE__ */ jsxRuntimeExports.jsxs(jsxRuntimeExports.Fragment, { children: [
-            /* @__PURE__ */ jsxRuntimeExports.jsx("path", { className: "spec-buddy__arm-cross", d: "M27 61c10 6 25 7 39 1" }),
-            /* @__PURE__ */ jsxRuntimeExports.jsx("path", { className: "spec-buddy__arm-cross", d: "M64 59c-11 9-24 11-38 6" })
+            /* @__PURE__ */ jsxRuntimeExports.jsx("path", { className: "spec-buddy__arm-cross", d: "M21 40c8 5 20 6 31 1" }),
+            /* @__PURE__ */ jsxRuntimeExports.jsx("path", { className: "spec-buddy__arm-cross", d: "M51 38c-9 7-20 9-31 5" })
           ] }),
           renderEyes(mood)
         ] }),
@@ -1232,15 +1414,11 @@ function normalizedRealAppTarget(target) {
   };
 }
 function walkthroughStepFromReplay(data) {
-  const ghost = data.ghost || {};
   return {
     ...data.step,
     index: data.index,
     total: data.total,
     retryReason: data.reason,
-    ghostStartX: ghost.startX,
-    ghostStartY: ghost.startY,
-    ghostLoop: ghost.loop !== false,
     ghostLocked: false,
     ghostReplayKey: `${data.index}:${data.attempt ?? 0}`
   };
@@ -1285,7 +1463,6 @@ const OverlayApp = () => {
   const [mirrorFeedbackArm, setMirrorFeedbackArm] = reactExports.useState(null);
   const [mirrorCorrectionCount, setMirrorCorrectionCount] = reactExports.useState(0);
   const [pitchMode, setPitchMode] = reactExports.useState(false);
-  const [cursorPercentForSpec, setCursorPercentForSpec] = reactExports.useState(null);
   const [lastTTSProvider, setLastTTSProvider] = reactExports.useState(null);
   const [screenState, setScreenState] = reactExports.useState(null);
   const [isInputFocused, setIsInputFocused] = reactExports.useState(false);
@@ -1423,7 +1600,6 @@ const OverlayApp = () => {
         const cursorY = finitePercent(position?.y);
         const overlay = overlayRef.current;
         if (overlay && cursorX !== null && cursorY !== null) {
-          setCursorPercentForSpec({ x: cursorX, y: cursorY });
           const distancePx = targetX !== null && targetY !== null ? cursorTargetDistancePx(cursorX, cursorY, targetX, targetY) : null;
           const reveal = cursorRevealTuning(isWalkthroughActive, distancePx);
           const centerAlpha = Math.max(0.18, 1 - reveal.strength);
@@ -1698,7 +1874,6 @@ const OverlayApp = () => {
         if (!current || current.index !== data.index) return current;
         return {
           ...current,
-          ghostLoop: false,
           ghostLocked: true
         };
       });
@@ -2302,6 +2477,7 @@ const OverlayApp = () => {
     "div",
     {
       ref: overlayRef,
+      "data-specter-boundary": "true",
       className: overlayClassName,
       style: {
         "--cursor-x": "50vw",
@@ -2334,18 +2510,14 @@ const OverlayApp = () => {
             style: { pointerEvents: "none" }
           }
         ),
-        /* @__PURE__ */ jsxRuntimeExports.jsx(
-          GhostCursor,
-          {
-            step: currentStep || (isVisible ? { type: "idle" } : null)
-          }
-        ),
+        /* @__PURE__ */ jsxRuntimeExports.jsx(GhostCursor, { mood: specMood, isVisible }),
+        /* @__PURE__ */ jsxRuntimeExports.jsx(WalkthroughGuide, { step: currentStep }),
         (isVisible || isReplayRunning || isLoading) && /* @__PURE__ */ jsxRuntimeExports.jsx(
           SpecBuddy,
           {
             mood: specMood,
             state: displayedBehavior || void 0,
-            cursor: cursorPercentForSpec,
+            enabled: isVisible || isReplayRunning || isLoading,
             checkpointLabel: activeCheckpoint?.label,
             compact: !showDebugTools,
             pitchMode

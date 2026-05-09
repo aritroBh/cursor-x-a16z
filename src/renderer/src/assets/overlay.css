@@ -872,46 +872,107 @@
 }
 
 /* Spec buddy */
-@keyframes spec-float-idle {
+@keyframes ghost-float-idle {
   0%,
   100% {
-    transform: translate(-50%, -50%) translateY(0) rotate(-1deg);
+    transform: translateY(0) rotate(-1deg);
   }
   50% {
-    transform: translate(-50%, -50%) translateY(-8px) rotate(1deg);
+    transform: translateY(-6px) rotate(1deg);
   }
 }
 
-@keyframes spec-squint-thinking {
+@keyframes ghost-blink {
   0%,
+  90%,
   100% {
-    transform: translate(-50%, -50%) translateY(0) rotate(-2deg);
+    transform: scaleY(1);
   }
-  50% {
-    transform: translate(-50%, -50%) translateY(-5px) rotate(3deg);
+  95% {
+    transform: scaleY(0.1);
   }
 }
 
-@keyframes spec-shake-stuck {
+@keyframes ghost-look-around {
   0%,
   100% {
-    transform: translate(-50%, -50%) translateX(0);
+    transform: translateX(0);
   }
   25% {
-    transform: translate(-50%, -50%) translateX(-3px) rotate(-2deg);
+    transform: translateX(-2px);
   }
   75% {
-    transform: translate(-50%, -50%) translateX(3px) rotate(2deg);
+    transform: translateX(2px);
   }
 }
 
-@keyframes spec-zip-flow {
+@keyframes ghost-tilt-right {
   0%,
   100% {
-    transform: translate(-50%, -50%) translateY(0) scale(1);
+    transform: rotate(0deg);
+  }
+  50% {
+    transform: rotate(8deg);
+  }
+}
+
+@keyframes ghost-tilt-left {
+  0%,
+  100% {
+    transform: rotate(0deg);
+  }
+  50% {
+    transform: rotate(-8deg);
+  }
+}
+
+@keyframes ghost-thinking-bounce {
+  0%,
+  100% {
+    transform: translateY(0) scale(1);
   }
   40% {
-    transform: translate(-50%, -50%) translateY(-12px) scale(1.04);
+    transform: translateY(-4px) scale(1.03);
+  }
+}
+
+@keyframes ghost-success-hop {
+  0%,
+  100% {
+    transform: translateY(0) scale(1);
+  }
+  30% {
+    transform: translateY(-10px) scale(1.05);
+  }
+  60% {
+    transform: translateY(2px) scale(0.98);
+  }
+}
+
+@keyframes ghost-error-shake {
+  0%,
+  100% {
+    transform: translateX(0) rotate(0deg);
+  }
+  20% {
+    transform: translateX(-3px) rotate(-2deg);
+  }
+  60% {
+    transform: translateX(3px) rotate(2deg);
+  }
+}
+
+@keyframes ghost-sparkle {
+  0% {
+    opacity: 0;
+    transform: translateY(4px) scale(0.4);
+  }
+  35% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+    transform: translateY(-22px) scale(1.05);
   }
 }
 
@@ -933,54 +994,53 @@
   0%,
   100% {
     filter: drop-shadow(0 0 12px rgba(100, 210, 255, 0.36));
-    transform: translate(-50%, -50%) scale(1);
+    transform: scale(1);
   }
   50% {
     filter: drop-shadow(0 0 26px rgba(48, 209, 255, 0.78));
-    transform: translate(-50%, -50%) scale(1.05);
+    transform: scale(1.05);
   }
 }
 
 @keyframes spec-side-eye-judging {
   0%,
   100% {
-    transform: translate(-50%, -50%) rotate(-5deg);
+    transform: rotate(-3deg);
   }
   50% {
-    transform: translate(-50%, -50%) rotate(-9deg) translateX(-2px);
+    transform: rotate(-6deg) translateX(-1px);
   }
 }
 
 .spec-buddy {
   position: fixed;
-  width: 92px;
-  min-height: 112px;
-  transform: translate(-50%, -50%);
+  width: 72px;
+  min-height: 92px;
   pointer-events: none;
   z-index: 10006;
   display: grid;
   justify-items: center;
   color: white;
   will-change: transform, filter, left, top;
-  animation: spec-float-idle 3.4s ease-in-out infinite;
+  transition-property: left, top;
+  transition-timing-function: ease-in-out;
 }
 
 .spec-buddy--compact {
-  width: 78px;
-  min-height: 92px;
-  transform: translate(0, 0);
+  width: 60px;
+  min-height: 78px;
 }
 
 .spec-buddy--compact .spec-buddy__svg {
-  width: 74px;
-  height: 79px;
+  width: 58px;
+  height: 64px;
 }
 
 .spec-buddy__svg {
   position: relative;
   z-index: 2;
   overflow: visible;
-  filter: url("#spec-soft-glow") drop-shadow(0 10px 24px rgba(64, 156, 255, 0.26));
+  filter: url("#spec-soft-glow") drop-shadow(0 8px 18px rgba(64, 156, 255, 0.22));
 }
 
 .spec-buddy__body {
@@ -1162,19 +1222,43 @@
 }
 
 .spec-buddy--idle {
-  animation: spec-float-idle 3.4s ease-in-out infinite;
+  animation: ghost-float-idle 3.4s ease-in-out infinite;
+}
+
+.spec-buddy--idle .spec-buddy__eye {
+  animation: ghost-blink 4.5s ease-in-out infinite;
+}
+
+.spec-buddy--idle .spec-buddy__pupil {
+  animation: ghost-look-around 6s ease-in-out infinite;
+}
+
+.spec-buddy--moving {
+  animation: ghost-float-idle 2.2s ease-in-out infinite;
+}
+
+.spec-buddy--tilt-right {
+  animation: ghost-tilt-right 2.2s ease-in-out infinite;
+}
+
+.spec-buddy--tilt-left {
+  animation: ghost-tilt-left 2.2s ease-in-out infinite;
 }
 
 .spec-buddy--thinking {
-  animation: spec-squint-thinking 2.5s ease-in-out infinite;
+  animation: ghost-thinking-bounce 2.5s ease-in-out infinite;
+}
+
+.spec-buddy--thinking .spec-buddy__eye {
+  animation: ghost-blink 2s ease-in-out infinite;
 }
 
 .spec-buddy--stuck {
-  animation: spec-shake-stuck 0.34s ease-in-out infinite;
+  animation: ghost-error-shake 0.34s ease-in-out infinite;
 }
 
 .spec-buddy--flow {
-  animation: spec-zip-flow 1.2s cubic-bezier(0.2, 0.9, 0.2, 1) infinite;
+  animation: ghost-float-idle 1.2s cubic-bezier(0.2, 0.9, 0.2, 1) infinite;
 }
 
 .spec-buddy--flow .spec-buddy__trail {
@@ -1182,11 +1266,11 @@
 }
 
 .spec-buddy--celebrating {
-  animation: spec-zip-flow 0.92s ease-in-out infinite;
+  animation: ghost-success-hop 0.92s ease-in-out infinite;
 }
 
 .spec-buddy--celebrating .spec-buddy__stars span {
-  animation: spec-celebrate-stars 1.25s ease-out infinite;
+  animation: ghost-sparkle 1.25s ease-out infinite;
 }
 
 .spec-buddy--celebrating .spec-buddy__stars span:nth-child(2) {

@@ -2747,23 +2747,6 @@ function stepTitle$1(step) {
 function stepWaitMs$1(step) {
   return step.waitForMs || step.delayMs || DEFAULT_WAIT_STEP_MS;
 }
-function fallbackGhostStart(step, previousTarget) {
-  if (previousTarget) return previousTarget;
-  const offsetX = step.x > 58 ? -18 : 18;
-  const offsetY = step.y > 58 ? -12 : 12;
-  return {
-    x: Math.min(96, Math.max(4, step.x + offsetX)),
-    y: Math.min(96, Math.max(4, step.y + offsetY))
-  };
-}
-async function ghostStartForStep(step, previousTarget) {
-  try {
-    return await getMousePercent();
-  } catch (error) {
-    safeWarn("[GHOST] could not read cursor for ghost start; using fallback", error);
-    return fallbackGhostStart(step, previousTarget);
-  }
-}
 function waitForUserNearTarget(step, controller, timeoutMs = DEFAULT_STEP_TIMEOUT_MS) {
   if (controller.cancelled) return Promise.resolve("cancelled");
   return new Promise((resolve) => {
@@ -2874,21 +2857,14 @@ function logWalkthroughStep(step, index, total, attempt) {
     y: step.y
   });
 }
-function emitGhostStep(step, index, total, attempt, reason, ghostStart) {
+function emitGhostStep(step, index, total, attempt, reason) {
   const channel = attempt === 0 ? "replay:step" : "replay:retry";
-  const ghostLoops = step.action !== "wait";
   sendOverlay(channel, {
     step,
     index,
     total,
     reason,
-    attempt,
-    ghost: {
-      startX: ghostStart.x,
-      startY: ghostStart.y,
-      loop: ghostLoops,
-      timeoutMs: DEFAULT_STEP_TIMEOUT_MS
-    }
+    attempt
   });
   safeLog("[GHOST] visual step emitted", {
     channel,
@@ -2896,13 +2872,8 @@ function emitGhostStep(step, index, total, attempt, reason, ghostStart) {
     attempt,
     action: step.action,
     x: step.x,
-    y: step.y,
-    startX: ghostStart.x,
-    startY: ghostStart.y
+    y: step.y
   });
-  if (ghostLoops) {
-    safeLog("[GHOST] looping started", { index, attempt, timeoutMs: DEFAULT_STEP_TIMEOUT_MS });
-  }
 }
 function parkGhostAtEndpoint(step, index, total, attempt) {
   safeLog("[GHOST] parked at endpoint", { index, action: step.action, x: step.x, y: step.y });
@@ -2917,7 +2888,6 @@ async function replayWalkthrough(steps, onStep) {
   assertWalkthroughReplaySafety();
   const controller = createReplayController();
   setOverlayForReplay();
-  let previousGhostTarget = null;
   safeLog("[WALKTHROUGH] start", { totalSteps: steps.length });
   try {
     for (let index = 0; index < steps.length; index++) {
@@ -2927,8 +2897,7 @@ async function replayWalkthrough(steps, onStep) {
       let attempts = 0;
       while (result !== "correct" && isActive(controller)) {
         logWalkthroughStep(step, index, steps.length, attempts);
-        const ghostStart = await ghostStartForStep(step, previousGhostTarget);
-        emitGhostStep(step, index, steps.length, attempts, result, ghostStart);
+        emitGhostStep(step, index, steps.length, attempts, result);
         if (attempts === 0) onStep(step, index);
         if (step.action === "wait") {
           const waitMs = stepWaitMs$1(step);
@@ -2944,7 +2913,6 @@ async function replayWalkthrough(steps, onStep) {
           result = await waitForUserNearTarget(step, controller);
           if (result === "correct") {
             safeLog("[USER_CURSOR] real cursor entered tolerance", { index, x: step.x, y: step.y });
-            previousGhostTarget = { x: step.x, y: step.y };
             parkGhostAtEndpoint(step, index, steps.length, attempts);
             safeLog("[CLICK_DETECT] waiting for actual user click", {
               index,
@@ -2974,7 +2942,6 @@ async function replayWalkthrough(steps, onStep) {
           result = await waitForUserNearTarget(step, controller);
           if (result === "correct") {
             safeLog("[USER_CURSOR] real cursor entered tolerance", { index, action: step.action, x: step.x, y: step.y });
-            previousGhostTarget = { x: step.x, y: step.y };
             parkGhostAtEndpoint(step, index, steps.length, attempts);
           }
         }

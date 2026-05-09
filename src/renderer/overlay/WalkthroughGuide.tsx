@@ -11,8 +11,8 @@ function clampPercent(value: number): number {
 export const WalkthroughGuide: React.FC<WalkthroughGuideProps> = ({ step }) => {
   if (!step || step.type === "idle" || step.action === "wait") return null;
 
-  const x = clampPercent(step.x ?? 50);
-  const y = clampPercent(step.y ?? 50);
+  const x = clampPercent(step.viewportX ?? step.x ?? 50);
+  const y = clampPercent(step.viewportY ?? step.y ?? 50);
   const bubbleOnLeft = x > 70;
   const hasHint = Boolean(step.instruction || step.targetLabel);
   const isLocked = step.ghostLocked === true;

@@ -1,11 +1,16 @@
 import { desktopCapturer } from "electron";
-import { getActiveCoordinateDisplay } from "./screenCoordinates";
+import {
+  captureMetaForActiveDisplay,
+  getActiveCoordinateDisplay,
+  type CaptureFrameMeta,
+} from "./screenCoordinates";
 import { safeLog } from "./logger";
 
 export interface CaptureResult {
   base64: string;
   width: number;
   height: number;
+  meta: CaptureFrameMeta;
 }
 
 export async function captureScreenBase64(): Promise<CaptureResult> {
@@ -44,6 +49,12 @@ export async function captureScreenBase64(): Promise<CaptureResult> {
     bounds: activeDisplay.bounds,
   });
 
+  const imageSize = source.thumbnail.getSize();
+  const imageWidth = imageSize.width || width;
+  const imageHeight = imageSize.height || height;
+  const meta = captureMetaForActiveDisplay(imageWidth, imageHeight);
+  safeLog("[COORD_FRAME] capture metadata", meta);
+
   const base64 = source.thumbnail.toPNG().toString("base64");
-  return { base64, width, height };
+  return { base64, width: imageWidth, height: imageHeight, meta };
 }

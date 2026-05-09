@@ -5,6 +5,37 @@ import { safeLog } from "./logger";
 
 export const COORDINATE_MODE = "electron logical display bounds";
 
+export type CoordinateFrame =
+  | "viewport"
+  | "capture"
+  | "practice-window"
+  | "manual";
+
+export interface CaptureFrameMeta {
+  imageWidth: number;
+  imageHeight: number;
+  displayBounds: Rectangle;
+  captureBounds: Rectangle;
+  overlayBounds: Rectangle;
+  scaleFactor: number;
+  coordinateMode: string;
+}
+
+export interface ViewportPercentTarget {
+  x: number;
+  y: number;
+  viewportX: number;
+  viewportY: number;
+  coordinateFrame: "viewport";
+  sourceFrame?: CoordinateFrame;
+  rawTarget?: {
+    x: number;
+    y: number;
+    coordinateFrame: CoordinateFrame;
+  };
+  captureMeta?: CaptureFrameMeta;
+}
+
 let activeCoordinateDisplayId: number | null = null;
 
 export function clampPercent(value: number): number {
@@ -67,6 +98,124 @@ export function getActiveCoordinateDisplay(): Display {
 
 export function getActiveCoordinateDisplayId(): number {
   return getActiveCoordinateDisplay().id;
+}
+
+export function captureMetaForActiveDisplay(
+  imageWidth: number,
+  imageHeight: number,
+): CaptureFrameMeta {
+  const display = getActiveCoordinateDisplay();
+  const bounds = rectSnapshot(display.bounds);
+
+  return {
+    imageWidth,
+    imageHeight,
+    displayBounds: bounds,
+    captureBounds: bounds,
+    overlayBounds: bounds,
+    scaleFactor: display.scaleFactor,
+    coordinateMode: COORDINATE_MODE,
+  };
+}
+
+export function normalizeCapturedTargetToViewportPercent<
+  T extends {
+    x: number;
+    y: number;
+    coordinateFrame?: CoordinateFrame;
+    sourceFrame?: CoordinateFrame;
+    rawTarget?: { x: number; y: number; coordinateFrame: CoordinateFrame };
+  },
+>(target: T, captureMeta: CaptureFrameMeta): T & ViewportPercentTarget {
+  const sourceFrame = target.sourceFrame || target.coordinateFrame || "capture";
+
+  if (
+    sourceFrame === "manual" ||
+    sourceFrame === "viewport" ||
+    target.coordinateFrame === "viewport"
+  ) {
+    const viewportX = clampPercent(target.x);
+    const viewportY = clampPercent(target.y);
+    return {
+      ...target,
+      x: viewportX,
+      y: viewportY,
+      viewportX,
+      viewportY,
+      coordinateFrame: "viewport",
+      sourceFrame,
+      captureMeta,
+    };
+  }
+
+  const rawX = clampPercent(target.x);
+  const rawY = clampPercent(target.y);
+  const absoluteX =
+    captureMeta.captureBounds.x +
+    (rawX / 100) * captureMeta.captureBounds.width;
+  const absoluteY =
+    captureMeta.captureBounds.y +
+    (rawY / 100) * captureMeta.captureBounds.height;
+  const viewportX = clampPercent(
+    ((absoluteX - captureMeta.displayBounds.x) /
+      captureMeta.displayBounds.width) *
+      100,
+  );
+  const viewportY = clampPercent(
+    ((absoluteY - captureMeta.displayBounds.y) /
+      captureMeta.displayBounds.height) *
+      100,
+  );
+
+  return {
+    ...target,
+    x: viewportX,
+    y: viewportY,
+    viewportX,
+    viewportY,
+    coordinateFrame: "viewport",
+    sourceFrame,
+    rawTarget: target.rawTarget || {
+      x: rawX,
+      y: rawY,
+      coordinateFrame: sourceFrame,
+    },
+    captureMeta,
+  };
+}
+
+export function normalizePracticeWindowTargetToViewportPercent(
+  target: { x: number; y: number },
+  bounds: Rectangle,
+): ViewportPercentTarget {
+  const rawX = clampPercent(target.x * 100);
+  const rawY = clampPercent(target.y * 100);
+  const logicalX = bounds.x + bounds.width * target.x;
+  const logicalY = bounds.y + bounds.height * target.y;
+  const viewport = logicalPointToPercent(logicalX, logicalY);
+
+  return {
+    x: viewport.x,
+    y: viewport.y,
+    viewportX: viewport.x,
+    viewportY: viewport.y,
+    coordinateFrame: "viewport",
+    sourceFrame: "practice-window",
+    rawTarget: {
+      x: rawX,
+      y: rawY,
+      coordinateFrame: "practice-window",
+    },
+    captureMeta: {
+      imageWidth: bounds.width,
+      imageHeight: bounds.height,
+      displayBounds: rectSnapshot(getActiveCoordinateDisplay().bounds),
+      captureBounds: rectSnapshot(bounds),
+      overlayBounds: rectSnapshot(getActiveCoordinateDisplay().bounds),
+      scaleFactor: getActiveCoordinateDisplay().scaleFactor,
+      coordinateMode: COORDINATE_MODE,
+    },
+  };
 }
 
 export async function mapPercentToScreen(x: number, y: number) {

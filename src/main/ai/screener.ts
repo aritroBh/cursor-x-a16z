@@ -1,5 +1,6 @@
 import { safeWarn, safeError } from "../logger";
 import { analyzeVision, VisionAnalyzeResult, VisionErrorCode } from "../vision";
+import type { CaptureFrameMeta, CoordinateFrame } from "../screenCoordinates";
 
 export interface ScreenCoordinate {
   label: string;
@@ -21,9 +22,19 @@ export interface ScreenTarget {
   description?: string;
   x: number;
   y: number;
+  viewportX?: number;
+  viewportY?: number;
   confidence: number;
   action: "click" | "type" | "scroll" | "wait";
   source: "vision" | "manual";
+  sourceFrame?: CoordinateFrame;
+  coordinateFrame?: CoordinateFrame;
+  rawTarget?: {
+    x: number;
+    y: number;
+    coordinateFrame: CoordinateFrame;
+  };
+  captureMeta?: CaptureFrameMeta;
 }
 
 export interface ScreenTargetsResult {
@@ -34,6 +45,7 @@ export interface ScreenTargetsResult {
   needsConfirmation: boolean;
   reason?: string;
   capturedAt: string;
+  captureMeta?: CaptureFrameMeta;
   error?: string;
   fallbackAvailable?: boolean;
 }
@@ -152,6 +164,13 @@ function adaptToScreenTargets(
         confidence: el.confidence ?? 0.5,
         action: "click" as const,
         source: "vision" as const,
+        sourceFrame: "capture" as const,
+        coordinateFrame: "capture" as const,
+        rawTarget: {
+          x: pixelToPercentX(el.center?.x ?? el.bbox?.x ?? 0, width),
+          y: pixelToPercentY(el.center?.y ?? el.bbox?.y ?? 0, height),
+          coordinateFrame: "capture" as const,
+        },
       })),
       prompt,
     ),

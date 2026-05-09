@@ -156,6 +156,13 @@ async function main() {
   const practicePreloadBody = readFile("src/preload/index.ts");
   const preloadBody = readFile("src/preload/overlay.ts");
   const overlayCss = readFile("src/renderer/src/assets/overlay.css");
+  const captureBody = readFile("src/main/capture.ts");
+  const screenCoordinatesBody = readFile("src/main/screenCoordinates.ts");
+  const demoWorkflowBody = readFile("src/main/session/demoWorkflow.ts");
+  const replayBody = readFile("src/main/session/replay.ts");
+  const walkthroughGuide = readFile(
+    "src/renderer/overlay/WalkthroughGuide.tsx",
+  );
 
   printHeader("Environment");
 
@@ -265,8 +272,9 @@ async function main() {
 
   const ghostCursor = readFile("src/renderer/overlay/GhostCursor.tsx");
   check(
-    ghostCursor.includes("step.x") && ghostCursor.includes("step.y"),
-    "GhostCursor uses normalized x/y",
+    ghostCursor.includes("step.viewportX ?? step.x") &&
+      ghostCursor.includes("step.viewportY ?? step.y"),
+    "GhostCursor uses normalized viewport x/y with legacy fallback",
   );
   check(
     !ghostCursor.includes("targetX") && !ghostCursor.includes("targetY"),
@@ -503,6 +511,56 @@ async function main() {
     "renderer logs target coordinate alignment details",
   );
   check(
+    screenCoordinatesBody.includes("export interface ViewportPercentTarget") &&
+      screenCoordinatesBody.includes(
+        "normalizeCapturedTargetToViewportPercent",
+      ) &&
+      screenCoordinatesBody.includes(
+        "normalizePracticeWindowTargetToViewportPercent",
+      ),
+    "screenCoordinates defines a canonical viewport coordinate conversion contract",
+  );
+  check(
+    captureBody.includes("CaptureFrameMeta") &&
+      captureBody.includes("captureMetaForActiveDisplay") &&
+      captureBody.includes("imageWidth") &&
+      captureBody.includes("imageHeight") &&
+      screenCoordinatesBody.includes("displayBounds") &&
+      screenCoordinatesBody.includes("captureBounds") &&
+      screenCoordinatesBody.includes("overlayBounds") &&
+      screenCoordinatesBody.includes("scaleFactor") &&
+      screenCoordinatesBody.includes("coordinateMode"),
+    "capture metadata includes image, capture, display, overlay, scale, and coordinate mode",
+  );
+  check(
+    mainIndex.includes("normalizeCapturedTargetToViewportPercent") &&
+      mainIndex.includes("[COORD_FRAME] raw target") &&
+      mainIndex.includes("[COORD_FRAME] normalized target") &&
+      mainIndex.includes("captureMeta: screenshotResult.meta"),
+    "VLM/capture targets are normalized to viewport coordinates before renderer usage",
+  );
+  check(
+    screenCoordinatesBody.includes('sourceFrame === "manual"') &&
+      screenCoordinatesBody.includes('target.coordinateFrame === "viewport"') &&
+      overlayAppBody.includes('sourceFrame: "manual"') &&
+      overlayAppBody.includes('coordinateFrame: "viewport"'),
+    "manual targets are already viewport-frame and bypass capture normalization",
+  );
+  check(
+    demoWorkflowBody.includes(
+      "normalizePracticeWindowTargetToViewportPercent",
+    ) &&
+      demoWorkflowBody.includes('sourceFrame: "practice-window"') &&
+      demoWorkflowBody.includes('coordinateFrame: "viewport"'),
+    "practice workspace targets are converted from practice-window frame to viewport frame",
+  );
+  check(
+    overlayAppBody.includes("[COORD_FRAME] marker render position") &&
+      replayBody.includes("[COORD_FRAME] ghost endpoint") &&
+      overlayAppBody.includes("[COORD_FRAME] ghost endpoint"),
+    "coordinate-frame logs exist for marker render and ghost endpoints",
+  );
+  check(
     mainIndex.includes("[REAL_APP_WALKTHROUGH] confirmed target") &&
       overlayAppBody.includes("[REAL_APP_WALKTHROUGH] confirmed target"),
     "walkthrough start logs the confirmed real-app target",
@@ -525,17 +583,21 @@ async function main() {
   );
   check(
     ghostCursor.includes('position: "fixed"') &&
-      ghostCursor.includes("left: `${step.x}vw`") &&
-      ghostCursor.includes("top: `${step.y}vh`") &&
+      ghostCursor.includes("left: `${x}vw`") &&
+      ghostCursor.includes("top: `${y}vh`") &&
+      ghostCursor.includes("step.viewportX ?? step.x") &&
       overlayAppBody.includes("step={currentStep}") &&
-      overlayAppBody.includes("left: `${target.x}vw`") &&
-      overlayAppBody.includes("top: `${target.y}vh`"),
-    "manual markers and GhostCursor use the same full-screen percent frame",
+      overlayAppBody.includes("left: `${target.viewportX ?? target.x}vw`") &&
+      overlayAppBody.includes("top: `${target.viewportY ?? target.y}vh`") &&
+      walkthroughGuide.includes("step.viewportX ?? step.x"),
+    "markers, GhostCursor, and guide use the same normalized viewport percent fields",
   );
   check(
-    createRealAppStepBody.includes("x: clampPercent(target?.x)") &&
-      createRealAppStepBody.includes("y: clampPercent(target?.y)"),
-    "createRealAppStep preserves target x/y exactly after percent clamping",
+    createRealAppStepBody.includes("target?.viewportX ?? target?.x") &&
+      createRealAppStepBody.includes("target?.viewportY ?? target?.y") &&
+      createRealAppStepBody.includes('coordinateFrame: "viewport"') &&
+      createRealAppStepBody.includes("rawTarget: target?.rawTarget"),
+    "createRealAppStep preserves normalized viewport x/y and raw target debug data",
   );
 
   printHeader("Whisper and Mic");

@@ -56,6 +56,7 @@ import {
 } from "./session/demoWorkflow";
 import {
   mapPercentToScreen,
+  normalizeCapturedTargetToViewportPercent,
   setActiveCoordinateDisplay,
 } from "./screenCoordinates";
 import type {
@@ -322,6 +323,8 @@ function createRealAppStep(target: any, source: "vision" | "manual"): Step {
     source === "manual" ? "Manual target" : "Selected target",
   );
   const action = realAppAction(target?.action);
+  const viewportX = clampPercent(target?.viewportX ?? target?.x);
+  const viewportY = clampPercent(target?.viewportY ?? target?.y);
 
   return {
     id:
@@ -332,8 +335,16 @@ function createRealAppStep(target: any, source: "vision" | "manual"): Step {
     instruction: instructionForTarget(label, action),
     targetLabel: label,
     action,
-    x: clampPercent(target?.x),
-    y: clampPercent(target?.y),
+    x: viewportX,
+    y: viewportY,
+    viewportX,
+    viewportY,
+    coordinateFrame: "viewport",
+    sourceFrame:
+      target?.sourceFrame ||
+      (source === "manual" ? "manual" : target?.coordinateFrame || "viewport"),
+    rawTarget: target?.rawTarget,
+    captureMeta: target?.captureMeta,
   };
 }
 
@@ -907,40 +918,89 @@ app.whenReady().then(async () => {
         screenshotResult.width,
         screenshotResult.height,
       );
+      const normalizedTargets = result.targets.map((target, index) => {
+        safeLog("[COORD_FRAME] raw target", {
+          index,
+          label: target.label,
+          sourceFrame:
+            target.sourceFrame || target.coordinateFrame || "capture",
+          raw: {
+            x: target.rawTarget?.x ?? target.x,
+            y: target.rawTarget?.y ?? target.y,
+          },
+          captureBounds: screenshotResult.meta.captureBounds,
+          displayBounds: screenshotResult.meta.displayBounds,
+          imageWidth: screenshotResult.meta.imageWidth,
+          imageHeight: screenshotResult.meta.imageHeight,
+        });
+        const normalized = normalizeCapturedTargetToViewportPercent(
+          target,
+          screenshotResult.meta,
+        );
+        safeLog("[COORD_FRAME] normalized target", {
+          index,
+          label: normalized.label,
+          sourceFrame: normalized.sourceFrame,
+          rawTarget: normalized.rawTarget,
+          viewport: {
+            x: normalized.x,
+            y: normalized.y,
+            viewportX: normalized.viewportX,
+            viewportY: normalized.viewportY,
+          },
+          captureBounds: normalized.captureMeta?.captureBounds,
+          displayBounds: normalized.captureMeta?.displayBounds,
+        });
+        return normalized;
+      });
+      const normalizedResult = {
+        ...result,
+        targets: normalizedTargets,
+        captureMeta: screenshotResult.meta,
+      };
       recordBehavioralFrame({
         t: Date.now(),
         dwellMs: 0,
         actionType: "scan",
-        revisionSignal: result.targets.length > 0 ? 0 : 0.35,
-        app: typeof result.app === "string" ? result.app : "screen",
-        targetLabel: `VLM targets: ${result.targets.length}`,
+        revisionSignal: normalizedResult.targets.length > 0 ? 0 : 0.35,
+        app:
+          typeof normalizedResult.app === "string"
+            ? normalizedResult.app
+            : "screen",
+        targetLabel: `VLM targets: ${normalizedResult.targets.length}`,
       });
       safeLog("[SCREEN_TARGETS] targets returned", {
         prompt,
-        app: result.app,
-        count: result.targets.length,
+        app: normalizedResult.app,
+        count: normalizedResult.targets.length,
         threshold: REAL_APP_CONFIDENCE_THRESHOLD,
-        topConfidence: result.targets[0]?.confidence ?? null,
+        topConfidence: normalizedResult.targets[0]?.confidence ?? null,
         screenshot: {
           width: screenshotResult.width,
           height: screenshotResult.height,
+          meta: screenshotResult.meta,
         },
       });
       safeLog("[SCREEN_TARGETS] candidate list", {
         prompt,
-        candidates: result.targets.map((target, index) => ({
+        candidates: normalizedResult.targets.map((target, index) => ({
           index,
           label: target.label,
           description: target.description,
           x: target.x,
           y: target.y,
+          viewportX: target.viewportX,
+          viewportY: target.viewportY,
+          rawTarget: target.rawTarget,
+          sourceFrame: target.sourceFrame,
+          coordinateFrame: target.coordinateFrame,
           confidence: target.confidence,
           action: target.action,
           source: target.source,
         })),
       });
       return {
-        ...result,
+        ...normalizedResult,
         confidenceThreshold: REAL_APP_CONFIDENCE_THRESHOLD,
       };
     } catch (err: any) {

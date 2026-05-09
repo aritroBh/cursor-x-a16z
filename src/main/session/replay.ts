@@ -250,6 +250,21 @@ function emitGhostStep(
     x: step.x,
     y: step.y,
   });
+  safeLog("[COORD_FRAME] ghost endpoint", {
+    channel,
+    index,
+    attempt,
+    label: step.targetLabel || step.title || step.id,
+    sourceFrame: step.sourceFrame,
+    coordinateFrame: step.coordinateFrame || "viewport",
+    viewport: {
+      x: step.viewportX ?? step.x,
+      y: step.viewportY ?? step.y,
+    },
+    rawTarget: step.rawTarget,
+    captureBounds: step.captureMeta?.captureBounds,
+    displayBounds: step.captureMeta?.displayBounds,
+  });
 }
 
 function parkGhostAtEndpoint(
@@ -263,6 +278,19 @@ function parkGhostAtEndpoint(
     action: step.action,
     x: step.x,
     y: step.y,
+  });
+  safeLog("[COORD_FRAME] ghost endpoint", {
+    index,
+    label: step.targetLabel || step.title || step.id,
+    sourceFrame: step.sourceFrame,
+    coordinateFrame: step.coordinateFrame || "viewport",
+    viewport: {
+      x: step.viewportX ?? step.x,
+      y: step.viewportY ?? step.y,
+    },
+    rawTarget: step.rawTarget,
+    captureBounds: step.captureMeta?.captureBounds,
+    displayBounds: step.captureMeta?.displayBounds,
   });
   sendOverlay("replay:target-reached", {
     step,

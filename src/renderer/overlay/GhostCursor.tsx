@@ -12,13 +12,16 @@ export const GhostCursor: React.FC<GhostCursorProps> = ({
 }) => {
   if (!isVisible || !step) return null;
 
+  const x = step.viewportX ?? step.x;
+  const y = step.viewportY ?? step.y;
+
   return (
     <svg
       className="ghost-cursor"
       style={{
         position: "fixed",
-        left: `${step.x}vw`,
-        top: `${step.y}vh`,
+        left: `${x}vw`,
+        top: `${y}vh`,
         pointerEvents: "none",
         zIndex: 9999,
       }}

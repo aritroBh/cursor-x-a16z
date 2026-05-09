@@ -11,6 +11,7 @@ import { safeError } from "../logger";
 
 const DEFAULT_APP_NAME = "Specter";
 const STEP_ACTIONS = ["click", "type", "scroll", "wait"];
+const SOURCE_FRAMES = ["viewport", "capture", "practice-window", "manual"];
 
 export function createDefaultGraph(appName = DEFAULT_APP_NAME): LearningGraph {
   return {
@@ -72,6 +73,12 @@ function normalizeAction(value: any): Step["action"] {
     : "click";
 }
 
+function normalizeSourceFrame(value: any): Step["sourceFrame"] {
+  return typeof value === "string" && SOURCE_FRAMES.includes(value)
+    ? (value as Step["sourceFrame"])
+    : undefined;
+}
+
 function normalizeNode(nodeId: string, value: any): Node {
   const node = isRecord(value) ? value : {};
   return {
@@ -115,6 +122,8 @@ function normalizeBranch(branchId: string, value: any): Branch {
 
 function normalizeStep(value: any): Step {
   const step = isRecord(value) ? value : {};
+  const rawTarget = isRecord(step.rawTarget) ? step.rawTarget : null;
+  const captureMeta = isRecord(step.captureMeta) ? step.captureMeta : undefined;
   return {
     id: typeof step.id === "string" ? step.id : undefined,
     title: typeof step.title === "string" ? step.title : undefined,
@@ -129,6 +138,26 @@ function normalizeStep(value: any): Step {
     delayMs: nonNegativeInteger(step.delayMs),
     waitForMs: nonNegativeInteger(step.waitForMs),
     narration: typeof step.narration === "string" ? step.narration : undefined,
+    viewportX:
+      typeof step.viewportX === "number"
+        ? percentNumber(step.viewportX)
+        : undefined,
+    viewportY:
+      typeof step.viewportY === "number"
+        ? percentNumber(step.viewportY)
+        : undefined,
+    coordinateFrame:
+      step.coordinateFrame === "viewport" ? "viewport" : undefined,
+    sourceFrame: normalizeSourceFrame(step.sourceFrame),
+    rawTarget: rawTarget
+      ? {
+          x: percentNumber(rawTarget.x),
+          y: percentNumber(rawTarget.y),
+          coordinateFrame:
+            normalizeSourceFrame(rawTarget.coordinateFrame) || "capture",
+        }
+      : undefined,
+    captureMeta: captureMeta as Step["captureMeta"],
   };
 }
 

@@ -58,6 +58,17 @@ function averageStepTime(steps: Step[]): number {
 }
 
 function normalizeRecordedStep(step: any): Step {
+  const sourceFrames = ["viewport", "capture", "practice-window", "manual"];
+  const sourceFrame =
+    typeof step.sourceFrame === "string" &&
+    sourceFrames.includes(step.sourceFrame)
+      ? step.sourceFrame
+      : undefined;
+  const rawTarget =
+    step.rawTarget && typeof step.rawTarget === "object"
+      ? step.rawTarget
+      : null;
+
   return {
     id: typeof step.id === "string" ? step.id : undefined,
     title: typeof step.title === "string" ? step.title : undefined,
@@ -78,6 +89,34 @@ function normalizeRecordedStep(step: any): Step {
       ? Math.max(0, Math.round(step.waitForMs))
       : undefined,
     narration: typeof step.narration === "string" ? step.narration : undefined,
+    viewportX: Number.isFinite(step.viewportX)
+      ? Math.min(100, Math.max(0, step.viewportX))
+      : undefined,
+    viewportY: Number.isFinite(step.viewportY)
+      ? Math.min(100, Math.max(0, step.viewportY))
+      : undefined,
+    coordinateFrame:
+      step.coordinateFrame === "viewport" ? "viewport" : undefined,
+    sourceFrame: sourceFrame as Step["sourceFrame"],
+    rawTarget: rawTarget
+      ? {
+          x: Number.isFinite(rawTarget.x)
+            ? Math.min(100, Math.max(0, rawTarget.x))
+            : 50,
+          y: Number.isFinite(rawTarget.y)
+            ? Math.min(100, Math.max(0, rawTarget.y))
+            : 50,
+          coordinateFrame:
+            typeof rawTarget.coordinateFrame === "string" &&
+            sourceFrames.includes(rawTarget.coordinateFrame)
+              ? rawTarget.coordinateFrame
+              : "capture",
+        }
+      : undefined,
+    captureMeta:
+      step.captureMeta && typeof step.captureMeta === "object"
+        ? step.captureMeta
+        : undefined,
   };
 }
 

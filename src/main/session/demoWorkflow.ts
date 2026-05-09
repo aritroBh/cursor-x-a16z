@@ -1,5 +1,5 @@
 import { BrowserWindow, screen } from "electron";
-import { logicalPointToPercent } from "../screenCoordinates";
+import { normalizePracticeWindowTargetToViewportPercent } from "../screenCoordinates";
 import type { Step } from "./types";
 
 export const CONTROLLED_DEMO_NODE_ID = "Specter Controlled Demo";
@@ -17,15 +17,25 @@ const DEMO_TARGETS = {
 function contentTargetPercent(
   window: BrowserWindow | null,
   target: { x: number; y: number },
-): { x: number; y: number } {
+): {
+  x: number;
+  y: number;
+  viewportX: number;
+  viewportY: number;
+  coordinateFrame: "viewport";
+  sourceFrame: "practice-window";
+  rawTarget: {
+    x: number;
+    y: number;
+    coordinateFrame: "practice-window";
+  };
+  captureMeta: Step["captureMeta"];
+} {
   const contentBounds =
     window && !window.isDestroyed() ? window.getContentBounds() : null;
   const fallbackBounds = screen.getPrimaryDisplay().bounds;
   const bounds = contentBounds || fallbackBounds;
-  const logicalX = bounds.x + bounds.width * target.x;
-  const logicalY = bounds.y + bounds.height * target.y;
-
-  return logicalPointToPercent(logicalX, logicalY);
+  return normalizePracticeWindowTargetToViewportPercent(target, bounds);
 }
 
 export function createControlledDemoWorkflow(window: BrowserWindow | null): {
@@ -48,6 +58,12 @@ export function createControlledDemoWorkflow(window: BrowserWindow | null): {
         targetLabel: "Open Settings",
         x: buttonOne.x,
         y: buttonOne.y,
+        viewportX: buttonOne.viewportX,
+        viewportY: buttonOne.viewportY,
+        coordinateFrame: buttonOne.coordinateFrame,
+        sourceFrame: buttonOne.sourceFrame,
+        rawTarget: buttonOne.rawTarget,
+        captureMeta: buttonOne.captureMeta,
         action: "click",
       },
       {
@@ -56,6 +72,12 @@ export function createControlledDemoWorkflow(window: BrowserWindow | null): {
         targetLabel: "Choose Template",
         x: buttonTwo.x,
         y: buttonTwo.y,
+        viewportX: buttonTwo.viewportX,
+        viewportY: buttonTwo.viewportY,
+        coordinateFrame: buttonTwo.coordinateFrame,
+        sourceFrame: buttonTwo.sourceFrame,
+        rawTarget: buttonTwo.rawTarget,
+        captureMeta: buttonTwo.captureMeta,
         action: "click",
       },
       {
@@ -64,6 +86,12 @@ export function createControlledDemoWorkflow(window: BrowserWindow | null): {
         targetLabel: "Project name",
         x: textInput.x,
         y: textInput.y,
+        viewportX: textInput.viewportX,
+        viewportY: textInput.viewportY,
+        coordinateFrame: textInput.coordinateFrame,
+        sourceFrame: textInput.sourceFrame,
+        rawTarget: textInput.rawTarget,
+        captureMeta: textInput.captureMeta,
         action: "type",
         typeText: "Specter Launch",
       },
@@ -73,6 +101,12 @@ export function createControlledDemoWorkflow(window: BrowserWindow | null): {
         targetLabel: "Create",
         x: finalConfirm.x,
         y: finalConfirm.y,
+        viewportX: finalConfirm.viewportX,
+        viewportY: finalConfirm.viewportY,
+        coordinateFrame: finalConfirm.coordinateFrame,
+        sourceFrame: finalConfirm.sourceFrame,
+        rawTarget: finalConfirm.rawTarget,
+        captureMeta: finalConfirm.captureMeta,
         action: "click",
       },
     ],

@@ -10,6 +10,24 @@ export interface Step {
   delayMs?: number;
   waitForMs?: number;
   narration?: string;
+  viewportX?: number;
+  viewportY?: number;
+  coordinateFrame?: "viewport";
+  sourceFrame?: "viewport" | "capture" | "practice-window" | "manual";
+  rawTarget?: {
+    x: number;
+    y: number;
+    coordinateFrame: "viewport" | "capture" | "practice-window" | "manual";
+  };
+  captureMeta?: {
+    imageWidth: number;
+    imageHeight: number;
+    displayBounds: { x: number; y: number; width: number; height: number };
+    captureBounds: { x: number; y: number; width: number; height: number };
+    overlayBounds: { x: number; y: number; width: number; height: number };
+    scaleFactor: number;
+    coordinateMode: string;
+  };
 }
 
 export interface Node {

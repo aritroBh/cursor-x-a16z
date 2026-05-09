@@ -21,6 +21,7 @@ type AutomationMode = "auto" | "mirror" | "calibration";
 type RealAppAction = "click" | "type" | "scroll" | "wait";
 type EdgeLightState = "hidden" | "summon" | "idle" | "walkthrough";
 type MirrorFeedbackKind = "accept" | "override" | "hesitation" | "correction";
+type CoordinateFrame = "viewport" | "capture" | "practice-window" | "manual";
 
 interface HudPosition {
   left: number;
@@ -33,9 +34,19 @@ interface RealAppTarget {
   description?: string;
   x: number;
   y: number;
+  viewportX?: number;
+  viewportY?: number;
   confidence?: number;
   action?: RealAppAction;
   source?: "vision" | "manual";
+  sourceFrame?: CoordinateFrame;
+  coordinateFrame?: CoordinateFrame;
+  rawTarget?: {
+    x: number;
+    y: number;
+    coordinateFrame: CoordinateFrame;
+  };
+  captureMeta?: CaptureFrameMeta;
 }
 
 interface RealAppTargetsResult {
@@ -46,8 +57,19 @@ interface RealAppTargetsResult {
   needsConfirmation?: boolean;
   reason?: string;
   confidenceThreshold?: number;
+  captureMeta?: CaptureFrameMeta;
   error?: string;
   fallbackAvailable?: boolean;
+}
+
+interface CaptureFrameMeta {
+  imageWidth: number;
+  imageHeight: number;
+  displayBounds: { x: number; y: number; width: number; height: number };
+  captureBounds: { x: number; y: number; width: number; height: number };
+  overlayBounds: { x: number; y: number; width: number; height: number };
+  scaleFactor: number;
+  coordinateMode: string;
 }
 
 interface CoordinateMappingResult {
@@ -270,28 +292,46 @@ function realAppInstruction(target: RealAppTarget): string {
 }
 
 function normalizedRealAppTarget(target: RealAppTarget): RealAppTarget {
+  const source = target.source === "manual" ? "manual" : "vision";
+  const x =
+    typeof target.x === "number" && Number.isFinite(target.x)
+      ? Math.min(100, Math.max(0, target.x))
+      : 50;
+  const y =
+    typeof target.y === "number" && Number.isFinite(target.y)
+      ? Math.min(100, Math.max(0, target.y))
+      : 50;
+  const viewportX =
+    typeof target.viewportX === "number" && Number.isFinite(target.viewportX)
+      ? Math.min(100, Math.max(0, target.viewportX))
+      : x;
+  const viewportY =
+    typeof target.viewportY === "number" && Number.isFinite(target.viewportY)
+      ? Math.min(100, Math.max(0, target.viewportY))
+      : y;
+
   return {
     ...target,
     label: target.label?.trim() || "Selected target",
-    x:
-      typeof target.x === "number" && Number.isFinite(target.x)
-        ? Math.min(100, Math.max(0, target.x))
-        : 50,
-    y:
-      typeof target.y === "number" && Number.isFinite(target.y)
-        ? Math.min(100, Math.max(0, target.y))
-        : 50,
+    x: viewportX,
+    y: viewportY,
+    viewportX,
+    viewportY,
     confidence:
       typeof target.confidence === "number" &&
       Number.isFinite(target.confidence)
         ? Math.min(1, Math.max(0, target.confidence))
-        : target.source === "manual"
+        : source === "manual"
           ? 1
           : undefined,
     action: ["click", "type", "scroll", "wait"].includes(target.action || "")
       ? target.action
       : "click",
-    source: target.source === "manual" ? "manual" : "vision",
+    source,
+    sourceFrame:
+      target.sourceFrame ||
+      (source === "manual" ? "manual" : target.coordinateFrame || "viewport"),
+    coordinateFrame: "viewport",
   };
 }
 
@@ -446,11 +486,19 @@ const OverlayApp: React.FC = () => {
       });
       const details = {
         label: target.label,
-        percent: { x: target.x, y: target.y },
+        sourceFrame: target.sourceFrame,
+        coordinateFrame: target.coordinateFrame || "viewport",
+        rawTarget: target.rawTarget,
+        normalizedViewport: {
+          x: target.viewportX ?? target.x,
+          y: target.viewportY ?? target.y,
+        },
         confidence: target.confidence,
         source: target.source,
         action: target.action,
-        displayBounds: mapping?.activeDisplay?.bounds,
+        captureBounds: target.captureMeta?.captureBounds,
+        captureDisplayBounds: target.captureMeta?.displayBounds,
+        mappedDisplayBounds: mapping?.activeDisplay?.bounds,
         activeDisplay: mapping?.activeDisplay,
         overlayViewport,
         expectedScreenPixel: mapping?.screenPoint,
@@ -459,6 +507,10 @@ const OverlayApp: React.FC = () => {
       };
 
       console.log("[COORD_ALIGNMENT] target mapping", details);
+      console.log("[COORD_FRAME] normalized target", details);
+      if (context === "walkthrough start") {
+        console.log("[COORD_FRAME] ghost endpoint", details);
+      }
       if (context !== "walkthrough start") {
         console.log("[REAL_APP_FLOW] target selected", details);
         setSelectedTargetMapping(mapping || null);
@@ -467,7 +519,12 @@ const OverlayApp: React.FC = () => {
     } catch (error) {
       console.warn("[COORD_ALIGNMENT] target mapping failed", {
         label: target.label,
-        percent: { x: target.x, y: target.y },
+        sourceFrame: target.sourceFrame,
+        rawTarget: target.rawTarget,
+        normalizedViewport: {
+          x: target.viewportX ?? target.x,
+          y: target.viewportY ?? target.y,
+        },
         overlayViewport,
         context,
         error,
@@ -1254,6 +1311,13 @@ const OverlayApp: React.FC = () => {
           description: target.description,
           x: target.x,
           y: target.y,
+          viewportX: target.viewportX,
+          viewportY: target.viewportY,
+          sourceFrame: target.sourceFrame,
+          coordinateFrame: target.coordinateFrame,
+          rawTarget: target.rawTarget,
+          captureBounds: target.captureMeta?.captureBounds,
+          displayBounds: target.captureMeta?.displayBounds,
           confidence: target.confidence,
           action: target.action,
           source: target.source,
@@ -1320,6 +1384,8 @@ const OverlayApp: React.FC = () => {
       confidence: 1,
       action: "click",
       source: "manual",
+      sourceFrame: "manual",
+      coordinateFrame: "viewport",
     });
 
     console.log("[REAL_APP_FLOW] manual target picked", {
@@ -1709,14 +1775,6 @@ const OverlayApp: React.FC = () => {
     }
   };
 
-  if (
-    !isVisible &&
-    replayState === "idle" &&
-    !isLoading &&
-    mirrorStatus !== "running"
-  )
-    return null;
-
   const isMirrorRunning = mirrorStatus === "running";
   const isReplayRunning = replayState === "running" || isMirrorRunning;
   const showWalkthroughDebug =
@@ -1783,6 +1841,9 @@ const OverlayApp: React.FC = () => {
     "specter-workflow-card",
     showDebugTools ? "is-debug-targets" : "is-compact-targets",
   ].join(" ");
+  const markerRenderKey = displayedRealAppTargets
+    .map((target) => realAppTargetKey(target))
+    .join("|");
   const edgeLightState: EdgeLightState = !isVisible
     ? "hidden"
     : isReplayRunning
@@ -1810,6 +1871,33 @@ const OverlayApp: React.FC = () => {
         bottom: "10%",
         transform: "translateX(-50%)",
       };
+
+  useEffect(() => {
+    if (!realAppTargets || isManualTargetPicking || isReplayRunning) return;
+    displayedRealAppTargets.forEach((target, index) => {
+      console.log("[COORD_FRAME] marker render position", {
+        index,
+        label: target.label,
+        sourceFrame: target.sourceFrame,
+        coordinateFrame: target.coordinateFrame || "viewport",
+        rawTarget: target.rawTarget,
+        viewport: {
+          x: target.viewportX ?? target.x,
+          y: target.viewportY ?? target.y,
+        },
+        captureBounds: target.captureMeta?.captureBounds,
+        displayBounds: target.captureMeta?.displayBounds,
+      });
+    });
+  }, [markerRenderKey, realAppTargets, isManualTargetPicking, isReplayRunning]);
+
+  if (
+    !isVisible &&
+    replayState === "idle" &&
+    !isLoading &&
+    mirrorStatus !== "running"
+  )
+    return null;
 
   return (
     <>
@@ -1906,8 +1994,8 @@ const OverlayApp: React.FC = () => {
                     : target.label
                 }
                 style={{
-                  left: `${target.x}vw`,
-                  top: `${target.y}vh`,
+                  left: `${target.viewportX ?? target.x}vw`,
+                  top: `${target.viewportY ?? target.y}vh`,
                 }}
               >
                 {index + 1}
@@ -1919,8 +2007,8 @@ const OverlayApp: React.FC = () => {
           <div
             style={{
               position: "fixed",
-              left: `${selectedRealAppTarget.x}vw`,
-              top: `${selectedRealAppTarget.y}vh`,
+              left: `${selectedRealAppTarget.viewportX ?? selectedRealAppTarget.x}vw`,
+              top: `${selectedRealAppTarget.viewportY ?? selectedRealAppTarget.y}vh`,
               transform: "translate(-50%, -50%)",
               zIndex: 10001,
               width: "54px",
@@ -1938,8 +2026,8 @@ const OverlayApp: React.FC = () => {
           <div
             style={{
               position: "fixed",
-              left: `min(calc(${selectedRealAppTarget.x}vw + 22px), calc(100vw - 220px))`,
-              top: `min(calc(${selectedRealAppTarget.y}vh + 22px), calc(100vh - 116px))`,
+              left: `min(calc(${selectedRealAppTarget.viewportX ?? selectedRealAppTarget.x}vw + 22px), calc(100vw - 220px))`,
+              top: `min(calc(${selectedRealAppTarget.viewportY ?? selectedRealAppTarget.y}vh + 22px), calc(100vh - 116px))`,
               zIndex: 10004,
               width: "204px",
               padding: "9px 10px",
@@ -1963,7 +2051,13 @@ const OverlayApp: React.FC = () => {
                 color: "rgba(255,255,255,0.62)",
               }}
             >
-              {`x ${formatCoordinate(selectedRealAppTarget.x)}% / y ${formatCoordinate(selectedRealAppTarget.y)}% / ${confidencePercent(selectedRealAppTarget.confidence)}`}
+              {`source ${selectedRealAppTarget.sourceFrame || "viewport"} / ${confidencePercent(selectedRealAppTarget.confidence)}`}
+              <br />
+              {`raw ${formatCoordinate(selectedRealAppTarget.rawTarget?.x)} / ${formatCoordinate(selectedRealAppTarget.rawTarget?.y)} -> viewport ${formatCoordinate(selectedRealAppTarget.viewportX ?? selectedRealAppTarget.x)} / ${formatCoordinate(selectedRealAppTarget.viewportY ?? selectedRealAppTarget.y)}`}
+              <br />
+              {selectedRealAppTarget.captureMeta
+                ? `capture ${selectedRealAppTarget.captureMeta.captureBounds.width}x${selectedRealAppTarget.captureMeta.captureBounds.height} / display ${selectedRealAppTarget.captureMeta.displayBounds.width}x${selectedRealAppTarget.captureMeta.displayBounds.height}`
+                : "capture metadata unavailable"}
               <br />
               {selectedTargetMapping?.screenPoint
                 ? `screen ${selectedTargetMapping.screenPoint.x}, ${selectedTargetMapping.screenPoint.y} / display ${selectedTargetMapping.activeDisplay?.id ?? "?"}`

@@ -875,10 +875,10 @@
 @keyframes ghost-float-idle {
   0%,
   100% {
-    transform: translateY(0) rotate(-1deg);
+    transform: translateY(0);
   }
   50% {
-    transform: translateY(-6px) rotate(1deg);
+    transform: translateY(-6px);
   }
 }
 
@@ -912,7 +912,7 @@
     transform: rotate(0deg);
   }
   50% {
-    transform: rotate(8deg);
+    transform: rotate(6deg);
   }
 }
 
@@ -922,7 +922,7 @@
     transform: rotate(0deg);
   }
   50% {
-    transform: rotate(-8deg);
+    transform: rotate(-6deg);
   }
 }
 
@@ -952,13 +952,13 @@
 @keyframes ghost-error-shake {
   0%,
   100% {
-    transform: translateX(0) rotate(0deg);
+    transform: translateX(0);
   }
   20% {
-    transform: translateX(-3px) rotate(-2deg);
+    transform: translateX(-3px);
   }
   60% {
-    transform: translateX(3px) rotate(2deg);
+    transform: translateX(3px);
   }
 }
 
@@ -1005,10 +1005,10 @@
 @keyframes spec-side-eye-judging {
   0%,
   100% {
-    transform: rotate(-3deg);
+    transform: translateX(0);
   }
   50% {
-    transform: rotate(-6deg) translateX(-1px);
+    transform: translateX(-2px);
   }
 }
 
@@ -1022,8 +1022,20 @@
   justify-items: center;
   color: white;
   will-change: transform, filter, left, top;
-  transition-property: left, top;
+  transition-property: transform;
   transition-timing-function: ease-in-out;
+}
+
+.spec-buddy__anim,
+.spec-buddy__tilt {
+  position: relative;
+  display: grid;
+  justify-items: center;
+}
+
+.spec-buddy__anim {
+  transform-origin: center center;
+  will-change: transform, filter;
 }
 
 .spec-buddy--compact {
@@ -1043,9 +1055,19 @@
   filter: url("#spec-soft-glow") drop-shadow(0 8px 18px rgba(64, 156, 255, 0.22));
 }
 
+.spec-buddy__body-group {
+  transform-box: fill-box;
+  transform-origin: center center;
+}
+
+.spec-buddy__face-group {
+  transform-box: fill-box;
+  transform-origin: center center;
+}
+
 .spec-buddy__body {
   fill: rgba(244, 251, 255, 0.94);
-  stroke: rgba(142, 218, 255, 0.72);
+  stroke: var(--spec-buddy-accent, rgba(142, 218, 255, 0.72));
   stroke-width: 2;
 }
 
@@ -1189,6 +1211,34 @@
   animation-duration: 1.85s;
 }
 
+.spec-buddy--idle {
+  --spec-buddy-accent: rgba(142, 218, 255, 0.72);
+}
+
+.spec-buddy--thinking {
+  --spec-buddy-accent: rgba(191, 90, 242, 0.72);
+}
+
+.spec-buddy--stuck {
+  --spec-buddy-accent: rgba(255, 69, 58, 0.64);
+}
+
+.spec-buddy--flow {
+  --spec-buddy-accent: rgba(48, 209, 88, 0.64);
+}
+
+.spec-buddy--celebrating {
+  --spec-buddy-accent: rgba(255, 214, 10, 0.68);
+}
+
+.spec-buddy--mirroring {
+  --spec-buddy-accent: rgba(27, 240, 255, 0.9);
+}
+
+.spec-buddy--judging {
+  --spec-buddy-accent: rgba(255, 214, 10, 0.58);
+}
+
 .spec-buddy--pitch .spec-buddy__label {
   color: rgba(255, 255, 255, 0.94);
   background: rgba(10, 132, 255, 0.32);
@@ -1221,67 +1271,67 @@
   backdrop-filter: blur(10px);
 }
 
-.spec-buddy--idle {
+.spec-buddy__anim--idle {
   animation: ghost-float-idle 3.4s ease-in-out infinite;
 }
 
-.spec-buddy--idle .spec-buddy__eye {
+.spec-buddy__anim--idle .spec-buddy__eye {
   animation: ghost-blink 4.5s ease-in-out infinite;
 }
 
-.spec-buddy--idle .spec-buddy__pupil {
+.spec-buddy__anim--idle .spec-buddy__pupil {
   animation: ghost-look-around 6s ease-in-out infinite;
 }
 
-.spec-buddy--moving {
+.spec-buddy__anim--moving {
   animation: ghost-float-idle 2.2s ease-in-out infinite;
 }
 
-.spec-buddy--tilt-right {
+.spec-buddy__body-group--tilt-right {
   animation: ghost-tilt-right 2.2s ease-in-out infinite;
 }
 
-.spec-buddy--tilt-left {
+.spec-buddy__body-group--tilt-left {
   animation: ghost-tilt-left 2.2s ease-in-out infinite;
 }
 
-.spec-buddy--thinking {
+.spec-buddy__anim--thinking {
   animation: ghost-thinking-bounce 2.5s ease-in-out infinite;
 }
 
-.spec-buddy--thinking .spec-buddy__eye {
+.spec-buddy__anim--thinking .spec-buddy__eye {
   animation: ghost-blink 2s ease-in-out infinite;
 }
 
-.spec-buddy--stuck {
+.spec-buddy__anim--stuck {
   animation: ghost-error-shake 0.34s ease-in-out infinite;
 }
 
-.spec-buddy--flow {
+.spec-buddy__anim--flow {
   animation: ghost-float-idle 1.2s cubic-bezier(0.2, 0.9, 0.2, 1) infinite;
 }
 
-.spec-buddy--flow .spec-buddy__trail {
+.spec-buddy__anim--flow .spec-buddy__trail {
   opacity: 1;
 }
 
-.spec-buddy--celebrating {
+.spec-buddy__anim--celebrating {
   animation: ghost-success-hop 0.92s ease-in-out infinite;
 }
 
-.spec-buddy--celebrating .spec-buddy__stars span {
+.spec-buddy__anim--celebrating .spec-buddy__stars span {
   animation: ghost-sparkle 1.25s ease-out infinite;
 }
 
-.spec-buddy--celebrating .spec-buddy__stars span:nth-child(2) {
+.spec-buddy__anim--celebrating .spec-buddy__stars span:nth-child(2) {
   animation-delay: 0.18s;
 }
 
-.spec-buddy--celebrating .spec-buddy__stars span:nth-child(3) {
+.spec-buddy__anim--celebrating .spec-buddy__stars span:nth-child(3) {
   animation-delay: 0.34s;
 }
 
-.spec-buddy--mirroring {
+.spec-buddy__anim--mirroring {
   animation: spec-glow-mirroring 1.8s ease-in-out infinite;
 }
 
@@ -1289,7 +1339,7 @@
   stroke: rgba(27, 240, 255, 0.9);
 }
 
-.spec-buddy--judging {
+.spec-buddy__anim--judging {
   animation: spec-side-eye-judging 2.8s ease-in-out infinite;
 }
 

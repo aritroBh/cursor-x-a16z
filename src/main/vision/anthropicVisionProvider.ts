@@ -5,6 +5,8 @@ import {
 } from "./types";
 import { VisionProviderError } from "./errors";
 import { createAnthropicClient, getAnthropicVisionModel } from "../ai/config";
+import { buildVisionPrompt } from "./prompts";
+import { parseVisionJson } from "./json";
 import { safeLog } from "../logger";
 
 export class AnthropicVisionProvider implements VisionProvider {
@@ -23,44 +25,74 @@ export class AnthropicVisionProvider implements VisionProvider {
       );
     }
 
+    const timeoutMs = parseInt(
+      process.env.ANTHROPIC_VISION_TIMEOUT_MS || "20000",
+      10,
+    );
+    let timeoutId: NodeJS.Timeout | null = null;
+    const timeout = new Promise<never>((_, reject) => {
+      timeoutId = setTimeout(() => {
+        reject(
+          new VisionProviderError(
+            "PROVIDER_TIMEOUT",
+            this.name,
+            `Anthropic vision request timed out after ${timeoutMs}ms.`,
+          ),
+        );
+      }, timeoutMs);
+    });
+
     try {
       safeLog(`[VISION][ANTHROPIC] Calling ${this.model}...`, {
         task: input.task,
       });
 
-      const message = await anthropic.messages.create({
-        model: this.model,
-        max_tokens: 1200,
-        system:
-          "You are a UI state analyzer. Return ONLY valid JSON matching the requested schema.",
-        messages: [
-          {
-            role: "user",
-            content: [
-              {
-                type: "image",
-                source: {
-                  type: "base64",
-                  media_type: input.mimeType,
-                  data: input.imageBase64,
+      const prompt = buildVisionPrompt(
+        input.task,
+        input.userPrompt,
+        input.appContext,
+        input.screenshotWidth,
+        input.screenshotHeight,
+      );
+
+      const message = await Promise.race([
+        anthropic.messages.create({
+          model: this.model,
+          max_tokens: 1200,
+          system:
+            "You are a UI state analyzer. Return ONLY valid JSON matching the requested schema.",
+          messages: [
+            {
+              role: "user",
+              content: [
+                {
+                  type: "image",
+                  source: {
+                    type: "base64",
+                    media_type: input.mimeType,
+                    data: input.imageBase64,
+                  },
                 },
-              },
-              {
-                type: "text",
-                text: `Analyze this screenshot for the task: ${input.task}. User prompt: ${input.userPrompt || "none"}. Return JSON with summary, elements (label, type, text, confidence, bbox {x, y, width, height}, center {x, y}), recommendedAction, and warnings.`,
-              },
-            ],
-          },
-        ],
-      });
+                {
+                  type: "text",
+                  text: prompt,
+                },
+              ],
+            },
+          ],
+        }),
+        timeout,
+      ]);
+      if (timeoutId) clearTimeout(timeoutId);
 
       const content = message.content
         .flatMap((part) => (part.type === "text" ? [part.text] : []))
         .join("\n");
 
-      // Simple parsing for now, ideally use same json.ts as Nvidia
-      const jsonMatch = content.match(/\{[\s\S]*\}/);
-      const parsed = jsonMatch ? JSON.parse(jsonMatch[0]) : {};
+      const parsed = parseVisionJson(content, this.name, {
+        width: input.screenshotWidth,
+        height: input.screenshotHeight,
+      });
 
       const latencyMs = Date.now() - startTime;
 
@@ -69,20 +101,18 @@ export class AnthropicVisionProvider implements VisionProvider {
         model: this.model,
         generatedAt: new Date().toISOString(),
         latencyMs,
-        summary: parsed.summary || "Analysis complete",
-        elements: (parsed.elements || []).map((el: any) => ({
-          label: el.label || "Element",
-          type: el.type || "unknown",
-          text: el.text,
-          confidence: el.confidence,
-          bbox: el.bbox,
-          center: el.center,
-        })),
+        summary: parsed.summary,
+        elements: parsed.elements,
         recommendedAction: parsed.recommendedAction,
-        warnings: parsed.warnings || [],
-        rawText: content,
+        warnings: parsed.warnings,
+        rawText: process.env.NODE_ENV !== "production" ? content : undefined,
       };
     } catch (error: any) {
+      if (timeoutId) clearTimeout(timeoutId);
+      if (error instanceof VisionProviderError) {
+        throw error;
+      }
+
       throw new VisionProviderError(
         "PROVIDER_HTTP_ERROR",
         this.name,

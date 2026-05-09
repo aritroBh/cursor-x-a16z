@@ -19,6 +19,12 @@ try {
 const ACCESSIBILITY_SETTINGS_URL =
   "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility";
 
+interface PermissionStatuses {
+  screen: string;
+  accessibility: string;
+  inputMonitoring: string;
+}
+
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
@@ -34,7 +40,10 @@ async function triggerScreenRecordingPrompt(): Promise<void> {
   }
 }
 
-function showPermissionDialog(missing: string[]): "retry" | "quit" {
+function showPermissionDialog(
+  missing: string[],
+  statuses: PermissionStatuses,
+): "retry" | "quit" {
   const screenLine = missing.includes("screen")
     ? "• Screen Recording — required to capture your desktop\n"
     : "";
@@ -45,6 +54,10 @@ function showPermissionDialog(missing: string[]): "retry" | "quit" {
     "• Input Monitoring — enable this if global clicks, Space/Enter fallback, or double-shift detection do not fire\n";
 
   const detail =
+    `Current permission status:\n\n` +
+    `• Screen Recording: ${statuses.screen}\n` +
+    `• Accessibility: ${statuses.accessibility}\n` +
+    `• Input Monitoring: ${statuses.inputMonitoring} (optional, but recommended)\n\n` +
     `Specter needs the following permissions to function:\n\n` +
     screenLine +
     accessibilityLine +
@@ -71,8 +84,8 @@ export async function checkPermissions(): Promise<boolean> {
     return true;
   }
 
-  // eslint-disable-next-line no-constant-condition
-  while (true) {
+  let shouldRetry = true;
+  while (shouldRetry) {
     let screenStatus = getAuthStatus("screen");
     if (screenStatus !== "authorized") {
       await triggerScreenRecordingPrompt();
@@ -81,6 +94,7 @@ export async function checkPermissions(): Promise<boolean> {
     }
 
     const accessibilityStatus = getAuthStatus("accessibility");
+    const inputMonitoringStatus = getAuthStatus("input-monitoring");
     if (accessibilityStatus === "not determined") {
       askForAccessibilityAccess();
     }
@@ -92,6 +106,7 @@ export async function checkPermissions(): Promise<boolean> {
     safeLog("[PERMISSIONS] Status check:", {
       screen: screenStatus,
       accessibility: accessibilityStatus,
+      inputMonitoring: inputMonitoringStatus,
       missing,
     });
 
@@ -111,12 +126,19 @@ export async function checkPermissions(): Promise<boolean> {
       shell.openExternal(ACCESSIBILITY_SETTINGS_URL);
     }
 
-    const action = showPermissionDialog(missing);
+    const action = showPermissionDialog(missing, {
+      screen: screenStatus,
+      accessibility: accessibilityStatus,
+      inputMonitoring: inputMonitoringStatus,
+    });
     if (action === "quit") {
+      shouldRetry = false;
       app.quit();
       return false;
     }
   }
+
+  return false;
 }
 
 const PERMISSION_ERROR_PATTERNS = [

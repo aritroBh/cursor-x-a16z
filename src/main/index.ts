@@ -533,7 +533,9 @@ function createWindow(): void {
     ...(process.platform === "linux" ? { icon } : {}),
     webPreferences: {
       preload: join(__dirname, "../preload/index.js"),
-      sandbox: false,
+      contextIsolation: true,
+      nodeIntegration: false,
+      sandbox: true,
     },
   });
 
@@ -587,7 +589,9 @@ function createOverlayWindow(): void {
     ...(process.platform === "darwin" ? { type: "panel" } : {}),
     webPreferences: {
       preload: join(__dirname, "../preload/index.js"),
-      sandbox: false,
+      contextIsolation: true,
+      nodeIntegration: false,
+      sandbox: true,
     },
   });
 
@@ -1286,27 +1290,31 @@ app.whenReady().then(async () => {
 
   ipcMain.handle(
     "mirror:run",
-    async (_event, input = {}, appName = DEFAULT_APP_NAME) => {
-      if (input?.confirmed !== true) {
-        const message =
-          "Mirror Mode requires visible renderer confirmation before real mouse automation.";
+    async (event, input = {}, appName = DEFAULT_APP_NAME) => {
+      const failMirrorRun = (message: string): never => {
         sendOverlayEvent("mirror:error", { message });
         sendOverlayEvent("spec:mood", "stuck");
         throw new Error(message);
+      };
+
+      if (!validateSender(event, overlayWindow)) {
+        failMirrorRun("Mirror Mode can only be started from the overlay.");
+      }
+
+      if (input?.confirmed !== true) {
+        failMirrorRun(
+          "Mirror Mode requires visible renderer confirmation before real mouse automation.",
+        );
       }
 
       const graph = loadGraph(appName);
       if (!hasRealBehavioralSignature(graph)) {
-        const message =
-          "Mirror Mode needs measured behavioral frames or a real behavioral checkpoint before it can run.";
-        sendOverlayEvent("mirror:error", { message });
-        sendOverlayEvent("spec:mood", "stuck");
-        throw new Error(message);
+        failMirrorRun(
+          "Mirror Mode needs measured behavioral frames or a real behavioral checkpoint before it can run.",
+        );
       }
 
       const signature = selectMirrorSignature(graph, input);
-      sendOverlayEvent("mirror:started", { signature });
-      sendOverlayEvent("spec:mood", "mirroring");
 
       try {
         let steps = latestStepsForNode(graph, input?.nodeId);
@@ -1315,13 +1323,17 @@ app.whenReady().then(async () => {
         }
 
         if (steps.length === 0) {
-          const message =
-            "Mirror Mode needs a real recorded or saved workflow. Start a real-app walkthrough or record a session first.";
-          sendOverlayEvent("mirror:error", { message });
-          sendOverlayEvent("spec:mood", "stuck");
-          throw new Error(message);
+          failMirrorRun(
+            "Mirror Mode needs a real recorded or saved workflow. Start a real-app walkthrough or record a session first.",
+          );
         }
 
+        if (!validateAutomationAction("mirror:run", steps.length)) {
+          failMirrorRun("Mirror Mode was blocked by the automation gate.");
+        }
+
+        sendOverlayEvent("mirror:started", { signature });
+        sendOverlayEvent("spec:mood", "mirroring");
         await mirrorReplayExecute(steps, signature);
         sendOverlayEvent("mirror:complete", { total: steps.length });
         sendOverlayEvent("spec:mood", "celebrating");

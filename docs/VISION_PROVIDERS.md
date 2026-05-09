@@ -70,15 +70,23 @@ VISION_PROVIDER=mock
 ```
 *Note: The mock provider is blocked in production unless `DEMO_MODE=true` is set.*
 
-### Manual Test Script
+### Test Scripts
 
-You can test the NVIDIA provider connectivity directly:
+Run the offline vision test in clean checkouts and CI:
 
 ```bash
 npm run test:vision
 ```
 
-Place a screenshot at `test/fixtures/screenshot.png` to run a real analysis.
+This does not require API keys. It verifies the NVIDIA request payload, default non-streaming behavior, parser validation, missing-key behavior, invalid JSON errors, and mock-provider production gating.
+
+Run the live NVIDIA smoke test only after configuring `NVIDIA_API_KEY`:
+
+```bash
+npm run test:vision:live
+```
+
+The live test analyzes `test/fixtures/screenshot.png` and prints provider, model, latency, summary, element count, and warnings without printing the key or base64 payload.
 
 ## Troubleshooting
 

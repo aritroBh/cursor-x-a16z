@@ -1064,6 +1064,10 @@ async function main() {
   const mirrorReplay = readFile("src/main/session/mirrorReplay.ts");
   const specBuddy = readFile("src/renderer/overlay/SpecBuddy.tsx");
   const realityLock = readFile("docs/reality-lock.md");
+  const mirrorRunBody = mainIndex.slice(
+    mainIndex.indexOf('"mirror:run"'),
+    mainIndex.indexOf('ipcMain.handle("tts:speak"'),
+  );
 
   check(
     behavioralTypes.includes("export interface BehavioralState"),
@@ -1147,6 +1151,16 @@ async function main() {
   check(
     /ipcMain\.handle\(\s*['"]mirror:run['"]/.test(mainIndex),
     "index.ts registers mirror:run IPC",
+  );
+  check(
+    mirrorRunBody.includes("validateSender(event, overlayWindow)"),
+    "mirror:run validates that IPC came from the overlay window",
+  );
+  check(
+    mirrorRunBody.includes(
+      'validateAutomationAction("mirror:run", steps.length)',
+    ),
+    "mirror:run requires AutomationGate before real mouse automation",
   );
   check(
     mainIndex.includes("Synthetic demo checkpoints are a dev-only fallback") &&

@@ -54,7 +54,7 @@ Coordinate rules:
     case "target_detection":
       taskSpecific = `\n\nFor target_detection:
 - Prioritize clickable controls.
-- Include likely target center coordinates (0-100).
+- Include likely target center coordinates in screenshot pixels.
 - Add confidence.
 - Warn if the target is ambiguous.`;
       break;

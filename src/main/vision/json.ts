@@ -1,4 +1,4 @@
-import { VisionElement } from "./types";
+import { VisionElement, VisionProviderName } from "./types";
 import { VisionProviderError } from "./errors";
 
 export interface ParsedVisionOutput {
@@ -8,29 +8,87 @@ export interface ParsedVisionOutput {
   warnings: string[];
 }
 
+export interface VisionValidationOptions {
+  width?: number;
+  height?: number;
+}
+
 export function extractJsonObject(text: string): unknown {
   try {
     // 1. First try direct JSON.parse
     return JSON.parse(text);
   } catch (e) {
-    // 2. Try to extract the first top-level JSON object
-    const startIdx = text.indexOf("{");
-    const endIdx = text.lastIndexOf("}");
+    let startIdx = -1;
+    let depth = 0;
+    let inString = false;
+    let escaped = false;
 
-    if (startIdx === -1 || endIdx === -1 || endIdx < startIdx) {
-      throw new Error("No JSON object found in text");
+    for (let index = 0; index < text.length; index++) {
+      const char = text[index];
+
+      if (escaped) {
+        escaped = false;
+        continue;
+      }
+
+      if (char === "\\") {
+        escaped = inString;
+        continue;
+      }
+
+      if (char === '"') {
+        inString = !inString;
+        continue;
+      }
+
+      if (inString) continue;
+
+      if (char === "{") {
+        if (depth === 0) startIdx = index;
+        depth++;
+      } else if (char === "}" && depth > 0) {
+        depth--;
+        if (depth === 0 && startIdx !== -1) {
+          const jsonStr = text.substring(startIdx, index + 1);
+          try {
+            return JSON.parse(jsonStr);
+          } catch {
+            startIdx = -1;
+          }
+        }
+      }
     }
 
-    const jsonStr = text.substring(startIdx, endIdx + 1);
-    try {
-      return JSON.parse(jsonStr);
-    } catch (e2) {
-      throw new Error("Failed to parse extracted JSON object");
-    }
+    throw new Error("No valid JSON object found in text");
   }
 }
 
-export function validateVisionOutput(value: unknown): ParsedVisionOutput {
+function validCoordinate(value: unknown, max?: number): value is number {
+  return (
+    typeof value === "number" &&
+    Number.isFinite(value) &&
+    value >= 0 &&
+    (typeof max !== "number" || max <= 0 || value <= max)
+  );
+}
+
+function validSize(
+  value: unknown,
+  origin: number,
+  max?: number,
+): value is number {
+  return (
+    typeof value === "number" &&
+    Number.isFinite(value) &&
+    value >= 0 &&
+    (typeof max !== "number" || max <= 0 || origin + value <= max)
+  );
+}
+
+export function validateVisionOutput(
+  value: unknown,
+  options: VisionValidationOptions = {},
+): ParsedVisionOutput {
   if (!value || typeof value !== "object") {
     throw new Error("Value is not an object");
   }
@@ -72,18 +130,10 @@ export function validateVisionOutput(value: unknown): ParsedVisionOutput {
         if (el.bbox && typeof el.bbox === "object") {
           const { x, y, width, height } = el.bbox;
           if (
-            typeof x === "number" &&
-            Number.isFinite(x) &&
-            x >= 0 &&
-            typeof y === "number" &&
-            Number.isFinite(y) &&
-            y >= 0 &&
-            typeof width === "number" &&
-            Number.isFinite(width) &&
-            width >= 0 &&
-            typeof height === "number" &&
-            Number.isFinite(height) &&
-            height >= 0
+            validCoordinate(x, options.width) &&
+            validCoordinate(y, options.height) &&
+            validSize(width, x, options.width) &&
+            validSize(height, y, options.height)
           ) {
             validatedElement.bbox = { x, y, width, height };
           }
@@ -92,12 +142,8 @@ export function validateVisionOutput(value: unknown): ParsedVisionOutput {
         if (el.center && typeof el.center === "object") {
           const { x, y } = el.center;
           if (
-            typeof x === "number" &&
-            Number.isFinite(x) &&
-            x >= 0 &&
-            typeof y === "number" &&
-            Number.isFinite(y) &&
-            y >= 0
+            validCoordinate(x, options.width) &&
+            validCoordinate(y, options.height)
           ) {
             validatedElement.center = { x, y };
           }
@@ -113,11 +159,12 @@ export function validateVisionOutput(value: unknown): ParsedVisionOutput {
 
 export function parseVisionJson(
   text: string,
-  provider: any,
+  provider: VisionProviderName,
+  options: VisionValidationOptions = {},
 ): ParsedVisionOutput {
   try {
     const raw = extractJsonObject(text);
-    return validateVisionOutput(raw);
+    return validateVisionOutput(raw, options);
   } catch (error: any) {
     throw new VisionProviderError(
       "PROVIDER_PARSE_ERROR",

@@ -25,14 +25,14 @@ function labelForMood(mood: SpecMood, state?: BehavioralState): string {
 }
 
 function resolveAnimationClass(mood: SpecMood, isMoving: boolean): string {
-  if (isMoving) return "spec-buddy--moving";
-  if (mood === "thinking") return "spec-buddy--thinking";
-  if (mood === "stuck") return "spec-buddy--stuck";
-  if (mood === "celebrating") return "spec-buddy--celebrating";
-  if (mood === "flow") return "spec-buddy--flow";
-  if (mood === "mirroring") return "spec-buddy--mirroring";
-  if (mood === "judging") return "spec-buddy--judging";
-  return "spec-buddy--idle";
+  if (isMoving) return "spec-buddy__anim--moving";
+  if (mood === "thinking") return "spec-buddy__anim--thinking";
+  if (mood === "stuck") return "spec-buddy__anim--stuck";
+  if (mood === "celebrating") return "spec-buddy__anim--celebrating";
+  if (mood === "flow") return "spec-buddy__anim--flow";
+  if (mood === "mirroring") return "spec-buddy__anim--mirroring";
+  if (mood === "judging") return "spec-buddy__anim--judging";
+  return "spec-buddy__anim--idle";
 }
 
 function renderEyes(mood: SpecMood) {
@@ -150,9 +150,9 @@ export const SpecBuddy: React.FC<SpecBuddyProps> = ({
   const animClass = resolveAnimationClass(mood, isMoving);
   const tiltClass = isMoving
     ? edge === "left"
-      ? "spec-buddy--tilt-left"
+      ? "spec-buddy__body-group--tilt-left"
       : edge === "right"
-        ? "spec-buddy--tilt-right"
+        ? "spec-buddy__body-group--tilt-right"
         : ""
     : "";
 
@@ -176,7 +176,7 @@ export const SpecBuddy: React.FC<SpecBuddyProps> = ({
       )}
 
       <div className={`spec-buddy__anim ${animClass}`}>
-        <div className={`spec-buddy__tilt ${tiltClass}`}>
+        <div className="spec-buddy__tilt">
           <div className="spec-buddy__trail" />
           <div className="spec-buddy__stars" aria-hidden="true">
             <span />
@@ -206,7 +206,7 @@ export const SpecBuddy: React.FC<SpecBuddyProps> = ({
               </filter>
             </defs>
 
-            <g className="spec-buddy__body-group">
+            <g className={`spec-buddy__body-group ${tiltClass}`}>
               {/* Cute ghost body with rounded top and wavy bottom */}
               <path
                 className="spec-buddy__body"

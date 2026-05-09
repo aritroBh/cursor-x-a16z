@@ -56,9 +56,13 @@ async function readStreamingContent(response: Response): Promise<string> {
   let buffer = "";
   let content = "";
 
-  while (true) {
+  let reading = true;
+  while (reading) {
     const { done, value } = await reader.read();
-    if (done) break;
+    if (done) {
+      reading = false;
+      break;
+    }
 
     buffer += decoder.decode(value, { stream: true });
     const lines = buffer.split(/\r?\n/);
@@ -262,7 +266,10 @@ export class NvidiaVisionProvider implements VisionProvider {
 
       const content = await readNvidiaContent(response, stream);
 
-      const parsed = parseVisionJson(content, this.name);
+      const parsed = parseVisionJson(content, this.name, {
+        width: input.screenshotWidth,
+        height: input.screenshotHeight,
+      });
       const latencyMs = Date.now() - startTime;
 
       safeLog(`[VISION][NVIDIA] Success`, {

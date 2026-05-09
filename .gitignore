@@ -10,3 +10,4 @@ release/
 build/
 logs/
 *.log
+test_output.txt

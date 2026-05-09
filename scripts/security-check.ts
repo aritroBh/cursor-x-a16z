@@ -1,4 +1,4 @@
-import { execSync } from "child_process";
+import * as fs from "fs";
 import * as path from "path";
 
 /**
@@ -7,56 +7,103 @@ import * as path from "path";
  */
 
 const ROOT_DIR = path.resolve(__dirname, "..");
-const SEARCH_PATTERN = "nvapi-";
+const SECRET_VALUE_PATTERN = /nvapi-[A-Za-z0-9._-]+/g;
+const SEARCH_PATTERN = SECRET_VALUE_PATTERN.source;
 
-// Files and directories to ignore
-const IGNORE_PATHS = [
+const IGNORE_DIR_NAMES = new Set([
   "node_modules",
   ".git",
   "dist",
   "out",
   "release",
   "build",
-  ".env",
-  "security-check.ts",
-];
+]);
+
+const IGNORE_FILE_NAMES = new Set([".env", "security-check.ts"]);
+
+type Finding = {
+  file: string;
+  line: number;
+  preview: string;
+};
+
+function relativePath(filePath: string): string {
+  return path.relative(ROOT_DIR, filePath) || ".";
+}
+
+function redactPreview(line: string): string {
+  return line.replace(SECRET_VALUE_PATTERN, "nvapi-[REDACTED]").trim();
+}
+
+function findLeakedKeys(dir: string, findings: Finding[]): void {
+  let entries: fs.Dirent[];
+
+  try {
+    entries = fs.readdirSync(dir, { withFileTypes: true });
+  } catch (error: any) {
+    throw new Error(
+      `Unable to read directory ${relativePath(dir)}: ${error.message}`,
+    );
+  }
+
+  for (const entry of entries) {
+    const fullPath = path.join(dir, entry.name);
+
+    if (entry.isDirectory()) {
+      if (!IGNORE_DIR_NAMES.has(entry.name)) {
+        findLeakedKeys(fullPath, findings);
+      }
+      continue;
+    }
+
+    if (!entry.isFile() || IGNORE_FILE_NAMES.has(entry.name)) {
+      continue;
+    }
+
+    let contents: string;
+    try {
+      contents = fs.readFileSync(fullPath, "utf-8");
+    } catch (error: any) {
+      throw new Error(
+        `Unable to read file ${relativePath(fullPath)}: ${error.message}`,
+      );
+    }
+
+    contents.split(/\r?\n/).forEach((line, index) => {
+      if (line.match(SECRET_VALUE_PATTERN)) {
+        findings.push({
+          file: relativePath(fullPath),
+          line: index + 1,
+          preview: redactPreview(line),
+        });
+      }
+    });
+  }
+}
 
 function runCheck() {
   console.log(`[SECURITY] Checking for leaked keys (${SEARCH_PATTERN})...`);
 
   try {
-    const excludeArgs = IGNORE_PATHS.map((p) => {
-      if (p.includes("/")) {
-        return `--exclude-dir=${p}`;
-      }
-      return `--exclude=${p}`;
-    }).join(" ");
+    const findings: Finding[] = [];
+    findLeakedKeys(ROOT_DIR, findings);
 
-    const command = `grep -r "${SEARCH_PATTERN}" "${ROOT_DIR}" ${excludeArgs} -n`;
-
-    let output = "";
-    try {
-      output = execSync(command).toString().trim();
-    } catch (e: any) {
-      // grep returns 1 if no matches found
-      if (e.status === 1) {
-        console.log("\x1b[32m[SECURITY PASS] No leaked keys found.\x1b[0m");
-        return;
-      }
-      throw e;
-    }
-
-    if (output) {
+    if (findings.length > 0) {
       console.error(
         "\x1b[31m[SECURITY FAILURE] Found potential leaked NVIDIA API keys:\x1b[0m",
       );
-      console.error(output);
+      for (const finding of findings) {
+        console.error(`${finding.file}:${finding.line}: ${finding.preview}`);
+      }
       process.exit(1);
     }
+
+    console.log("\x1b[32m[SECURITY PASS] No leaked keys found.\x1b[0m");
   } catch (error: any) {
-    console.warn(
-      `[SECURITY WARNING] Security check script encountered an error: ${error.message}`,
+    console.error(
+      `\x1b[31m[SECURITY FAILURE] Security check could not complete: ${error.message}\x1b[0m`,
     );
+    process.exit(1);
   }
 }
 

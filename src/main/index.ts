@@ -588,7 +588,7 @@ function createOverlayWindow(): void {
     // Spaces without entering fullscreen mode, which would break transparency
     ...(process.platform === "darwin" ? { type: "panel" } : {}),
     webPreferences: {
-      preload: join(__dirname, "../preload/index.js"),
+      preload: join(__dirname, "../preload/overlay.js"),
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: true,
@@ -692,13 +692,21 @@ app.whenReady().then(async () => {
   });
 
   // Security Gate
-  ipcMain.handle("automation:request", async (_event, mode, steps) =>
-    requestAutomationSession(mode, steps),
-  );
-  ipcMain.handle("automation:confirm", async (_event, token) =>
-    confirmAutomationSession(token),
-  );
-  ipcMain.handle("automation:cancel", async () => cancelAutomationSession());
+  ipcMain.handle("automation:request", async (event, mode, steps) => {
+    if (!validateSender(event, overlayWindow))
+      throw new Error("Unauthorized sender");
+    return requestAutomationSession(mode, steps);
+  });
+  ipcMain.handle("automation:confirm", async (event, token) => {
+    if (!validateSender(event, overlayWindow))
+      throw new Error("Unauthorized sender");
+    return confirmAutomationSession(token);
+  });
+  ipcMain.handle("automation:cancel", async (event) => {
+    if (!validateSender(event, overlayWindow))
+      throw new Error("Unauthorized sender");
+    cancelAutomationSession();
+  });
 
   ipcMain.handle("cursor:move", async (event, x, y, durationMs) => {
     if (!validateSender(event, overlayWindow))

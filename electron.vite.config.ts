@@ -8,6 +8,14 @@ export default defineConfig({
   },
   preload: {
     plugins: [externalizeDepsPlugin({ include: ["node-mac-permissions"] })],
+    build: {
+      rollupOptions: {
+        input: {
+          index: resolve(__dirname, "src/preload/index.ts"),
+          overlay: resolve(__dirname, "src/preload/overlay.ts"),
+        },
+      },
+    },
   },
   renderer: {
     resolve: {

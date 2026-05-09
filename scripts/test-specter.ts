@@ -116,6 +116,7 @@ async function main() {
     "src/main/userCursor.ts",
     "src/main/screenCoordinates.ts",
     "src/preload/index.ts",
+    "src/preload/overlay.ts",
     "src/renderer/src/overlay.tsx",
     "src/renderer/src/OverlayApp.tsx",
     "src/renderer/overlay/GhostCursor.tsx",
@@ -139,7 +140,8 @@ async function main() {
   const plannerBody = readFile("src/main/ai/planner.ts");
   const inputBarBody = readFile("src/renderer/overlay/InputBar.tsx");
   const whisperBody = readFile("src/main/ai/whisper.ts");
-  const preloadBody = readFile("src/preload/index.ts");
+  const practicePreloadBody = readFile("src/preload/index.ts");
+  const preloadBody = readFile("src/preload/overlay.ts");
   const overlayCss = readFile("src/renderer/src/assets/overlay.css");
 
   printHeader("Environment");
@@ -196,6 +198,19 @@ async function main() {
   check(
     Boolean(pkg.scripts?.["test:specter"]),
     "package.json has npm run test:specter",
+  );
+  check(
+    Boolean(pkg.scripts?.["security-check"]),
+    "package.json has npm run security-check",
+  );
+  check(
+    Boolean(pkg.scripts?.lint) && !pkg.scripts.lint.includes("--fix"),
+    "npm run lint checks without mutating source",
+  );
+  check(
+    Boolean(pkg.scripts?.["lint:fix"]) &&
+      pkg.scripts["lint:fix"].includes("--fix"),
+    "package.json has npm run lint:fix for mutating lint fixes",
   );
 
   printHeader("Overlay Contract");
@@ -310,8 +325,18 @@ async function main() {
   printHeader("Preload IPC");
 
   check(
+    mainIndex.includes("../preload/index.js") &&
+      mainIndex.includes("../preload/overlay.js"),
+    "practice and overlay windows use split preload bundles",
+  );
+  check(
+    !practicePreloadBody.includes("ipcRenderer") &&
+      !practicePreloadBody.includes("moveRealMouse"),
+    "practice preload does not expose privileged IPC helpers",
+  );
+  check(
     preloadBody.includes("return () => ipcRenderer.removeListener"),
-    "preload listener helpers return unsubscribe cleanup",
+    "overlay preload listener helpers return unsubscribe cleanup",
   );
 
   for (const exposed of [
@@ -638,6 +663,10 @@ async function main() {
     "replayAutoExecute calls real mouse automation",
   );
   check(
+    overlayAppBody.includes('confirmAutomationGate("auto"'),
+    "auto replay arms AutomationGate after user confirmation",
+  );
+  check(
     autoBody.includes("[AUTO_REAL_MOUSE]"),
     "auto replay logs real OS automation loudly",
   );
@@ -776,6 +805,10 @@ async function main() {
   check(
     logger.includes("REDACTED") && logger.includes("OPENAI_API_KEY"),
     "logger redacts secret-shaped values before printing",
+  );
+  check(
+    logger.includes("NVIDIA_API_KEY") && logger.includes("nvapi-"),
+    "logger explicitly redacts NVIDIA API keys",
   );
   check(
     /from ['"](\.\/|\.\.\/)logger['"]/.test(mainIndex),
@@ -1153,8 +1186,24 @@ async function main() {
     "index.ts registers mirror:run IPC",
   );
   check(
+    /ipcMain\.handle\("automation:request", async \(event, mode, steps\) => \{[\s\S]*?validateSender\(event, overlayWindow\)[\s\S]*?requestAutomationSession\(mode, steps\)/.test(
+      mainIndex,
+    ),
+    "automation:request validates that IPC came from the overlay window",
+  );
+  check(
+    /ipcMain\.handle\("automation:confirm", async \(event, token\) => \{[\s\S]*?validateSender\(event, overlayWindow\)[\s\S]*?confirmAutomationSession\(token\)/.test(
+      mainIndex,
+    ),
+    "automation:confirm validates that IPC came from the overlay window",
+  );
+  check(
     mirrorRunBody.includes("validateSender(event, overlayWindow)"),
     "mirror:run validates that IPC came from the overlay window",
+  );
+  check(
+    overlayAppBody.includes('confirmAutomationGate("mirror"'),
+    "Mirror Mode arms AutomationGate after user confirmation",
   );
   check(
     mirrorRunBody.includes(

@@ -17,6 +17,7 @@ import type {
 type SpecterMode = "silent" | "ultra";
 type ReplayState = "idle" | "running" | "paused";
 type ReplayMode = "walkthrough" | "auto" | null;
+type AutomationMode = "auto" | "mirror" | "calibration";
 type RealAppAction = "click" | "type" | "scroll" | "wait";
 type EdgeLightState = "hidden" | "summon" | "idle" | "walkthrough";
 type MirrorFeedbackKind = "accept" | "override" | "hesitation" | "correction";
@@ -86,6 +87,17 @@ function messageFromError(error: unknown): string {
   if (error instanceof Error && error.message) return error.message;
   if (typeof error === "string" && error.trim()) return error;
   return "Specter hit a temporary issue. Try again.";
+}
+
+async function confirmAutomationGate(
+  mode: AutomationMode,
+  steps = 500,
+): Promise<void> {
+  const token = await api.requestAutomationSession(mode, steps);
+  const confirmed = await api.confirmAutomationSession(token);
+  if (!confirmed) {
+    throw new Error("Automation confirmation failed.");
+  }
 }
 
 function finitePercent(value: unknown): number | null {
@@ -979,10 +991,13 @@ const OverlayApp: React.FC = () => {
     setReplayMode(kind);
     setReplayState("running");
 
+    let automationArmed = false;
     try {
       if (kind === "walkthrough") {
         await api.walkthrough(lastNodeId);
       } else {
+        await confirmAutomationGate("auto");
+        automationArmed = true;
         await api.autoExecute(lastNodeId);
       }
     } catch (error) {
@@ -991,6 +1006,11 @@ const OverlayApp: React.FC = () => {
       setReplayState("idle");
       setReplayMode(null);
     } finally {
+      if (automationArmed) {
+        await api.cancelAutomationSession().catch((error: unknown) => {
+          console.warn("[AUTO_REAL_MOUSE] gate cancel failed:", error);
+        });
+      }
       setIsLoading(false);
     }
   };
@@ -1396,7 +1416,10 @@ const OverlayApp: React.FC = () => {
     setMirrorFeedbackStatus("");
     setMirrorCorrectionCount(0);
 
+    let automationArmed = false;
     try {
+      await confirmAutomationGate("mirror");
+      automationArmed = true;
       const arm = api.selectStyle
         ? await api.selectStyle().catch(() => null)
         : null;
@@ -1414,6 +1437,12 @@ const OverlayApp: React.FC = () => {
       setSpecMood("stuck");
       setReplayState("idle");
       setReplayMode(null);
+    } finally {
+      if (automationArmed) {
+        await api.cancelAutomationSession().catch((error: unknown) => {
+          console.warn("[MIRROR_MODE] gate cancel failed:", error);
+        });
+      }
     }
   };
 

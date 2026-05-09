@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from "react";
 import { api } from "./api";
 import { InputBar } from "../overlay/InputBar";
 import { GhostCursor } from "../overlay/GhostCursor";
+import { WalkthroughGuide } from "../overlay/WalkthroughGuide";
 import { SpecBuddy } from "../overlay/SpecBuddy";
 import { ModeToggle } from "../overlay/ModeToggle";
 import { SessionPanel } from "../overlay/SessionPanel";
@@ -245,15 +246,11 @@ function normalizedRealAppTarget(target: RealAppTarget): RealAppTarget {
 }
 
 function walkthroughStepFromReplay(data: any) {
-  const ghost = data.ghost || {};
   return {
     ...data.step,
     index: data.index,
     total: data.total,
     retryReason: data.reason,
-    ghostStartX: ghost.startX,
-    ghostStartY: ghost.startY,
-    ghostLoop: ghost.loop !== false,
     ghostLocked: false,
     ghostReplayKey: `${data.index}:${data.attempt ?? 0}`,
   };
@@ -834,7 +831,6 @@ const OverlayApp: React.FC = () => {
         if (!current || current.index !== data.index) return current;
         return {
           ...current,
-          ghostLoop: false,
           ghostLocked: true,
         };
       });
@@ -1590,9 +1586,8 @@ const OverlayApp: React.FC = () => {
           className="siri-glow-fullscreen"
           style={{ pointerEvents: "none" }}
         />
-        <GhostCursor
-          step={currentStep || (isVisible ? { type: "idle" } : null)}
-        />
+        <GhostCursor mood={specMood} isVisible={isVisible} />
+        <WalkthroughGuide step={currentStep} />
         {(isVisible || isReplayRunning || isLoading) && (
           <SpecBuddy
             mood={specMood}
@@ -1728,7 +1723,7 @@ const OverlayApp: React.FC = () => {
               zIndex: 10001,
             }}
           >
-            {`click-through: ${isClickThrough ? "ON" : "OFF"} | step ${(currentStep.index ?? 0) + 1}/${currentStep.total ?? "?"} | target X ${formatCoordinate(currentStep.x)} Y ${formatCoordinate(currentStep.y)} | waiting: ${manualConfirmMessage ? "fallback" : currentStep.ghostLocked ? "click" : currentStep.ghostLoop !== false ? "approach" : "parked"}`}
+            {`click-through: ${isClickThrough ? "ON" : "OFF"} | step ${(currentStep.index ?? 0) + 1}/${currentStep.total ?? "?"} | target X ${formatCoordinate(currentStep.x)} Y ${formatCoordinate(currentStep.y)} | waiting: ${manualConfirmMessage ? "fallback" : currentStep.ghostLocked ? "click" : "approach"}`}
           </div>
         )}
 

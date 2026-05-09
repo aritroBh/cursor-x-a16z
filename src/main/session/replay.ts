@@ -1,6 +1,6 @@
 import { BrowserWindow, IpcMain } from 'electron'
 import { safeLog, safeWarn, safeError } from '../logger'
-import { getMousePercent, waitForMouseAtTarget, waitForUserClickAtTarget } from '../userCursor'
+import { waitForMouseAtTarget, waitForUserClickAtTarget } from '../userCursor'
 import { loadGraph } from './storage'
 import { Step } from './types'
 import { replayAutoExecute } from './replayAuto'
@@ -29,11 +29,6 @@ const MANUAL_CONFIRM_TIMEOUT_MS = 30000
 
 type TargetWaitResult = 'correct' | 'timeout' | 'cancelled'
 
-interface GhostStart {
-  x: number
-  y: number
-}
-
 let pendingManualConfirm: (() => void) | null = null
 
 function stepTitle(step: Step): string {
@@ -42,26 +37,6 @@ function stepTitle(step: Step): string {
 
 function stepWaitMs(step: Step): number {
   return step.waitForMs || step.delayMs || DEFAULT_WAIT_STEP_MS
-}
-
-function fallbackGhostStart(step: Step, previousTarget: GhostStart | null): GhostStart {
-  if (previousTarget) return previousTarget
-
-  const offsetX = step.x > 58 ? -18 : 18
-  const offsetY = step.y > 58 ? -12 : 12
-  return {
-    x: Math.min(96, Math.max(4, step.x + offsetX)),
-    y: Math.min(96, Math.max(4, step.y + offsetY))
-  }
-}
-
-async function ghostStartForStep(step: Step, previousTarget: GhostStart | null): Promise<GhostStart> {
-  try {
-    return await getMousePercent()
-  } catch (error) {
-    safeWarn('[GHOST] could not read cursor for ghost start; using fallback', error)
-    return fallbackGhostStart(step, previousTarget)
-  }
 }
 
 function waitForUserNearTarget(
@@ -211,22 +186,15 @@ function logWalkthroughStep(step: Step, index: number, total: number, attempt: n
   })
 }
 
-function emitGhostStep(step: Step, index: number, total: number, attempt: number, reason: TargetWaitResult, ghostStart: GhostStart): void {
+function emitGhostStep(step: Step, index: number, total: number, attempt: number, reason: TargetWaitResult): void {
   const channel = attempt === 0 ? 'replay:step' : 'replay:retry'
-  const ghostLoops = step.action !== 'wait'
 
   sendOverlay(channel, {
     step,
     index,
     total,
     reason,
-    attempt,
-    ghost: {
-      startX: ghostStart.x,
-      startY: ghostStart.y,
-      loop: ghostLoops,
-      timeoutMs: DEFAULT_STEP_TIMEOUT_MS
-    }
+    attempt
   })
 
   safeLog('[GHOST] visual step emitted', {
@@ -235,14 +203,8 @@ function emitGhostStep(step: Step, index: number, total: number, attempt: number
     attempt,
     action: step.action,
     x: step.x,
-    y: step.y,
-    startX: ghostStart.x,
-    startY: ghostStart.y
+    y: step.y
   })
-
-  if (ghostLoops) {
-    safeLog('[GHOST] looping started', { index, attempt, timeoutMs: DEFAULT_STEP_TIMEOUT_MS })
-  }
 }
 
 function parkGhostAtEndpoint(step: Step, index: number, total: number, attempt: number): void {
@@ -262,7 +224,6 @@ export async function replayWalkthrough(steps: Step[], onStep: (step: Step, inde
 
   const controller = createReplayController()
   setOverlayForReplay()
-  let previousGhostTarget: GhostStart | null = null
   safeLog('[WALKTHROUGH] start', { totalSteps: steps.length })
 
   try {
@@ -274,8 +235,7 @@ export async function replayWalkthrough(steps: Step[], onStep: (step: Step, inde
 
       while (result !== 'correct' && isActive(controller)) {
         logWalkthroughStep(step, index, steps.length, attempts)
-        const ghostStart = await ghostStartForStep(step, previousGhostTarget)
-        emitGhostStep(step, index, steps.length, attempts, result, ghostStart)
+        emitGhostStep(step, index, steps.length, attempts, result)
 
         if (attempts === 0) onStep(step, index)
 
@@ -294,7 +254,6 @@ export async function replayWalkthrough(steps: Step[], onStep: (step: Step, inde
 
           if (result === 'correct') {
             safeLog('[USER_CURSOR] real cursor entered tolerance', { index, x: step.x, y: step.y })
-            previousGhostTarget = { x: step.x, y: step.y }
             parkGhostAtEndpoint(step, index, steps.length, attempts)
 
             safeLog('[CLICK_DETECT] waiting for actual user click', {
@@ -326,7 +285,6 @@ export async function replayWalkthrough(steps: Step[], onStep: (step: Step, inde
 
           if (result === 'correct') {
             safeLog('[USER_CURSOR] real cursor entered tolerance', { index, action: step.action, x: step.x, y: step.y })
-            previousGhostTarget = { x: step.x, y: step.y }
             parkGhostAtEndpoint(step, index, steps.length, attempts)
           }
         }

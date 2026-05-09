@@ -64,6 +64,8 @@ interface CoordinateMappingResult {
 const SHOW_WALKTHROUGH_DEBUG = import.meta.env.DEV;
 const DEFAULT_REAL_APP_PROMPT = "Teach me one visible action";
 const DEFAULT_CONFIDENCE_THRESHOLD = 0.65;
+const NORMAL_TARGET_LIMIT = 3;
+const DEBUG_TARGET_LIMIT = 10;
 const HUD_VIEWPORT_MARGIN = 12;
 const CURSOR_REVEAL_POLL_MS = 70;
 const NEAR_TARGET_REVEAL_DISTANCE_PX = 180;
@@ -171,6 +173,23 @@ function formatCoordinate(value: unknown): string {
 function confidencePercent(value: unknown): string {
   if (typeof value !== "number" || !Number.isFinite(value)) return "n/a";
   return `${Math.round(Math.min(1, Math.max(0, value)) * 100)}%`;
+}
+
+function realAppTargetKey(target: RealAppTarget): string {
+  return [
+    target.source || "vision",
+    target.id || target.label,
+    formatCoordinate(target.x),
+    formatCoordinate(target.y),
+  ].join(":");
+}
+
+function sameRealAppTarget(
+  first: RealAppTarget | null | undefined,
+  second: RealAppTarget | null | undefined,
+): boolean {
+  if (!first || !second) return false;
+  return realAppTargetKey(first) === realAppTargetKey(second);
 }
 
 function behaviorPercent(value: unknown): string {
@@ -316,6 +335,8 @@ const OverlayApp: React.FC = () => {
   const [selectedTargetMapping, setSelectedTargetMapping] =
     useState<CoordinateMappingResult | null>(null);
   const [isManualTargetPicking, setIsManualTargetPicking] = useState(false);
+  const [hoveredRealAppTargetKey, setHoveredRealAppTargetKey] =
+    useState<string>("");
   const [realAppNotice, setRealAppNotice] = useState("");
   const [showDebugTools, setShowDebugTools] = useState(false);
   const [aiHealthMessage, setAiHealthMessage] = useState("");
@@ -996,6 +1017,7 @@ const OverlayApp: React.FC = () => {
     setRealAppTargets(null);
     setSelectedRealAppTarget(null);
     setSelectedTargetMapping(null);
+    setHoveredRealAppTargetKey("");
     setIsManualTargetPicking(false);
     setRealAppNotice("");
     setLoadingMessage("Analyzing your screen...");
@@ -1114,6 +1136,7 @@ const OverlayApp: React.FC = () => {
     setRealAppTargets(null);
     setSelectedRealAppTarget(null);
     setSelectedTargetMapping(null);
+    setHoveredRealAppTargetKey("");
     setIsManualTargetPicking(false);
     setRealAppNotice("");
     setIsLoading(true);
@@ -1158,6 +1181,7 @@ const OverlayApp: React.FC = () => {
     setRealAppTargets(null);
     setSelectedRealAppTarget(null);
     setSelectedTargetMapping(null);
+    setHoveredRealAppTargetKey("");
     setIsManualTargetPicking(false);
     setRealAppNotice("");
     setIsLoading(true);
@@ -1178,6 +1202,7 @@ const OverlayApp: React.FC = () => {
         });
         setSelectedRealAppTarget(null);
         setSelectedTargetMapping(null);
+        setHoveredRealAppTargetKey("");
         setIsLoading(false);
 
         if (mode === "ultra") {
@@ -1212,6 +1237,7 @@ const OverlayApp: React.FC = () => {
       setRealAppTargets(nextTargets);
       setSelectedRealAppTarget(null);
       setSelectedTargetMapping(null);
+      setHoveredRealAppTargetKey("");
 
       console.log("[SCREEN_TARGETS] candidate list", {
         prompt: testIntent,
@@ -1245,10 +1271,10 @@ const OverlayApp: React.FC = () => {
           `I found possible targets, starting with ${leadTarget.label}. Pick the right marker before we start.`,
           "target found",
         );
-        const confidenceHint =
-          (leadTarget.confidence ?? 0) < threshold ? " Confidence is low." : "";
         setRealAppNotice(
-          `I found a few possible targets.${confidenceHint} Pick the one you want, or click Pick manually.`,
+          (leadTarget.confidence ?? 0) < threshold
+            ? "These are best guesses. Pick manually if they look wrong."
+            : "",
         );
       }
     } catch (error) {
@@ -1261,14 +1287,16 @@ const OverlayApp: React.FC = () => {
   const selectRealAppTarget = (target: RealAppTarget) => {
     const normalized = normalizedRealAppTarget(target);
     setSelectedRealAppTarget(normalized);
+    setHoveredRealAppTargetKey(realAppTargetKey(normalized));
     setIsManualTargetPicking(false);
-    setRealAppNotice("Confirm the target before the ghost starts.");
+    setRealAppNotice("");
     void logTargetCoordinateAlignment(normalized, "target selected");
   };
 
   const startManualTargetPicking = () => {
     console.log("[MANUAL_TARGET] manual target picking armed");
     setIsManualTargetPicking(true);
+    setHoveredRealAppTargetKey("");
     setInteractivity(true);
     setRealAppNotice(
       "Click the exact spot you want the ghost cursor to teach. Press Escape to cancel.",
@@ -1306,6 +1334,7 @@ const OverlayApp: React.FC = () => {
       fullViewportRect,
     });
     setSelectedRealAppTarget(target);
+    setHoveredRealAppTargetKey(realAppTargetKey(target));
     void logTargetCoordinateAlignment(target, "manual target picked");
     setRealAppTargets((current) => ({
       ...(current || {
@@ -1321,7 +1350,7 @@ const OverlayApp: React.FC = () => {
       ],
     }));
     setIsManualTargetPicking(false);
-    setRealAppNotice("Manual target saved. Confirm to start the ghost.");
+    setRealAppNotice("Manual target selected.");
   };
 
   const startRealAppWalkthrough = async () => {
@@ -1379,6 +1408,7 @@ const OverlayApp: React.FC = () => {
       setRealAppTargets(null);
       setSelectedRealAppTarget(null);
       setSelectedTargetMapping(null);
+      setHoveredRealAppTargetKey("");
       setRealAppNotice("");
     } catch (error) {
       console.error("[REAL_APP_WALKTHROUGH] failed:", error);
@@ -1670,6 +1700,7 @@ const OverlayApp: React.FC = () => {
     setRealAppTargets(null);
     setSelectedRealAppTarget(null);
     setSelectedTargetMapping(null);
+    setHoveredRealAppTargetKey("");
     setIsManualTargetPicking(false);
     setRealAppNotice("");
     setLoadingMessage("Analyzing your screen...");
@@ -1721,15 +1752,37 @@ const OverlayApp: React.FC = () => {
   const realAppConfidenceThreshold =
     realAppTargets?.confidenceThreshold || DEFAULT_CONFIDENCE_THRESHOLD;
   const realAppMarkerTargets = realAppTargets?.targets || [];
+  const targetCandidateLimit = showDebugTools
+    ? DEBUG_TARGET_LIMIT
+    : NORMAL_TARGET_LIMIT;
+  const displayedRealAppTargets = realAppMarkerTargets.slice(
+    0,
+    targetCandidateLimit,
+  );
+  const hiddenRealAppTargetCount = Math.max(
+    0,
+    realAppMarkerTargets.length - displayedRealAppTargets.length,
+  );
   const showRealAppVerification = Boolean(
     realAppTargets || selectedRealAppTarget || isManualTargetPicking,
   );
   const showFallbackWorkflow = Boolean(realAppTargets?.fallbackAvailable);
-  const showWorkflowCard = showFallbackWorkflow || showRealAppVerification;
+  const showWorkflowCard =
+    (showFallbackWorkflow || showRealAppVerification) && !isManualTargetPicking;
   const selectedTargetConfidence = selectedRealAppTarget?.confidence;
   const selectedTargetIsLowConfidence =
     typeof selectedTargetConfidence === "number" &&
     selectedTargetConfidence < realAppConfidenceThreshold;
+  const currentRealAppGoal =
+    realAppIntent || intent || realAppTargets?.prompt || "";
+  const selectedTargetLabel = selectedRealAppTarget?.label || "";
+  const realAppTargetHelperText = selectedRealAppTarget
+    ? `Ready to guide to ${selectedTargetLabel}.`
+    : "Select a target first, or pick manually.";
+  const workflowCardClassName = [
+    "specter-workflow-card",
+    showDebugTools ? "is-debug-targets" : "is-compact-targets",
+  ].join(" ");
   const edgeLightState: EdgeLightState = !isVisible
     ? "hidden"
     : isReplayRunning
@@ -1812,58 +1865,49 @@ const OverlayApp: React.FC = () => {
         )}
 
         {isManualTargetPicking && !isReplayRunning && (
-          <div
-            onClick={handleManualTargetPick}
-            style={{
-              position: "fixed",
-              inset: 0,
-              zIndex: 10002,
-              cursor: "crosshair",
-              pointerEvents: "auto",
-              background: "rgba(0, 0, 0, 0.08)",
-            }}
-          />
+          <>
+            <div
+              onClick={handleManualTargetPick}
+              style={{
+                position: "fixed",
+                inset: 0,
+                zIndex: 10002,
+                cursor: "crosshair",
+                pointerEvents: "auto",
+                background: "rgba(0, 0, 0, 0.08)",
+              }}
+            />
+            <div className="specter-manual-pick-instruction">
+              Click the exact spot you want Specter to teach.
+            </div>
+          </>
         )}
 
         {!isReplayRunning &&
           !isManualTargetPicking &&
-          realAppMarkerTargets.map((target, index) => {
-            const isSelected =
-              selectedRealAppTarget &&
-              Math.abs(selectedRealAppTarget.x - target.x) < 0.01 &&
-              Math.abs(selectedRealAppTarget.y - target.y) < 0.01 &&
-              selectedRealAppTarget.label === target.label;
-            const lowConfidence =
-              typeof target.confidence === "number" &&
-              target.confidence < realAppConfidenceThreshold;
+          displayedRealAppTargets.map((target, index) => {
+            const key = realAppTargetKey(target);
+            const isSelected = sameRealAppTarget(selectedRealAppTarget, target);
+            const isHovered = hoveredRealAppTargetKey === key;
 
             return (
               <button
-                key={`${target.id || target.label}-${index}`}
+                key={`${key}-${index}`}
+                className={`specter-target-marker ${
+                  isSelected ? "is-selected" : ""
+                } ${isHovered ? "is-hovered" : ""}`}
                 onClick={() => selectRealAppTarget(target)}
-                title={`${target.label} (${confidencePercent(target.confidence)})`}
+                onMouseEnter={() => setHoveredRealAppTargetKey(key)}
+                onMouseLeave={() => setHoveredRealAppTargetKey("")}
+                aria-label={`Select target ${target.label}`}
+                title={
+                  showDebugTools
+                    ? `${target.label} (${confidencePercent(target.confidence)})`
+                    : target.label
+                }
                 style={{
-                  position: "fixed",
                   left: `${target.x}vw`,
                   top: `${target.y}vh`,
-                  transform: "translate(-50%, -50%)",
-                  zIndex: 10003,
-                  width: isSelected ? "34px" : "28px",
-                  height: isSelected ? "34px" : "28px",
-                  borderRadius: "999px",
-                  border: isSelected
-                    ? "2px solid rgba(255,255,255,0.92)"
-                    : "1px solid rgba(255,255,255,0.75)",
-                  background: lowConfidence
-                    ? "rgba(255, 159, 10, 0.92)"
-                    : "rgba(10, 132, 255, 0.92)",
-                  color: "#fff",
-                  fontSize: "12px",
-                  fontWeight: 900,
-                  lineHeight: 1,
-                  boxShadow: "0 8px 24px rgba(0,0,0,0.34)",
-                  cursor: "pointer",
-                  pointerEvents: "auto",
                 }}
               >
                 {index + 1}
@@ -1890,7 +1934,7 @@ const OverlayApp: React.FC = () => {
           />
         )}
 
-        {import.meta.env.DEV && selectedRealAppTarget && !isReplayRunning && (
+        {showDebugTools && selectedRealAppTarget && !isReplayRunning && (
           <div
             style={{
               position: "fixed",
@@ -2114,7 +2158,7 @@ const OverlayApp: React.FC = () => {
               </div>
               {showWorkflowCard && (
                 <div
-                  className="specter-workflow-card"
+                  className={workflowCardClassName}
                   onClick={(event) => event.stopPropagation()}
                 >
                   <div className="specter-workflow-header">
@@ -2122,13 +2166,15 @@ const OverlayApp: React.FC = () => {
                       <div className="specter-kicker">
                         {showFallbackWorkflow
                           ? "Vision unavailable"
-                          : "Guided Workspace"}
+                          : "Target confirmation"}
                       </div>
                       <div className="specter-workflow-title">
+                        Where should Specter guide you?
+                      </div>
+                      <div className="specter-workflow-subtitle">
                         {showFallbackWorkflow
-                          ? "I couldn't confidently detect the target. Pick it manually or use Practice Mode."
-                          : realAppTargets?.microTask ||
-                            "First, I will teach one visible action."}
+                          ? "I couldn't confidently detect the target. Pick manually or use Practice Mode."
+                          : "I found a few possible targets. Pick one, or click Pick manually."}
                       </div>
                     </div>
                     <div className="specter-workflow-meta">
@@ -2138,6 +2184,12 @@ const OverlayApp: React.FC = () => {
                     </div>
                   </div>
 
+                  {!showFallbackWorkflow && currentRealAppGoal && (
+                    <div className="specter-workflow-goal">
+                      For: {currentRealAppGoal}
+                    </div>
+                  )}
+
                   {!showFallbackWorkflow && realAppNotice && (
                     <div
                       className={`specter-workflow-note ${selectedTargetIsLowConfidence ? "is-warning" : ""}`}
@@ -2146,33 +2198,61 @@ const OverlayApp: React.FC = () => {
                     </div>
                   )}
 
-                  {!showFallbackWorkflow && realAppMarkerTargets.length > 0 && (
-                    <div className="specter-target-list">
-                      {realAppMarkerTargets.map((target, index) => (
-                        <button
-                          key={`${target.id || target.label}-list-${index}`}
-                          className={`specter-target-list-item ${
-                            selectedRealAppTarget &&
-                            Math.abs(selectedRealAppTarget.x - target.x) <
-                              0.01 &&
-                            Math.abs(selectedRealAppTarget.y - target.y) <
-                              0.01 &&
-                            selectedRealAppTarget.label === target.label
-                              ? "is-selected"
-                              : ""
-                          }`}
-                          onClick={() => selectRealAppTarget(target)}
-                        >
-                          <span>{index + 1}</span>
-                          <strong>{target.label}</strong>
-                          <em>{confidencePercent(target.confidence)}</em>
-                        </button>
-                      ))}
+                  {!showFallbackWorkflow &&
+                    displayedRealAppTargets.length > 0 && (
+                      <div className="specter-target-list">
+                        {displayedRealAppTargets.map((target, index) => {
+                          const key = realAppTargetKey(target);
+                          const isSelected = sameRealAppTarget(
+                            selectedRealAppTarget,
+                            target,
+                          );
+                          const isHovered = hoveredRealAppTargetKey === key;
+
+                          return (
+                            <button
+                              key={`${key}-list-${index}`}
+                              className={`specter-target-list-item ${
+                                isSelected ? "is-selected" : ""
+                              } ${isHovered ? "is-hovered" : ""}`}
+                              onClick={() => selectRealAppTarget(target)}
+                              onMouseEnter={() =>
+                                setHoveredRealAppTargetKey(key)
+                              }
+                              onMouseLeave={() =>
+                                setHoveredRealAppTargetKey("")
+                              }
+                            >
+                              <span>{index + 1}</span>
+                              <strong>{target.label}</strong>
+                              {showDebugTools && (
+                                <em>{confidencePercent(target.confidence)}</em>
+                              )}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    )}
+
+                  {!showFallbackWorkflow && hiddenRealAppTargetCount > 0 && (
+                    <div className="specter-target-hidden-note">
+                      {showDebugTools
+                        ? `${hiddenRealAppTargetCount} more hidden.`
+                        : "More candidates available in Debug."}
+                    </div>
+                  )}
+
+                  {!showFallbackWorkflow && (
+                    <div
+                      className={`specter-workflow-note ${selectedRealAppTarget ? "is-ready" : ""}`}
+                    >
+                      {realAppTargetHelperText}
                     </div>
                   )}
 
                   {!showFallbackWorkflow &&
-                    (selectedRealAppTarget ? (
+                    showDebugTools &&
+                    selectedRealAppTarget && (
                       <div className="specter-target-summary">
                         <div style={{ minWidth: 0 }}>
                           <div className="specter-target-title">
@@ -2196,17 +2276,13 @@ const OverlayApp: React.FC = () => {
                           className={`specter-target-dot ${selectedTargetIsLowConfidence ? "is-warning" : ""}`}
                         />
                       </div>
-                    ) : (
-                      <div className="specter-workflow-note">
-                        Pick a numbered marker, or click Pick manually.
-                      </div>
-                    ))}
+                    )}
 
                   <div className="specter-action-row">
                     {showFallbackWorkflow ? (
                       <>
                         <button
-                          className="specter-action-button blue"
+                          className="specter-action-button blue is-manual-primary"
                           disabled={isLoading}
                           onClick={startManualTargetPicking}
                         >
@@ -2237,18 +2313,44 @@ const OverlayApp: React.FC = () => {
                     ) : (
                       <>
                         <button
+                          className="specter-action-button blue is-manual-primary"
+                          disabled={isLoading}
+                          onClick={startManualTargetPicking}
+                        >
+                          Pick manually
+                        </button>
+                        <button
+                          className="specter-action-button"
+                          disabled={isLoading}
+                          onClick={() => {
+                            setRealAppTargets(null);
+                            setSelectedRealAppTarget(null);
+                            setSelectedTargetMapping(null);
+                            setHoveredRealAppTargetKey("");
+                            startRealAppTest(
+                              realAppIntent ||
+                                intent ||
+                                DEFAULT_REAL_APP_PROMPT,
+                            );
+                          }}
+                        >
+                          Retry
+                        </button>
+                        {showDebugTools && (
+                          <button
+                            className="specter-action-button"
+                            disabled={isLoading}
+                            onClick={prepareControlledDemo}
+                          >
+                            Practice Mode
+                          </button>
+                        )}
+                        <button
                           className="specter-action-button primary"
                           disabled={isLoading || !selectedRealAppTarget}
                           onClick={startRealAppWalkthrough}
                         >
                           Start ghost
-                        </button>
-                        <button
-                          className="specter-action-button blue"
-                          disabled={isLoading}
-                          onClick={startManualTargetPicking}
-                        >
-                          Pick manually
                         </button>
                       </>
                     )}

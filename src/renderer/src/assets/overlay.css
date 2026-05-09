@@ -338,17 +338,21 @@
 }
 
 .specter-workflow-card {
-  width: 100%;
+  width: min(100%, 520px);
   background: rgba(12, 14, 18, 0.82);
   border: 1px solid rgba(255, 255, 255, 0.13);
-  border-radius: 14px;
-  padding: 14px;
+  border-radius: 12px;
+  padding: 12px;
   color: #fff;
-  box-shadow: 0 16px 44px rgba(0, 0, 0, 0.34);
+  box-shadow: 0 14px 34px rgba(0, 0, 0, 0.3);
   backdrop-filter: blur(20px);
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 8px;
+}
+
+.specter-workflow-card.is-debug-targets {
+  max-height: min(560px, calc(100vh - 180px));
 }
 
 .specter-workflow-header {
@@ -373,6 +377,14 @@
   margin-top: 2px;
 }
 
+.specter-workflow-subtitle {
+  margin-top: 3px;
+  color: rgba(255, 255, 255, 0.68);
+  font-size: 12px;
+  font-weight: 650;
+  line-height: 1.35;
+}
+
 .specter-workflow-meta {
   font-size: 11px;
   color: rgba(255, 255, 255, 0.72);
@@ -380,6 +392,16 @@
   text-align: right;
   max-width: 160px;
   overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.specter-workflow-goal {
+  overflow: hidden;
+  color: rgba(255, 255, 255, 0.54);
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1.3;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -393,6 +415,10 @@
 
 .specter-workflow-note.is-warning {
   color: #ffd60a;
+}
+
+.specter-workflow-note.is-ready {
+  color: rgba(48, 209, 88, 0.88);
 }
 
 .specter-target-summary {
@@ -412,9 +438,15 @@
   gap: 6px;
 }
 
+.specter-workflow-card.is-debug-targets .specter-target-list {
+  max-height: 280px;
+  overflow-y: auto;
+  padding-right: 2px;
+}
+
 .specter-target-list-item {
   display: grid;
-  grid-template-columns: 20px 1fr auto;
+  grid-template-columns: 20px minmax(0, 1fr);
   align-items: center;
   gap: 8px;
   min-height: 30px;
@@ -425,6 +457,16 @@
   background: rgba(255, 255, 255, 0.07);
   text-align: left;
   cursor: pointer;
+}
+
+.specter-workflow-card.is-debug-targets .specter-target-list-item {
+  grid-template-columns: 20px minmax(0, 1fr) auto;
+}
+
+.specter-target-list-item:hover,
+.specter-target-list-item.is-hovered {
+  border-color: rgba(10, 132, 255, 0.44);
+  background: rgba(10, 132, 255, 0.12);
 }
 
 .specter-target-list-item.is-selected {
@@ -461,6 +503,55 @@
   font-weight: 800;
 }
 
+.specter-target-hidden-note {
+  color: rgba(255, 255, 255, 0.46);
+  font-size: 10px;
+  font-weight: 750;
+}
+
+.specter-target-marker {
+  position: fixed;
+  transform: translate(-50%, -50%);
+  z-index: 10003;
+  width: 22px;
+  height: 22px;
+  border: 1px solid rgba(255, 255, 255, 0.5);
+  border-radius: 999px;
+  background: rgba(10, 132, 255, 0.42);
+  color: rgba(255, 255, 255, 0.92);
+  font-size: 10px;
+  font-weight: 900;
+  line-height: 1;
+  box-shadow:
+    0 0 0 5px rgba(10, 132, 255, 0.1),
+    0 8px 20px rgba(0, 0, 0, 0.24);
+  cursor: pointer;
+  pointer-events: auto;
+  transition:
+    background 0.16s ease,
+    box-shadow 0.16s ease,
+    transform 0.16s ease;
+}
+
+.specter-target-marker:hover,
+.specter-target-marker.is-hovered {
+  background: rgba(10, 132, 255, 0.78);
+  box-shadow:
+    0 0 0 7px rgba(10, 132, 255, 0.16),
+    0 10px 26px rgba(0, 0, 0, 0.28);
+  transform: translate(-50%, -50%) scale(1.08);
+}
+
+.specter-target-marker.is-selected {
+  width: 28px;
+  height: 28px;
+  border-color: rgba(255, 255, 255, 0.9);
+  background: rgba(48, 209, 88, 0.86);
+  box-shadow:
+    0 0 0 8px rgba(48, 209, 88, 0.15),
+    0 10px 28px rgba(0, 0, 0, 0.3);
+}
+
 .specter-target-title {
   font-size: 14px;
   font-weight: 850;
@@ -494,6 +585,7 @@
   display: flex;
   gap: 8px;
   width: 100%;
+  align-items: stretch;
 }
 
 .specter-action-button {
@@ -521,6 +613,59 @@
 
 .specter-action-button.blue {
   background: rgba(10, 132, 255, 0.24);
+}
+
+.specter-action-button.is-manual-primary {
+  flex: 1.25;
+  background: rgba(10, 132, 255, 0.34);
+}
+
+.specter-manual-pick-instruction {
+  position: fixed;
+  left: 50%;
+  bottom: 116px;
+  transform: translateX(-50%);
+  z-index: 10005;
+  max-width: min(420px, calc(100vw - 32px));
+  padding: 10px 14px;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  border-radius: 12px;
+  background: rgba(12, 14, 18, 0.86);
+  color: rgba(255, 255, 255, 0.94);
+  box-shadow: 0 14px 34px rgba(0, 0, 0, 0.3);
+  backdrop-filter: blur(16px);
+  font-size: 13px;
+  font-weight: 800;
+  line-height: 1.35;
+  pointer-events: none;
+}
+
+@media (max-width: 520px) {
+  .specter-workflow-card {
+    width: 100%;
+    padding: 10px;
+  }
+
+  .specter-workflow-header {
+    gap: 8px;
+  }
+
+  .specter-workflow-meta {
+    max-width: 104px;
+  }
+
+  .specter-action-row {
+    flex-wrap: wrap;
+  }
+
+  .specter-action-button {
+    min-width: calc(50% - 4px);
+  }
+
+  .specter-manual-pick-instruction {
+    bottom: 96px;
+    font-size: 12px;
+  }
 }
 
 /* Recording overlay */

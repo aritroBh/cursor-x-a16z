@@ -422,12 +422,68 @@ async function main() {
     "real-app flow does not auto-start or auto-select normalizedTargets[0]",
   );
   check(
-    overlayAppBody.includes("I found a few possible targets.") &&
+    overlayAppBody.includes("Where should Specter guide you?") &&
       overlayAppBody.includes(
-        "Pick the one you want, or click Pick manually.",
+        "I found a few possible targets. Pick one, or click Pick manually.",
       ) &&
       overlayAppBody.includes("specter-target-list"),
-    "renderer shows target candidates before ghost confirmation",
+    "renderer shows stable target confirmation copy before ghost confirmation",
+  );
+  check(
+    overlayAppBody.includes("NORMAL_TARGET_LIMIT = 3") &&
+      overlayAppBody.includes("DEBUG_TARGET_LIMIT = 10") &&
+      overlayAppBody.includes("targetCandidateLimit") &&
+      overlayAppBody.includes("displayedRealAppTargets"),
+    "normal mode limits target candidates to 3 and debug mode allows 10",
+  );
+  check(
+    overlayAppBody.includes("displayedRealAppTargets.map") &&
+      !overlayAppBody.includes("realAppMarkerTargets.map"),
+    "hidden candidates do not render markers or rows",
+  );
+  check(
+    /showDebugTools\s*\?[\s\S]{0,120}confidencePercent\(target\.confidence\)/.test(
+      overlayAppBody,
+    ) &&
+      /showDebugTools\s*&&[\s\S]{0,120}<em>\{confidencePercent\(target\.confidence\)\}<\/em>/.test(
+        overlayAppBody,
+      ),
+    "confidence percentages are hidden outside Debug mode",
+  );
+  check(
+    /disabled=\{isLoading \|\| !selectedRealAppTarget\}[\s\S]{0,120}Start ghost/.test(
+      overlayAppBody,
+    ),
+    "Start ghost is disabled until a target is selected",
+  );
+  check(
+    overlayAppBody.includes("is-manual-primary") &&
+      overlayAppBody.includes("startManualTargetPicking") &&
+      overlayAppBody.includes(
+        "Click the exact spot you want Specter to teach.",
+      ),
+    "Pick manually is prominent and uses exact-spot instruction",
+  );
+  check(
+    overlayAppBody.includes("specter-workflow-title") &&
+      overlayAppBody.includes("Where should Specter guide you?") &&
+      !/specter-workflow-title[\s\S]{0,180}realAppTargets\?\.microTask/.test(
+        overlayAppBody,
+      ),
+    "panel title uses stable copy, not detected target labels",
+  );
+  check(
+    overlayAppBody.includes("specter-target-marker") &&
+      overlayCss.includes(".specter-target-marker.is-selected") &&
+      overlayCss.includes(".specter-target-list-item.is-hovered"),
+    "markers are subtle and synchronize hover/selected states with rows",
+  );
+  check(
+    overlayAppBody.includes("is-debug-targets") &&
+      overlayCss.includes(".specter-workflow-card.is-debug-targets") &&
+      overlayCss.includes("max-height") &&
+      overlayAppBody.includes("More candidates available in Debug."),
+    "Debug mode can expose more candidate details without bloating normal mode",
   );
   check(
     overlayAppBody.includes("[SCREEN_TARGETS] candidate list") &&

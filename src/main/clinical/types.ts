@@ -18,7 +18,12 @@ export type EhrWorkflowState =
   | "ORDER_COMPOSER_OPEN"
   | "ORDER_CONFIGURED"
   | "ORDER_PENDING_SIGNATURE"
-  | "ORDER_SIGNED_BY_CLINICIAN";
+  | "ORDER_SIGNED_BY_CLINICIAN"
+  | "RESIDENT_NOTE_REVIEWED"
+  | "ATTESTATION_MODE_CHOSEN"
+  | "ATTESTATION_DRAFTED"
+  | "ATTESTATION_INSERTED_BY_CLINICIAN"
+  | "ATTESTATION_SIGNED_BY_CLINICIAN";
 
 export type SafetyLevel =
   | "read_only"
@@ -122,6 +127,28 @@ export interface ClinicalContextBundle {
   sources: ClinicalSourceNote[];
   createdAt: string;
   captureMethod: "clipboard" | "ocr" | "manual_paste" | "mixed";
+  containsPhi?: boolean;
+  institution?: "ucsf_health" | "ucsf_other" | "non_ucsf" | "synthetic";
+}
+
+export type AiRoute = "ucsf_versa" | "anthropic_direct" | "mock" | "blocked";
+
+export interface AttestationElements {
+  saw_examined_personally: boolean;
+  performed_or_supervised_key_portions: boolean;
+  discussed_care_with_resident: boolean;
+  agree_with_resident_or_noted_exceptions: boolean;
+}
+
+export type AttestationMode = "reference_resident_note" | "independent_attending_note";
+
+export interface AttestationDraft {
+  mode: AttestationMode;
+  body: string;
+  elements_present: AttestationElements;
+  exceptions_noted: string;
+  resident_note_source_id?: string;
+  warnings: string[];
 }
 
 export interface DraftNoteBody {
@@ -147,7 +174,9 @@ export interface DraftNote {
   uncertain_or_missing_info: string[];
   source_map: SourceMapEntry[];
   warnings: string[];
-  generator: "anthropic" | "fixture_grounded_fallback";
+  generator: "anthropic" | "fixture_grounded_fallback" | "ucsf_versa";
+  ai_route?: AiRoute;
+  attestation?: AttestationDraft;
 }
 
 export interface WorkflowTransition {

@@ -5,6 +5,10 @@ export const PROHIBITED_AUTONOMOUS_ACTIONS = [
   "SIGN_ORDER",
   "FINAL_SUBMIT_MEDICATION_ORDER",
   "BYPASS_CLINICAL_ADVISORY_WITHOUT_USER_CONFIRMATION",
+  "SIGN_ATTESTATION",
+  "SUBMIT_TEACHING_PHYSICIAN_CONFIRMATION",
+  "AUTOTYPE_INTO_APEX",
+  "SEND_PHI_TO_COMMERCIAL_LLM",
 ] as const;
 
 export type ProhibitedAction = (typeof PROHIBITED_AUTONOMOUS_ACTIONS)[number];
@@ -29,6 +33,10 @@ const PROHIBITED_PATTERNS: RegExp[] = [
   /\bfinal[_\s-]*submit/i,
   /\bbypass[_\s-]*advisory/i,
   /\bmanual_sign_only\b/i,
+  /\bsign[_\s-]*attest(?:ation)?\b/i,
+  /\bteaching[_\s-]*physician[_\s-]*(?:submit|sign|confirm)\b/i,
+  /\bauto[_\s-]?type[_\s-]?into[_\s-]?apex\b/i,
+  /\bphi[_\s-]?to[_\s-]?(?:commercial|anthropic|openai)\b/i,
 ];
 
 export function isProhibitedAutonomousLabel(label: string): boolean {

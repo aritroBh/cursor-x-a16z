@@ -4,7 +4,9 @@
 // pixel guess.
 //
 // Build:   xcrun swiftc -framework Cocoa ax-dump.swift -o ax-dump
-// Usage:   ax-dump <bundle-id|app-name>
+// Usage:   ax-dump <bundle-id|app-name>          # walk a specific app
+//          ax-dump                                # walk the frontmost app
+//          ax-dump --frontmost-only               # print frontmost id and exit
 
 import Cocoa
 import ApplicationServices
@@ -22,6 +24,35 @@ func findApp(_ identifier: String) -> NSRunningApplication? {
         if app.localizedName == identifier { return app }
     }
     return nil
+}
+
+func jsonString(_ value: String?) -> String {
+    guard let v = value else { return "null" }
+    let escaped = v
+        .replacingOccurrences(of: "\\", with: "\\\\")
+        .replacingOccurrences(of: "\"", with: "\\\"")
+        .replacingOccurrences(of: "\n", with: "\\n")
+        .replacingOccurrences(of: "\r", with: "\\r")
+        .replacingOccurrences(of: "\t", with: "\\t")
+    return "\"\(escaped)\""
+}
+
+// `--frontmost-only` is a fast probe used by the main process to capture the
+// user's foreground app *before* Specter's overlay steals focus. Without this,
+// every later AX query targets Specter itself instead of the app the user is
+// trying to learn — which is exactly why ghost-cursor targeting was wrong on
+// non-browser apps.
+if args.count >= 2 && args[1] == "--frontmost-only" {
+    guard let frontmost = NSWorkspace.shared.frontmostApplication else {
+        FileHandle.standardError.write("no-frontmost-app\n".data(using: .utf8)!)
+        exit(4)
+    }
+    let payload =
+        "{\"bundleId\":\(jsonString(frontmost.bundleIdentifier))," +
+        "\"name\":\(jsonString(frontmost.localizedName))," +
+        "\"pid\":\(frontmost.processIdentifier)}"
+    print(payload)
+    exit(0)
 }
 
 let app: NSRunningApplication

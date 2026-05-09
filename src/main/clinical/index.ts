@@ -5,3 +5,5 @@ export * from "./ehrWorkflow";
 export * from "./drafter";
 export * from "./apex";
 export * from "./notesSummarizer";
+export * from "./ucsfAiPolicy";
+export * from "./attestation";

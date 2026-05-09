@@ -4,8 +4,12 @@
 #
 # Usage:
 #   powershell.exe -NoProfile -ExecutionPolicy Bypass -File ax-dump.ps1 [<process-name>|<window-title>]
+#   powershell.exe -NoProfile -ExecutionPolicy Bypass -File ax-dump.ps1 --frontmost-only
 #
 # When no argument is supplied, walks the foreground window's process.
+# `--frontmost-only` is a fast probe: prints the foreground app's identity and
+# exits without walking the AX tree. Used by the main process to capture the
+# user's app *before* Specter's overlay steals focus.
 
 param(
     [string]$AppArg = ""
@@ -30,6 +34,28 @@ public static class WinNative {
     public static readonly IntPtr DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2 = new IntPtr(-4);
 }
 "@
+
+if ($AppArg -eq "--frontmost-only") {
+    $hwnd = [WinNative]::GetForegroundWindow()
+    if ($hwnd -eq [IntPtr]::Zero) {
+        [Console]::Error.WriteLine("no-frontmost-app")
+        exit 4
+    }
+    $procId = 0
+    [void][WinNative]::GetWindowThreadProcessId($hwnd, [ref]$procId)
+    $name = "unknown"
+    try {
+        $proc = Get-Process -Id $procId -ErrorAction Stop
+        $name = $proc.ProcessName
+    } catch {}
+    $payload = @{
+        bundleId = $null
+        name     = $name
+        pid      = [int]$procId
+    } | ConvertTo-Json -Compress
+    Write-Output $payload
+    exit 0
+}
 
 # Match Electron's per-monitor DPI awareness so UIA's BoundingRectangle is
 # returned in the same logical (DIP) coords as electron's screen.bounds.

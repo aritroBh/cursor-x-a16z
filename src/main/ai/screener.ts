@@ -346,11 +346,29 @@ function summarizeForModel(el: AxElement): Record<string, unknown> {
   return summary;
 }
 
+// Bundle ids that resolve to Specter itself across dev / packaged / Electron-default
+// builds. If we ever try to walk the AX tree for one of these, we'd be reading
+// our own transparent overlay window — which gives no useful targets and is
+// the root cause of the "ghost cursor lands wrong on non-browser apps" bug.
+// Caller must skip the AX path in that case so vision can take over.
+const SPECTER_SELF_BUNDLE_PATTERNS: RegExp[] = [
+  /com\.electron(\..*)?$/i,
+  /com\.specter(\..*)?$/i,
+  /^Specter$/i,
+  /^Electron$/i,
+];
+
+export function looksLikeSpecterSelf(identifier: string): boolean {
+  if (!identifier) return false;
+  return SPECTER_SELF_BUNDLE_PATTERNS.some((rx) => rx.test(identifier));
+}
+
 export async function detectScreenTargetsViaAx(
   prompt: string,
   screenshotBase64: string,
   imageWidth: number,
   imageHeight: number,
+  appIdentifier?: string,
 ): Promise<ScreenTargetsResult | null> {
   const client = createAnthropicClient();
   if (!client) {
@@ -358,13 +376,33 @@ export async function detectScreenTargetsViaAx(
     return null;
   }
 
-  // No app argument — the helper picks the foreground app itself
-  // (NSWorkspace.frontmostApplication on macOS, GetForegroundWindow on
-  // Windows). One contract, two backends.
-  const dump = await dumpAxElements();
+  // Prefer the caller-supplied identifier — that's the user's actual external
+  // app, captured *before* Specter's overlay stole focus. Falling back to no
+  // arg picks the current frontmost (which, once the overlay is up, is
+  // Specter itself — useless for AX targeting).
+  if (appIdentifier && looksLikeSpecterSelf(appIdentifier)) {
+    safeWarn(
+      "[AX_TARGETS] caller passed a Specter-self bundle id; skipping AX",
+      { appIdentifier },
+    );
+    return null;
+  }
+
+  const dump = await dumpAxElements(appIdentifier);
   if (!dump || dump.elements.length === 0) {
     safeWarn("[AX_TARGETS] ax-dump returned no elements", {
+      appIdentifier: appIdentifier ?? "(frontmost)",
+      app: dump?.app,
       count: dump?.elements.length ?? 0,
+    });
+    return null;
+  }
+  // If we fell back to "frontmost" and that turned out to be Specter, the
+  // resulting elements are useless for external-app teaching — bail so vision
+  // runs against the captured screenshot instead.
+  if (!appIdentifier && looksLikeSpecterSelf(dump.app)) {
+    safeWarn("[AX_TARGETS] frontmost resolved to Specter; skipping AX", {
+      app: dump.app,
     });
     return null;
   }
@@ -466,7 +504,10 @@ export async function detectScreenTargetsViaAx(
     // thing. Pixel-perfect coords + the existing CGEvent path is enough.
     targets.push({
       id: `ax-target-${targets.length + 1}`,
-      label: typeof c.label === "string" && c.label ? c.label : el.title || el.desc || el.role,
+      label:
+        typeof c.label === "string" && c.label
+          ? c.label
+          : el.title || el.desc || el.role,
       description: c.reasoning,
       x: viewport.x,
       y: viewport.y,

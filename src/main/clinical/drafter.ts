@@ -1,10 +1,17 @@
 import type {
+  AiRoute,
   ClinicalContextBundle,
   ClinicalSourceNote,
   DraftNote,
   DraftNoteBody,
   SourceMapEntry,
 } from "./types";
+import {
+  buildAuditEntry,
+  loadUcsfAiPolicyFromEnv,
+  preflightCheck,
+  type UcsfAiPolicyConfig,
+} from "./ucsfAiPolicy";
 
 const NOT_FOUND = "[Not found in provided notes]";
 
@@ -12,6 +19,8 @@ export interface DrafterOptions {
   draftNoteType?: string;
   anthropicClient?: AnthropicLike | null;
   anthropicModel?: string;
+  ucsfAiPolicy?: UcsfAiPolicyConfig;
+  versaClient?: AnthropicLike | null;
 }
 
 export interface AnthropicLike {
@@ -234,9 +243,38 @@ export async function generateDraftNote(
     };
   }
 
-  const client = options.anthropicClient ?? null;
+  const policy = options.ucsfAiPolicy ?? loadUcsfAiPolicyFromEnv();
+  const preflight = preflightCheck({ bundle, config: policy });
+  const audit = buildAuditEntry(bundle, preflight);
+
+  if (!preflight.permitted) {
+    const fallback = buildFallbackDraft(bundle, draftNoteType);
+    fallback.ai_route = "blocked";
+    fallback.warnings = [
+      ...fallback.warnings,
+      `LLM call blocked by UCSF AI policy: ${preflight.reason}`,
+      ...preflight.warnings,
+      `audit: ${JSON.stringify(audit)}`,
+    ];
+    return fallback;
+  }
+
+  const client: AnthropicLike | null =
+    preflight.effectiveRoute === "ucsf_versa"
+      ? (options.versaClient ?? null)
+      : preflight.effectiveRoute === "anthropic_direct"
+        ? (options.anthropicClient ?? null)
+        : null;
+
   if (!client) {
-    return buildFallbackDraft(bundle, draftNoteType);
+    const fallback = buildFallbackDraft(bundle, draftNoteType);
+    fallback.ai_route = "mock";
+    fallback.warnings = [
+      ...fallback.warnings,
+      ...preflight.warnings,
+      `audit: ${JSON.stringify(audit)}`,
+    ];
+    return fallback;
   }
 
   try {
@@ -269,9 +307,24 @@ export async function generateDraftNote(
       .map((p) => (p.type === "text" && typeof p.text === "string" ? p.text : ""))
       .join("\n");
     const parsed = extractJsonBlock(text);
-    return normalizeAnthropicDraft(parsed, draftNoteType);
+    const normalized = normalizeAnthropicDraft(parsed, draftNoteType);
+    normalized.ai_route = preflight.effectiveRoute as AiRoute;
+    normalized.generator =
+      preflight.effectiveRoute === "ucsf_versa" ? "ucsf_versa" : "anthropic";
+    normalized.warnings = [
+      ...normalized.warnings,
+      ...preflight.warnings,
+      `audit: ${JSON.stringify(audit)}`,
+    ];
+    return normalized;
   } catch {
-    return buildFallbackDraft(bundle, draftNoteType);
+    const fallback = buildFallbackDraft(bundle, draftNoteType);
+    fallback.ai_route = preflight.effectiveRoute as AiRoute;
+    fallback.warnings = [
+      ...fallback.warnings,
+      `audit: ${JSON.stringify(audit)}`,
+    ];
+    return fallback;
   }
 }
 

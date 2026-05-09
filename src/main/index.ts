@@ -89,7 +89,14 @@ import {
 } from "./behavioral/tracker";
 import { safeLog, safeWarn, safeError } from "./logger";
 import { probeOpenaraOnStartup } from "./openara";
-import { ensureAxDumpReady, getAxDumpStatus } from "./axDump";
+import {
+  ensureAxDumpReady,
+  getAxDumpStatus,
+  getFrontmostApp,
+  preferredAppIdentifier,
+  type FrontmostApp,
+} from "./axDump";
+import { looksLikeSpecterSelf } from "./ai/screener";
 import {
   requestAutomationSession,
   confirmAutomationSession,
@@ -138,6 +145,72 @@ process.on("uncaughtException", (error, origin) => {
 let mainWindow: BrowserWindow | null = null;
 let overlayWindow: BrowserWindow | null = null;
 let clinicalWindow: BrowserWindow | null = null;
+
+// Cache of the user's foreground app captured *before* the overlay shows.
+// This is what the AX path uses to walk the right tree — without it,
+// NSWorkspace.frontmostApplication returns Specter itself and ghost-cursor
+// targeting silently falls back to vision (which mis-positions the cursor on
+// non-browser apps).
+interface CachedForegroundApp {
+  app: FrontmostApp;
+  capturedAt: number;
+}
+
+let cachedForegroundApp: CachedForegroundApp | null = null;
+let foregroundProbeInflight: Promise<FrontmostApp | null> | null = null;
+const FOREGROUND_CACHE_TTL_MS = 30_000;
+
+async function captureForegroundAppNow(
+  reason: string,
+): Promise<FrontmostApp | null> {
+  if (foregroundProbeInflight) return foregroundProbeInflight;
+  foregroundProbeInflight = (async () => {
+    const probed = await getFrontmostApp().catch((err) => {
+      safeWarn("[FOREGROUND_APP] probe threw", {
+        reason,
+        message: err instanceof Error ? err.message : String(err),
+      });
+      return null;
+    });
+    if (probed && !looksLikeSpecterSelf(preferredAppIdentifier(probed) ?? "")) {
+      cachedForegroundApp = { app: probed, capturedAt: Date.now() };
+      safeLog("[FOREGROUND_APP] captured external foreground app", {
+        reason,
+        bundleId: probed.bundleId,
+        name: probed.name,
+        pid: probed.pid,
+      });
+    } else if (probed) {
+      // Probed but it's Specter — keep whatever we had cached. Better to use a
+      // slightly stale identifier of the user's last real app than to walk
+      // Specter's empty overlay.
+      safeLog(
+        "[FOREGROUND_APP] probe returned Specter-self; keeping prior cache",
+        {
+          probed,
+          hasCache: cachedForegroundApp !== null,
+        },
+      );
+    }
+    return probed;
+  })();
+  try {
+    return await foregroundProbeInflight;
+  } finally {
+    foregroundProbeInflight = null;
+  }
+}
+
+function getCachedForegroundAppIdentifier(): string | null {
+  if (!cachedForegroundApp) return null;
+  if (Date.now() - cachedForegroundApp.capturedAt > FOREGROUND_CACHE_TTL_MS) {
+    return null;
+  }
+  const id = preferredAppIdentifier(cachedForegroundApp.app);
+  if (!id) return null;
+  if (looksLikeSpecterSelf(id)) return null;
+  return id;
+}
 
 function createClinicalWindow(): BrowserWindow {
   if (clinicalWindow && !clinicalWindow.isDestroyed()) return clinicalWindow;
@@ -534,6 +607,14 @@ function toggleOverlay(): void {
     );
     stopReplay();
     return;
+  }
+
+  // Capture the user's current foreground app *before* showing the overlay.
+  // Once `overlayWindow.showInactive()` runs, Specter is the frontmost app
+  // and any later AX dump walks our own empty transparent window. The probe
+  // is fire-and-forget; detection pulls from the cache when it runs.
+  if (!overlayWindow.isVisible()) {
+    void captureForegroundAppNow("toggleOverlay summon");
   }
 
   const { display } = getSummonDisplay();
@@ -994,11 +1075,21 @@ app.whenReady().then(async () => {
         overlayWindow.setIgnoreMouseEvents(true, { forward: true });
       }
 
+      // The cache was populated when the user double-tapped Shift to summon
+      // the overlay. If the cache is empty or stale (e.g. dev reload), this
+      // returns null and AX falls back to "frontmost" — which the screener
+      // refuses if it resolves to Specter itself.
+      const cachedAppId = getCachedForegroundAppIdentifier();
+      safeLog("[AX_TARGETS] using cached foreground app identifier", {
+        cachedAppId: cachedAppId ?? "(none — falling back to frontmost)",
+      });
+
       const axResult = await detectScreenTargetsViaAx(
         prompt,
         screenshotResult.base64,
         screenshotResult.width,
         screenshotResult.height,
+        cachedAppId ?? undefined,
       ).catch((err) => {
         safeWarn("[AX_TARGETS] AX path threw; falling back to vision", {
           message: err?.message,
@@ -1017,8 +1108,7 @@ app.whenReady().then(async () => {
             );
 
       safeLog("[REAL_APP_TEST] target source", {
-        source:
-          axResult && axResult.targets.length > 0 ? "ax" : "vision",
+        source: axResult && axResult.targets.length > 0 ? "ax" : "vision",
         count: result.targets.length,
       });
       const normalizedTargets = result.targets.map((target, index) => {

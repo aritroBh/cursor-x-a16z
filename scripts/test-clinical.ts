@@ -7,17 +7,23 @@ import {
   buildApexTransitions,
   buildTransitions,
   ClinicalSafetyError,
+  compileApexAttendingAttestationWalkthrough,
   compileApexNotesWalkthrough,
   compileEhrWorkflow,
   createBundle,
   createSourceNote,
+  detectAttestationElements,
+  draftAttestation,
   extractSections,
   generateDraftNote,
   generateNotesSummary,
   hashContent,
+  isAttestationComplete,
   isProhibitedAutonomousAction,
   isProhibitedAutonomousLabel,
+  preflightCheck,
   PROHIBITED_AUTONOMOUS_ACTIONS,
+  validateAttestation,
   validateDraft,
   validateNotesSummary,
 } from "../src/main/clinical";
@@ -563,6 +569,169 @@ async function main(): Promise<void> {
     summary.warnings = [];
     const v = validateNotesSummary(summary, b);
     assert(!v.ok, "must fail without verification warning");
+  });
+
+  console.log("\n[ucsf ai policy]");
+
+  await test("preflightCheck blocks PHI on anthropic_direct route", () => {
+    const bundle = createBundle();
+    bundle.containsPhi = true;
+    bundle.institution = "ucsf_health";
+    const result = preflightCheck({
+      bundle,
+      config: {
+        route: "anthropic_direct",
+        healthAiOversightApproved: false,
+        allowAnthropicDirectForSyntheticOnly: true,
+      },
+    });
+    assert(!result.permitted, "PHI on commercial route must be blocked");
+    assert(result.effectiveRoute === "blocked", "effective route is blocked");
+    assert(/UCSF policy/i.test(result.reason), "reason mentions UCSF policy");
+  });
+
+  await test("preflightCheck permits ucsf_versa with creds", () => {
+    const bundle = createBundle();
+    bundle.containsPhi = true;
+    bundle.institution = "ucsf_health";
+    const result = preflightCheck({
+      bundle,
+      config: {
+        route: "ucsf_versa",
+        versaBaseUrl: "https://api.versa.ucsf.edu",
+        versaApiKey: "test-key",
+        healthAiOversightApproved: true,
+        allowAnthropicDirectForSyntheticOnly: false,
+      },
+    });
+    assert(result.permitted, "Versa route permitted with creds");
+    assert(result.effectiveRoute === "ucsf_versa", "route is versa");
+  });
+
+  await test("preflightCheck refuses ucsf_versa without creds", () => {
+    const bundle = createBundle();
+    const result = preflightCheck({
+      bundle,
+      config: {
+        route: "ucsf_versa",
+        healthAiOversightApproved: true,
+        allowAnthropicDirectForSyntheticOnly: false,
+      },
+    });
+    assert(!result.permitted, "missing Versa creds blocks route");
+  });
+
+  await test("preflightCheck warns on PHI without oversight approval", () => {
+    const bundle = createBundle();
+    bundle.containsPhi = true;
+    const result = preflightCheck({
+      bundle,
+      config: {
+        route: "ucsf_versa",
+        versaBaseUrl: "x",
+        versaApiKey: "y",
+        healthAiOversightApproved: false,
+        allowAnthropicDirectForSyntheticOnly: false,
+      },
+    });
+    assert(
+      result.warnings.some((w) => /Oversight/i.test(w)),
+      "warning mentions Health AI Oversight",
+    );
+  });
+
+  await test("preflightCheck permits anthropic_direct with synthetic flag and no PHI", () => {
+    const bundle = createBundle();
+    bundle.containsPhi = false;
+    bundle.institution = "synthetic";
+    const result = preflightCheck({
+      bundle,
+      config: {
+        route: "anthropic_direct",
+        healthAiOversightApproved: false,
+        allowAnthropicDirectForSyntheticOnly: true,
+      },
+    });
+    assert(result.permitted, "synthetic + flag permits commercial route");
+  });
+
+  console.log("\n[attestation]");
+
+  await test("detectAttestationElements finds all 4 in CMS sample", () => {
+    const text =
+      "I, Dr. Smith, personally saw and examined the patient, performed critical or key portions of the service, and discussed the care with the resident. I have reviewed the resident's note and agree with the findings.";
+    const e = detectAttestationElements(text);
+    assert(e.saw_examined_personally, "saw/examined detected");
+    assert(e.performed_or_supervised_key_portions, "key portions detected");
+    assert(e.discussed_care_with_resident, "discussed with resident detected");
+    assert(e.agree_with_resident_or_noted_exceptions, "agree detected");
+    assert(isAttestationComplete(e), "all 4 present = complete");
+  });
+
+  await test("detectAttestationElements catches missing element", () => {
+    const text = "I personally saw the patient and discussed with the resident.";
+    const e = detectAttestationElements(text);
+    assert(!isAttestationComplete(e), "missing key portions + agreement");
+  });
+
+  await test("draftAttestation Mode A produces compliant body", () => {
+    const draft = draftAttestation({
+      mode: "reference_resident_note",
+      exceptions: "I disagree with the trial of antibiotics; would prefer observation.",
+    });
+    assert(draft.mode === "reference_resident_note", "mode set");
+    assert(/personally saw/i.test(draft.body), "body has personal exam");
+    assert(/key portions/i.test(draft.body), "body has key portions");
+    assert(/discussed/i.test(draft.body), "body has discussion");
+    assert(isAttestationComplete(draft.elements_present), "all 4 present");
+    assert(/disagree/i.test(draft.body), "exceptions included");
+  });
+
+  await test("draftAttestation Mode B (independent) produces compliant header", () => {
+    const draft = draftAttestation({ mode: "independent_attending_note" });
+    assert(draft.mode === "independent_attending_note", "mode set");
+    assert(isAttestationComplete(draft.elements_present), "all 4 present in independent");
+  });
+
+  await test("validateAttestation flags placeholder ATTENDING NAME", () => {
+    const draft = draftAttestation({ mode: "reference_resident_note" });
+    const v = validateAttestation(draft);
+    assert(
+      v.warnings.some((w) => /\[ATTENDING NAME\]/.test(w)),
+      "warning about placeholder",
+    );
+  });
+
+  console.log("\n[apex attestation walkthrough]");
+
+  await test("compileApexAttendingAttestationWalkthrough returns 7 actions ending in prohibited sign", () => {
+    const actions = compileApexAttendingAttestationWalkthrough();
+    assert(actions.length === 7, `expected 7 actions, got ${actions.length}`);
+    const last = actions[actions.length - 1];
+    assert(last.safetyLevel === "prohibited", "last action is prohibited (sign)");
+    assert(
+      isProhibitedAutonomousAction(last),
+      "sign action gates as prohibited autonomously",
+    );
+  });
+
+  await test("attestation walkthrough refuses autonomous sign", () => {
+    const actions = compileApexAttendingAttestationWalkthrough();
+    const sign = actions[actions.length - 1];
+    let threw = false;
+    try {
+      assertNotProhibited(sign, "autonomous");
+    } catch (e) {
+      threw = e instanceof ClinicalSafetyError;
+    }
+    assert(threw, "autonomous sign must throw ClinicalSafetyError");
+  });
+
+  await test("APEX_TARGETS includes Storyboard, attestation, cosign queue anchors", () => {
+    assert(APEX_TARGETS.storyboardLeftRail !== undefined, "storyboard target");
+    assert(APEX_TARGETS.attestationBlock !== undefined, "attestation block target");
+    assert(APEX_TARGETS.cosignQueueInBasket !== undefined, "cosign queue target");
+    assert(APEX_TARGETS.signNoteCommitButton.safetyLevel === "prohibited", "sign button is prohibited");
   });
 
   console.log("\n[summary]");

@@ -24,6 +24,42 @@ export interface AxDumpResult {
   elements: AxElement[];
 }
 
+export interface FrontmostApp {
+  bundleId: string | null;
+  name: string | null;
+  pid: number | null;
+}
+
+export function parseFrontmostJson(text: string): FrontmostApp | null {
+  if (!text) return null;
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(text.trim());
+  } catch {
+    return null;
+  }
+  if (!parsed || typeof parsed !== "object") return null;
+  const obj = parsed as Record<string, unknown>;
+  const stringOrNull = (v: unknown): string | null =>
+    typeof v === "string" && v.trim().length > 0 ? v : null;
+  const numberOrNull = (v: unknown): number | null =>
+    typeof v === "number" && Number.isFinite(v) ? v : null;
+  const result: FrontmostApp = {
+    bundleId: stringOrNull(obj.bundleId),
+    name: stringOrNull(obj.name),
+    pid: numberOrNull(obj.pid),
+  };
+  if (!result.bundleId && !result.name) return null;
+  return result;
+}
+
+export function preferredAppIdentifier(
+  app: FrontmostApp | null,
+): string | null {
+  if (!app) return null;
+  return app.bundleId || app.name || null;
+}
+
 type Platform = "darwin" | "win32" | "other";
 
 function currentPlatform(): Platform {
@@ -95,8 +131,7 @@ function compileDarwinBinary(): string | null {
   );
 
   if (result.status !== 0) {
-    lastError =
-      result.stderr?.slice(0, 400) || `swiftc exit ${result.status}`;
+    lastError = result.stderr?.slice(0, 400) || `swiftc exit ${result.status}`;
     safeError("[AX_DUMP] swiftc failed", {
       status: result.status,
       stderr: lastError,
@@ -154,10 +189,14 @@ function ensureWindowsReady(): string | null {
 
   // Quick smoke test that powershell.exe is on PATH. Actual permission for
   // UI Automation does not require any extra grant on Windows.
-  const probe = spawnSync("powershell.exe", ["-Command", "$PSVersionTable.PSVersion.Major"], {
-    encoding: "utf8",
-    timeout: 5_000,
-  });
+  const probe = spawnSync(
+    "powershell.exe",
+    ["-Command", "$PSVersionTable.PSVersion.Major"],
+    {
+      encoding: "utf8",
+      timeout: 5_000,
+    },
+  );
   if (probe.status !== 0) {
     lastError = `powershell.exe probe exit ${probe.status}: ${probe.stderr?.slice(0, 200) || ""}`;
     safeWarn("[AX_DUMP] PowerShell probe failed", { lastError });
@@ -232,6 +271,116 @@ function buildSpawnConfig(
   return null;
 }
 
+function buildFrontmostSpawnConfig(
+  platform: Platform,
+  helper: string,
+): SpawnConfig | null {
+  if (platform === "darwin") {
+    return { command: helper, args: ["--frontmost-only"] };
+  }
+  if (platform === "win32") {
+    return {
+      command: "powershell.exe",
+      args: [
+        "-NoProfile",
+        "-NonInteractive",
+        "-ExecutionPolicy",
+        "Bypass",
+        "-File",
+        helper,
+        "--frontmost-only",
+      ],
+    };
+  }
+  return null;
+}
+
+export async function getFrontmostApp(
+  timeoutMs?: number,
+): Promise<FrontmostApp | null> {
+  const platform = currentPlatform();
+  const helper = ensureAxDumpReady();
+  if (!helper) {
+    safeWarn("[AX_DUMP] frontmost probe skipped — helper unavailable", {
+      platform,
+    });
+    return null;
+  }
+
+  const spawnConfig = buildFrontmostSpawnConfig(platform, helper);
+  if (!spawnConfig) {
+    return null;
+  }
+
+  // The probe is a tight stat-and-exit on darwin (~10ms) but PowerShell on
+  // Windows always pays a cold-start tax. Default generously on win32 so the
+  // first probe doesn't drop on a slow machine.
+  const effectiveTimeout = timeoutMs ?? (platform === "win32" ? 8_000 : 1_500);
+
+  return new Promise((resolve) => {
+    const child = spawn(spawnConfig.command, spawnConfig.args, {
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+
+    let stdout = "";
+    let stderr = "";
+    let settled = false;
+
+    const timer = setTimeout(() => {
+      if (settled) return;
+      settled = true;
+      try {
+        child.kill();
+      } catch {
+        /* ignore */
+      }
+      safeWarn("[AX_DUMP] frontmost probe timeout", {
+        platform,
+        timeoutMs: effectiveTimeout,
+      });
+      resolve(null);
+    }, effectiveTimeout);
+
+    child.stdout?.on("data", (chunk) => {
+      stdout += chunk.toString();
+    });
+    child.stderr?.on("data", (chunk) => {
+      stderr += chunk.toString();
+    });
+    child.on("error", (err) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      safeError("[AX_DUMP] frontmost probe spawn error", {
+        platform,
+        error: err.message,
+      });
+      resolve(null);
+    });
+    child.on("close", (code) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      if (code !== 0) {
+        safeWarn("[AX_DUMP] frontmost probe non-zero exit", {
+          platform,
+          code,
+          stderr: stderr.slice(0, 200),
+        });
+        resolve(null);
+        return;
+      }
+      const parsed = parseFrontmostJson(stdout);
+      if (!parsed) {
+        safeWarn("[AX_DUMP] frontmost probe returned unparseable output", {
+          preview: stdout.slice(0, 200),
+        });
+      }
+      resolve(parsed);
+    });
+  });
+}
+
 export async function dumpAxElements(
   appIdentifier?: string,
   timeoutMs?: number,
@@ -254,8 +403,7 @@ export async function dumpAxElements(
   // PowerShell cold start is slower than the compiled Swift binary. Default
   // generously on Windows so the first invocation does not get killed before
   // .NET assemblies finish loading.
-  const effectiveTimeout =
-    timeoutMs ?? (platform === "win32" ? 12_000 : 4_000);
+  const effectiveTimeout = timeoutMs ?? (platform === "win32" ? 12_000 : 4_000);
 
   return new Promise((resolve) => {
     const child = spawn(spawnConfig.command, spawnConfig.args, {

@@ -67,12 +67,42 @@ export async function clickRealMouse(
   y: number,
   durationMs = DEFAULT_MOVE_DURATION_MS,
 ): Promise<void> {
+  safeLog(
+    "[AUTO_REAL_MOUSE] clickRealMouse invoked REAL OS cursor automation",
+    { x, y, durationMs },
+  );
+
+  // Always show the cursor traveling so the user can follow the action,
+  // even when the actual click happens via Ara/CGEvent.
+  await moveRealMouse(x, y, durationMs);
+
+  if (isOpenaraInstalled()) {
+    try {
+      const target = await toScreenPoint(x, y);
+      const ok = await clickAtScreenPixel(target.x, target.y);
+      if (ok) {
+        safeLog("[AUTO_REAL_MOUSE] Ara CGEvent click complete", {
+          x,
+          y,
+          screenX: target.x,
+          screenY: target.y,
+        });
+        return;
+      }
+      safeWarn(
+        "[AUTO_REAL_MOUSE] Ara click rejected; falling back to nut-js",
+        { x, y },
+      );
+    } catch (err) {
+      safeWarn("[AUTO_REAL_MOUSE] Ara click threw; falling back to nut-js", {
+        x,
+        y,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+  }
+
   try {
-    safeLog(
-      "[AUTO_REAL_MOUSE] clickRealMouse invoked REAL OS cursor automation",
-      { x, y, durationMs },
-    );
-    await moveRealMouse(x, y, durationMs);
     await mouse.click(Button.LEFT);
     safeLog("[AUTO_REAL_MOUSE] nut-js REAL OS click complete", { x, y });
   } catch (error) {
@@ -104,10 +134,11 @@ export async function executeRealMouseSteps(
         await clickRealMouse(step.x, step.y, moveDurationMs);
         break;
       case "type":
-        await moveRealMouse(step.x, step.y, moveDurationMs);
         if (step.typeText) {
-          await mouse.click(Button.LEFT);
+          await clickRealMouse(step.x, step.y, moveDurationMs);
           await keyboard.type(step.typeText);
+        } else {
+          await moveRealMouse(step.x, step.y, moveDurationMs);
         }
         break;
       case "scroll":

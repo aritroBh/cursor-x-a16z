@@ -14,12 +14,24 @@ interface TargetPreviewGhostProps {
 
 type Phase = "enter" | "travel" | "arrived" | "reset";
 
-const CURSOR_HOTSPOT = { x: 5.5, y: 3.2 };
+// Match GhostCursor: hotspot at the SVG path's exact tip (5.5, 3.21).
+const HOTSPOT_X = 5.5;
+const HOTSPOT_Y = 3.21;
 
 const TRAVEL_MS = 600;
 const PAUSE_MS = 400;
 const PULSE_MS = 600;
 const RESET_MS = 100;
+
+interface ViewportDims {
+  width: number;
+  height: number;
+}
+
+function readViewportDims(): ViewportDims {
+  if (typeof window === "undefined") return { width: 0, height: 0 };
+  return { width: window.innerWidth, height: window.innerHeight };
+}
 
 export const TargetPreviewGhost: React.FC<TargetPreviewGhostProps> = ({
   target,
@@ -27,8 +39,16 @@ export const TargetPreviewGhost: React.FC<TargetPreviewGhostProps> = ({
   active,
 }) => {
   const [phase, setPhase] = useState<Phase>("enter");
+  const [dims, setDims] = useState<ViewportDims>(readViewportDims);
   const startPosRef = useRef(start || { x: 50, y: 50 });
   const timersRef = useRef<number[]>([]);
+
+  useEffect(() => {
+    const update = () => setDims(readViewportDims());
+    update();
+    window.addEventListener("resize", update);
+    return () => window.removeEventListener("resize", update);
+  }, []);
 
   useEffect(() => {
     if (!target) return;
@@ -91,14 +111,17 @@ export const TargetPreviewGhost: React.FC<TargetPreviewGhostProps> = ({
 
   if (!active || !target) return null;
 
-  const posX =
+  const percentX =
     phase === "enter" || phase === "reset"
       ? startPosRef.current.x
       : target.x;
-  const posY =
+  const percentY =
     phase === "enter" || phase === "reset"
       ? startPosRef.current.y
       : target.y;
+
+  const pixelX = Math.round((percentX / 100) * dims.width - HOTSPOT_X);
+  const pixelY = Math.round((percentY / 100) * dims.height - HOTSPOT_Y);
 
   const isTraveling = phase === "travel";
   const isArrived = phase === "arrived";
@@ -110,9 +133,10 @@ export const TargetPreviewGhost: React.FC<TargetPreviewGhostProps> = ({
         position: "fixed",
         left: 0,
         top: 0,
-        transform: `translate3d(calc(${posX}vw - ${CURSOR_HOTSPOT.x}px), calc(${posY}vh - ${CURSOR_HOTSPOT.y}px), 0)`,
+        transform: `translate3d(${pixelX}px, ${pixelY}px, 0)`,
         pointerEvents: "none",
         zIndex: 9999,
+        willChange: "transform, opacity",
         transition: isTraveling
           ? "transform 600ms ease-out, opacity 600ms ease-out"
           : "none",
@@ -127,6 +151,8 @@ export const TargetPreviewGhost: React.FC<TargetPreviewGhostProps> = ({
             fill="white"
             stroke="black"
             strokeWidth="1"
+            strokeLinejoin="round"
+            strokeLinecap="round"
           />
         </svg>
       </div>

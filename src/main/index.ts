@@ -86,6 +86,7 @@ import {
   stopBehavioralTracking,
 } from "./behavioral/tracker";
 import { safeLog, safeWarn, safeError } from "./logger";
+import { probeOpenaraOnStartup } from "./openara";
 import {
   requestAutomationSession,
   confirmAutomationSession,
@@ -663,6 +664,7 @@ app.whenReady().then(async () => {
   }
 
   uIOhook.start();
+  void probeOpenaraOnStartup();
   setBehavioralStateEmitter((state) => {
     sendOverlayEvent("spec:state", state);
     sendOverlayEvent("spec:mood", state.moodLabel);

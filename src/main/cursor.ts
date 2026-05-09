@@ -1,7 +1,8 @@
 import { mouse, straightTo, Button, keyboard } from "@nut-tree-fork/nut-js";
 import { Step } from "./session/types";
 import { toScreenPoint } from "./screenCoordinates";
-import { safeLog, safeError } from "./logger";
+import { safeLog, safeError, safeWarn } from "./logger";
+import { clickAtScreenPixel, isOpenaraInstalled } from "./openara";
 
 const DEFAULT_MOVE_DURATION_MS = 650;
 

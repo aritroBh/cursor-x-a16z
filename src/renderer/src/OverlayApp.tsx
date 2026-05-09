@@ -2581,7 +2581,6 @@ const OverlayApp: React.FC = () => {
                   onNewChat={startNewChat}
                   disabled={isLoading}
                   mode={mode}
-                  onUltraSpokenInput={handleUltraSpokenInput}
                   onTranscriptionStart={() => {
                     if (mode === "ultra") setUltraState("transcribing");
                   }}

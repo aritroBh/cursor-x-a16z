@@ -11,7 +11,6 @@ interface InputBarProps {
   onRecordingOverlayMouseEnter?: () => void;
   onRecordingOverlayMouseLeave?: () => void;
   mode?: "silent" | "ultra";
-  onUltraSpokenInput?: (text: string) => void;
   onTranscriptionStart?: () => void;
   onTranscriptionEnd?: () => void;
 }
@@ -82,7 +81,6 @@ export const InputBar: React.FC<InputBarProps> = ({
   onRecordingOverlayMouseEnter,
   onRecordingOverlayMouseLeave,
   mode = "silent",
-  onUltraSpokenInput,
   onTranscriptionStart,
   onTranscriptionEnd,
 }) => {
@@ -200,9 +198,9 @@ export const InputBar: React.FC<InputBarProps> = ({
       if (result.ok && typeof result.text === "string" && result.text.trim()) {
         const text = result.text.trim();
         console.log("[MIC] transcription success", { length: text.length });
-        if (mode === "ultra" && onUltraSpokenInput) {
-          console.log("[MIC] ultra mode auto-sending transcription");
-          onUltraSpokenInput(text);
+        if (mode === "ultra") {
+          console.log("[MIC] ultra mode auto-submitting transcription");
+          onSubmit(text);
           setMicState("idle");
         } else {
           setValue(text);

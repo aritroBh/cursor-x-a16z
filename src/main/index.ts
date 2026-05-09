@@ -33,6 +33,7 @@ import { planSteps, converse, ultraConverse } from "./ai/planner";
 import { speak, stopSpeaking } from "./ai/tts";
 import { transcribe } from "./ai/whisper";
 import { checkAIHealth } from "./ai/health";
+import { compileEpicNotesToHtml } from "./agent/noteHtmlAgent";
 import { selectArm, recordReward, getCurrentStyle } from "./ai/bandit";
 import { loadGraph, saveGraph } from "./session/storage";
 import {
@@ -1207,6 +1208,38 @@ app.whenReady().then(async () => {
   ipcMain.handle("ultra:converse", async (_event, payload) => {
     safeLog("[ULTRA_IPC] ultra:converse received");
     return ultraConverse(payload);
+  });
+
+  ipcMain.handle("agent:compileNoteHtml", async (event, input) => {
+    if (!validateSender(event, overlayWindow))
+      throw new Error("Unauthorized sender");
+    if (!validateAutomationAction("agent:compileNoteHtml", 24))
+      throw new Error("Automation blocked by gate");
+
+    const intent =
+      typeof input?.intent === "string" && input.intent.trim()
+        ? input.intent.trim()
+        : "Click each Epic note, copy the note content, and generate HTML.";
+    const wasOverlayVisible = Boolean(
+      overlayWindow &&
+        !overlayWindow.isDestroyed() &&
+        overlayWindow.isVisible(),
+    );
+
+    try {
+      if (wasOverlayVisible && overlayWindow) {
+        safeLog("[NOTE_HTML_AGENT] hiding overlay before agent run");
+        overlayWindow.setIgnoreMouseEvents(true, { forward: true });
+        overlayWindow.hide();
+        await delay(160);
+      }
+      return await compileEpicNotesToHtml(intent);
+    } finally {
+      if (wasOverlayVisible && overlayWindow && !overlayWindow.isDestroyed()) {
+        overlayWindow.show();
+        overlayWindow.setIgnoreMouseEvents(true, { forward: true });
+      }
+    }
   });
 
   ipcMain.handle("ai:healthCheck", async () => checkAIHealth());

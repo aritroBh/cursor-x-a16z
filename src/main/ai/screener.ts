@@ -1,5 +1,10 @@
 import { safeWarn, safeError, safeLog } from "../logger";
-import { analyzeVision, VisionAnalyzeResult, VisionErrorCode } from "../vision";
+import {
+  analyzeVision,
+  VisionAnalyzeResult,
+  VisionElement,
+  VisionErrorCode,
+} from "../vision";
 import type { CaptureFrameMeta, CoordinateFrame } from "../screenCoordinates";
 import {
   screenPointToPercent,
@@ -61,6 +66,9 @@ export interface ScreenTargetsResult {
 const TARGET_DETECTION_GUIDANCE = `Target selection policy for real-app teaching:
 - For broad software-learning prompts, decompose the request into one visible micro-step.
 - Prefer visible controls that directly match the user's intent.
+- If the user asks about tabs in Google Chrome, Chrome tabs, browser tabs, or how to use tabs, the likely first micro-step is "Open a new tab".
+- For Chrome tab prompts, prioritize "New tab button", "Tab strip", "Current tab", and "Address bar" candidates near the top browser UI.
+- Do not choose page content when the prompt asks about browser UI.
 - If multiple visible controls are plausible, return multiple candidates and make the recommendedAction describe the first micro-step.
 - Label targets concretely from what is visible, for example "New tab button", "Save toolbar item", or "Send button".`;
 
@@ -110,6 +118,54 @@ function pixelToPercentY(y: number, height?: number): number {
   return clamp((y / height) * 100, 0, 100);
 }
 
+function elementTargetPoint(el: VisionElement): { x: number; y: number } {
+  if (el.center) return el.center;
+
+  if (el.bbox) {
+    return {
+      x: el.bbox.x + el.bbox.width / 2,
+      y: el.bbox.y + el.bbox.height / 2,
+    };
+  }
+
+  return { x: 0, y: 0 };
+}
+
+function isChromeTabsPrompt(prompt: string): boolean {
+  return (
+    /\bchrome\b/i.test(prompt) &&
+    /\b(tab|tabs|new tab|tab strip|tab bar)\b/i.test(prompt)
+  );
+}
+
+function chromeTabTargetScore(target: ScreenTarget): number {
+  const label = `${target.label} ${target.description || ""}`.toLowerCase();
+  let score = 0;
+
+  if (/\bnew tab\b|\bplus\b|\+\s*button/.test(label)) score += 60;
+  if (/\btab strip\b|\btab bar\b/.test(label)) score += 50;
+  if (/\bcurrent tab\b|\btab\b/.test(label)) score += 30;
+  if (/\baddress bar\b|\bomnibox\b/.test(label)) score += 20;
+  if (target.y <= 18) score += 25;
+  if (/\bpage content\b|\bweb page\b|\bsearch result\b|\bai mode\b/.test(label))
+    score -= 45;
+
+  return score;
+}
+
+function rankTargetsForPrompt(
+  targets: ScreenTarget[],
+  prompt: string,
+): ScreenTarget[] {
+  if (!isChromeTabsPrompt(prompt)) return targets;
+
+  return [...targets].sort((a, b) => {
+    const scoreDiff = chromeTabTargetScore(b) - chromeTabTargetScore(a);
+    if (scoreDiff !== 0) return scoreDiff;
+    return (b.confidence || 0) - (a.confidence || 0);
+  });
+}
+
 /**
  * Adapter to convert new VisionAnalyzeResult to legacy ScreenTargetsResult
  */
@@ -124,23 +180,32 @@ function adaptToScreenTargets(
     prompt,
     microTask:
       result.recommendedAction || "First, I will teach one visible action.",
-    targets: result.elements.map((el, index) => ({
-      id: `target-${index + 1}`,
-      label: el.label,
-      description: el.reasoning,
-      x: pixelToPercentX(el.center?.x ?? el.bbox?.x ?? 0, width),
-      y: pixelToPercentY(el.center?.y ?? el.bbox?.y ?? 0, height),
-      confidence: el.confidence ?? 0.5,
-      action: "click" as const,
-      source: "vision" as const,
-      sourceFrame: "capture" as const,
-      coordinateFrame: "capture" as const,
-      rawTarget: {
-        x: pixelToPercentX(el.center?.x ?? el.bbox?.x ?? 0, width),
-        y: pixelToPercentY(el.center?.y ?? el.bbox?.y ?? 0, height),
-        coordinateFrame: "capture" as const,
-      },
-    })),
+    targets: rankTargetsForPrompt(
+      result.elements.map((el, index) => {
+        const targetPoint = elementTargetPoint(el);
+        const x = pixelToPercentX(targetPoint.x, width);
+        const y = pixelToPercentY(targetPoint.y, height);
+
+        return {
+          id: `target-${index + 1}`,
+          label: el.label,
+          description: el.reasoning,
+          x,
+          y,
+          confidence: el.confidence ?? 0.5,
+          action: "click" as const,
+          source: "vision" as const,
+          sourceFrame: "capture" as const,
+          coordinateFrame: "capture" as const,
+          rawTarget: {
+            x,
+            y,
+            coordinateFrame: "capture" as const,
+          },
+        };
+      }),
+      prompt,
+    ),
     needsConfirmation: true,
     reason: result.warnings.join(". "),
     capturedAt: result.generatedAt,
@@ -157,12 +222,16 @@ function adaptToScreenState(
 ): ScreenState {
   return {
     app: result.summary.split(" ")[0] || "Unknown",
-    coordinates: result.elements.map((el) => ({
-      label: el.label,
-      x: pixelToPercentX(el.center?.x ?? el.bbox?.x ?? 0, width),
-      y: pixelToPercentY(el.center?.y ?? el.bbox?.y ?? 0, height),
-      confidence: el.confidence,
-    })),
+    coordinates: result.elements.map((el) => {
+      const targetPoint = elementTargetPoint(el);
+
+      return {
+        label: el.label,
+        x: pixelToPercentX(targetPoint.x, width),
+        y: pixelToPercentY(targetPoint.y, height),
+        confidence: el.confidence,
+      };
+    }),
   };
 }
 
@@ -205,35 +274,6 @@ export async function detectScreenTargets(
       normalizedPrompt,
       code || "UNKNOWN_VISION_ERROR",
     );
-  }
-}
-
-export async function analyzeScreen(
-  base64PNG?: string,
-  width?: number,
-  height?: number,
-): Promise<ScreenState> {
-  if (!base64PNG) {
-    safeWarn("[Specter] No screenshot provided; skipping screen analysis.");
-    return fallbackScreenState();
-  }
-
-  try {
-    const result = await analyzeVision({
-      imageBase64: base64PNG,
-      mimeType: "image/png",
-      task: "screen_understanding",
-      screenshotWidth: width,
-      screenshotHeight: height,
-    });
-
-    return adaptToScreenState(result, width, height);
-  } catch (error: any) {
-    const code = error.code as VisionErrorCode;
-    safeError(
-      `[AI_BACKEND] Vision provider failed (${code}): ${error.message}`,
-    );
-    return fallbackScreenState(code || "UNKNOWN_VISION_ERROR");
   }
 }
 
@@ -510,4 +550,33 @@ export async function detectScreenTargetsViaAx(
     reason: Array.isArray(parsed.warnings) ? parsed.warnings.join(". ") : "",
     capturedAt: new Date().toISOString(),
   };
+}
+
+export async function analyzeScreen(
+  base64PNG?: string,
+  width?: number,
+  height?: number,
+): Promise<ScreenState> {
+  if (!base64PNG) {
+    safeWarn("[Specter] No screenshot provided; skipping screen analysis.");
+    return fallbackScreenState();
+  }
+
+  try {
+    const result = await analyzeVision({
+      imageBase64: base64PNG,
+      mimeType: "image/png",
+      task: "screen_understanding",
+      screenshotWidth: width,
+      screenshotHeight: height,
+    });
+
+    return adaptToScreenState(result, width, height);
+  } catch (error: any) {
+    const code = error.code as VisionErrorCode;
+    safeError(
+      `[AI_BACKEND] Vision provider failed (${code}): ${error.message}`,
+    );
+    return fallbackScreenState(code || "UNKNOWN_VISION_ERROR");
+  }
 }

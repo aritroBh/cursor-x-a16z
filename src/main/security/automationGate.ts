@@ -2,7 +2,7 @@ import { safeLog, safeWarn, safeError } from "../logger";
 
 interface AutomationSession {
   token: string;
-  mode: "auto" | "mirror" | "calibration";
+  mode: "auto" | "mirror" | "calibration" | "agent";
   createdAt: number;
   expiresAt: number;
   stepsAllowed: number;
@@ -13,7 +13,7 @@ interface AutomationSession {
 let currentSession: AutomationSession | null = null;
 
 export function requestAutomationSession(
-  mode: "auto" | "mirror" | "calibration",
+  mode: "auto" | "mirror" | "calibration" | "agent",
   steps: number = 500,
 ): string {
   const token = Math.random().toString(36).substring(2, 15);

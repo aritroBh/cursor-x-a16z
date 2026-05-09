@@ -375,7 +375,9 @@ const InputBar = ({
   onRecordingOverlayMouseEnter,
   onRecordingOverlayMouseLeave,
   mode = "silent",
-  onUltraSpokenInput
+  onUltraSpokenInput,
+  onTranscriptionStart,
+  onTranscriptionEnd
 }) => {
   const recorderRef = reactExports.useRef(new MicRecorder());
   const [value, setValue] = reactExports.useState("");
@@ -1184,7 +1186,6 @@ function formatAIHealthStatus(health) {
   const elevenlabs = health?.elevenlabs || {};
   const elevenlabsKey = elevenlabs.key || {};
   const openaiTTS = health?.openaiTTS || {};
-  openaiTTS.key || {};
   const overall = health?.overall || {};
   const claudeTextStatus = testRequest.pass ? "Claude text test: pass" : `Claude text test: failed (${testRequest.category || "unknown"})`;
   const claudeVisionStatus = `Claude vision/config: ${anthropic.configured ? "ready" : "not configured"}`;
@@ -1298,7 +1299,6 @@ const OverlayApp = () => {
   const isHudDraggingRef = reactExports.useRef(false);
   const isInputFocusedRef = reactExports.useRef(false);
   const modeRef = reactExports.useRef(mode);
-  reactExports.useRef(0);
   reactExports.useEffect(() => {
     modeRef.current = mode;
   }, [mode]);
@@ -2037,6 +2037,21 @@ const OverlayApp = () => {
     } catch (error) {
       console.error("[Overlay] Coordinate diagnostics failed:", error);
       setErrorMessage(messageFromError(error));
+    }
+  };
+  const checkAIBackend = async () => {
+    setErrorMessage("");
+    setAiHealthMessage("Checking AI backend...");
+    setAiHealthPills(null);
+    try {
+      const health = await api.healthCheck();
+      console.log("[AI_BACKEND] health check", health);
+      setAiHealthMessage(formatAIHealthStatus(health));
+      setAiHealthPills(health);
+    } catch (error) {
+      console.error("[AI_BACKEND] health check failed:", error);
+      setAiHealthMessage(`AI backend check failed: ${messageFromError(error)}`);
+      setAiHealthPills(null);
     }
   };
   const moveCursorToScreenCenter = async () => {
@@ -2832,7 +2847,7 @@ const OverlayApp = () => {
                                       borderRadius: "10px",
                                       padding: "8px",
                                       color: "white",
-                                      background: mirrorStatus === "running" ? "rgba(27,240,255,0.26)" : "rgba(191,90,242,0.18)",
+                                      background: isMirrorRunning ? "rgba(27,240,255,0.26)" : "rgba(191,90,242,0.18)",
                                       fontSize: "11px",
                                       fontWeight: 800,
                                       cursor: isMirrorButtonDisabled ? "default" : "pointer"
@@ -3186,10 +3201,7 @@ const OverlayApp = () => {
                             "button",
                             {
                               disabled: isLoading,
-                              onClick: async () => {
-                                const health = await api.healthCheck();
-                                setAiHealthMessage(formatAIHealthStatus(health));
-                              },
+                              onClick: checkAIBackend,
                               style: {
                                 flex: 1,
                                 minWidth: "130px",

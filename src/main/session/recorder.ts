@@ -25,10 +25,10 @@ function cloneGraph(graph: LearningGraph): LearningGraph {
       nodesVisited: [...session.nodesVisited],
       steps: session.steps.map((step) => ({ ...step }))
     })),
-    bandtState: {
-      A: [...graph.bandtState.A],
-      B: [...graph.bandtState.B],
-      C: [...graph.bandtState.C]
+    banditState: {
+      A: [...graph.banditState.A],
+      B: [...graph.banditState.B],
+      C: [...graph.banditState.C]
     }
   }
 }

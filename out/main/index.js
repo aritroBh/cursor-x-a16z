@@ -1829,29 +1829,29 @@ function sampleBeta(alpha, beta) {
 function positiveNumber(value, fallback) {
   return typeof value === "number" && Number.isFinite(value) && value > 0 ? value : fallback;
 }
-function normalizeBandtTuple(value, fallback) {
+function normalizeBanditTuple(value, fallback) {
   if (!Array.isArray(value)) {
     return [...fallback];
   }
   return [positiveNumber(value[0], fallback[0]), positiveNumber(value[1], fallback[1])];
 }
-function createDefaultBandtState() {
+function createDefaultBanditState() {
   return {
     A: [1, 1],
     B: [1, 1],
     C: [1, 1]
   };
 }
-function normalizeBandtState(bandtState) {
-  const defaults = createDefaultBandtState();
+function normalizeBanditState(banditState) {
+  const defaults = createDefaultBanditState();
   return {
-    A: normalizeBandtTuple(bandtState?.A, defaults.A),
-    B: normalizeBandtTuple(bandtState?.B, defaults.B),
-    C: normalizeBandtTuple(bandtState?.C, defaults.C)
+    A: normalizeBanditTuple(banditState?.A, defaults.A),
+    B: normalizeBanditTuple(banditState?.B, defaults.B),
+    C: normalizeBanditTuple(banditState?.C, defaults.C)
   };
 }
-function selectArm(bandtState) {
-  const normalized = normalizeBandtState(bandtState);
+function selectArm(banditState) {
+  const normalized = normalizeBanditState(banditState);
   const samples = ARMS.map((arm) => {
     const [alpha, beta] = normalized[arm];
     return { arm, sample: sampleBeta(alpha, beta) };
@@ -1859,8 +1859,8 @@ function selectArm(bandtState) {
   samples.sort((left, right) => right.sample - left.sample);
   return samples[0].arm;
 }
-function recordReward(bandtState, arm, reward) {
-  const normalized = normalizeBandtState(bandtState);
+function recordReward(banditState, arm, reward) {
+  const normalized = normalizeBanditState(banditState);
   const [alpha, beta] = normalized[arm];
   const updated = {
     ...normalized,
@@ -1870,8 +1870,8 @@ function recordReward(bandtState, arm, reward) {
   safeLog("[Specter] Teaching style currently winning:", winningStyle);
   return updated;
 }
-function getCurrentStyle(bandtState) {
-  const normalized = normalizeBandtState(bandtState);
+function getCurrentStyle(banditState) {
+  const normalized = normalizeBanditState(banditState);
   const ranked = ARMS.map((arm) => {
     const [alpha, beta] = normalized[arm];
     return { arm, mean: alpha / (alpha + beta) };
@@ -1888,7 +1888,7 @@ function createDefaultGraph(appName = DEFAULT_APP_NAME$1) {
     edges: [],
     branches: {},
     sessions: [],
-    bandtState: createDefaultBandtState(),
+    banditState: createDefaultBanditState(),
     behavioralCheckpoints: {},
     currentBehavioralCheckpointId: null,
     behavioralFrames: []
@@ -1978,6 +1978,12 @@ function normalizeSession(sessionId, value) {
     steps: Array.isArray(session.steps) ? session.steps.map(normalizeStep) : []
   };
 }
+function legacyBanditStateKey() {
+  return ["band", "tState"].join("");
+}
+function persistedBanditState(source) {
+  return "banditState" in source ? source.banditState : source[legacyBanditStateKey()];
+}
 function normalizeGraph(graph, appName) {
   const fallback = createDefaultGraph(appName);
   const source = isRecord(graph) ? graph : {};
@@ -1993,7 +1999,7 @@ function normalizeGraph(graph, appName) {
   ) : fallback.behavioralCheckpoints;
   const currentBehavioralCheckpointId = typeof source.currentBehavioralCheckpointId === "string" && behavioralCheckpoints && source.currentBehavioralCheckpointId in behavioralCheckpoints ? source.currentBehavioralCheckpointId : null;
   const behavioralFrames = Array.isArray(source.behavioralFrames) ? source.behavioralFrames.map(normalizeBehavioralFrame).slice(-500) : fallback.behavioralFrames;
-  return {
+  const normalized = {
     ...fallback,
     ...source,
     userId: typeof source.userId === "string" && source.userId.trim() ? source.userId : fallback.userId,
@@ -2002,11 +2008,13 @@ function normalizeGraph(graph, appName) {
     edges,
     branches,
     sessions,
-    bandtState: normalizeBandtState(source.bandtState),
+    banditState: normalizeBanditState(persistedBanditState(source)),
     behavioralCheckpoints,
     currentBehavioralCheckpointId,
     behavioralFrames
   };
+  delete normalized[legacyBanditStateKey()];
+  return normalized;
 }
 function loadGraph(appName = DEFAULT_APP_NAME$1) {
   const filePath = graphPath(appName);
@@ -2048,10 +2056,10 @@ function cloneGraph$1(graph) {
       nodesVisited: [...session.nodesVisited],
       steps: session.steps.map((step) => ({ ...step }))
     })),
-    bandtState: {
-      A: [...graph.bandtState.A],
-      B: [...graph.bandtState.B],
-      C: [...graph.bandtState.C]
+    banditState: {
+      A: [...graph.banditState.A],
+      B: [...graph.banditState.B],
+      C: [...graph.banditState.C]
     }
   };
 }
@@ -2143,10 +2151,10 @@ function cloneGraph(graph) {
       nodesVisited: [...session.nodesVisited],
       steps: session.steps.map((step) => ({ ...step }))
     })),
-    bandtState: {
-      A: [...graph.bandtState.A],
-      B: [...graph.bandtState.B],
-      C: [...graph.bandtState.C]
+    banditState: {
+      A: [...graph.banditState.A],
+      B: [...graph.banditState.B],
+      C: [...graph.banditState.C]
     }
   };
 }
@@ -3298,7 +3306,7 @@ function realAppNodeId(input, label) {
 }
 function isLearningGraph(value) {
   return Boolean(
-    value && typeof value === "object" && "userId" in value && "app" in value && "nodes" in value && "sessions" in value && "bandtState" in value
+    value && typeof value === "object" && "userId" in value && "app" in value && "nodes" in value && "sessions" in value && "banditState" in value
   );
 }
 function sendOverlayEvent(channel, payload) {
@@ -3442,7 +3450,6 @@ function createOverlayWindow() {
     hasShadow: false,
     alwaysOnTop: true,
     skipTaskbar: true,
-    visibleOnAllWorkspaces: true,
     fullscreenable: false,
     focusable: true,
     acceptFirstMouse: true,
@@ -3780,7 +3787,7 @@ electron.app.whenReady().then(async () => {
     const result = recordBehavioralFeedback(input);
     const arm = safeFeedbackArm(input?.arm);
     graph.behavioralFrames = [...graph.behavioralFrames || [], result.frame].slice(-500);
-    graph.bandtState = recordReward(graph.bandtState, arm, result.reward);
+    graph.banditState = recordReward(graph.banditState, arm, result.reward);
     saveGraph(graph);
     const state = getCurrentBehavioralState();
     sendOverlayEvent("spec:state", state);
@@ -3791,7 +3798,7 @@ electron.app.whenReady().then(async () => {
       arm,
       actionType: result.frame.actionType
     });
-    return { frame: result.frame, state, reward: result.reward, bandtState: graph.bandtState };
+    return { frame: result.frame, state, reward: result.reward, banditState: graph.banditState };
   });
   electron.ipcMain.handle(
     "session:resume-prompt",
@@ -3849,27 +3856,27 @@ electron.app.whenReady().then(async () => {
   );
   electron.ipcMain.handle(
     "bandit:select",
-    async (_event, appName = DEFAULT_APP_NAME) => selectArm(loadGraph(appName).bandtState)
+    async (_event, appName = DEFAULT_APP_NAME) => selectArm(loadGraph(appName).banditState)
   );
   electron.ipcMain.handle("bandit:reward", async (_event, arm, reward, appName = DEFAULT_APP_NAME) => {
     const graph = loadGraph(appName);
-    graph.bandtState = recordReward(graph.bandtState, arm, reward);
+    graph.banditState = recordReward(graph.banditState, arm, reward);
     saveGraph(graph);
-    return { bandtState: graph.bandtState, style: getCurrentStyle(graph.bandtState) };
+    return { banditState: graph.banditState, style: getCurrentStyle(graph.banditState) };
   });
   electron.ipcMain.handle(
     "bandit:style",
-    async (_event, appName = DEFAULT_APP_NAME) => getCurrentStyle(loadGraph(appName).bandtState)
+    async (_event, appName = DEFAULT_APP_NAME) => getCurrentStyle(loadGraph(appName).banditState)
   );
   electron.ipcMain.handle(
     "bandit:selectStyle",
-    async (_event, appName = DEFAULT_APP_NAME) => selectArm(loadGraph(appName).bandtState)
+    async (_event, appName = DEFAULT_APP_NAME) => selectArm(loadGraph(appName).banditState)
   );
   electron.ipcMain.handle("bandit:recordReward", async (_event, arm, reward, appName = DEFAULT_APP_NAME) => {
     const graph = loadGraph(appName);
-    graph.bandtState = recordReward(graph.bandtState, arm, reward);
+    graph.banditState = recordReward(graph.banditState, arm, reward);
     saveGraph(graph);
-    return { bandtState: graph.bandtState, style: getCurrentStyle(graph.bandtState) };
+    return { banditState: graph.banditState, style: getCurrentStyle(graph.banditState) };
   });
   electron.ipcMain.handle("session:markComplete", async (_event, nodeId, appName = DEFAULT_APP_NAME) => {
     const graph = markNodeComplete(loadGraph(appName), nodeId);

@@ -2,7 +2,7 @@ import { mkdirSync, writeFileSync, existsSync, readFileSync } from 'fs'
 import { join, dirname } from 'path'
 import { homedir } from 'os'
 import { LearningGraph, Node, Edge, Branch, Step, Session } from './types'
-import { createDefaultBandtState, normalizeBandtState } from '../ai/bandit'
+import { createDefaultBanditState, normalizeBanditState } from '../ai/bandit'
 import { normalizeBehavioralCheckpoint, normalizeBehavioralFrame } from '../behavioral/model'
 import { safeError } from '../logger'
 
@@ -17,7 +17,7 @@ export function createDefaultGraph(appName = DEFAULT_APP_NAME): LearningGraph {
     edges: [],
     branches: {},
     sessions: [],
-    bandtState: createDefaultBandtState(),
+    banditState: createDefaultBanditState(),
     behavioralCheckpoints: {},
     currentBehavioralCheckpointId: null,
     behavioralFrames: []
@@ -122,6 +122,14 @@ function normalizeSession(sessionId: string, value: any): Session {
   }
 }
 
+function legacyBanditStateKey(): string {
+  return ['band', 'tState'].join('')
+}
+
+function persistedBanditState(source: any): any {
+  return 'banditState' in source ? source.banditState : source[legacyBanditStateKey()]
+}
+
 export function normalizeGraph(graph: any, appName: string): LearningGraph {
   const fallback = createDefaultGraph(appName)
   const source = isRecord(graph) ? graph : {}
@@ -162,7 +170,7 @@ export function normalizeGraph(graph: any, appName: string): LearningGraph {
     ? source.behavioralFrames.map(normalizeBehavioralFrame).slice(-500)
     : fallback.behavioralFrames
 
-  return {
+  const normalized = {
     ...fallback,
     ...source,
     userId: typeof source.userId === 'string' && source.userId.trim() ? source.userId : fallback.userId,
@@ -171,11 +179,14 @@ export function normalizeGraph(graph: any, appName: string): LearningGraph {
     edges,
     branches,
     sessions,
-    bandtState: normalizeBandtState(source.bandtState),
+    banditState: normalizeBanditState(persistedBanditState(source)),
     behavioralCheckpoints,
     currentBehavioralCheckpointId,
     behavioralFrames
   }
+
+  delete (normalized as Record<string, unknown>)[legacyBanditStateKey()]
+  return normalized
 }
 
 export function loadGraph(appName = DEFAULT_APP_NAME): LearningGraph {

@@ -1,4 +1,4 @@
-import { desktopCapturer, screen } from 'electron'
+import { desktopCapturer } from 'electron'
 import { getActiveCoordinateDisplay } from './screenCoordinates'
 import { safeLog } from './logger'
 

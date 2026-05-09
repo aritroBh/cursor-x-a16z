@@ -52,14 +52,14 @@ function positiveNumber(value: any, fallback: number): number {
   return typeof value === 'number' && Number.isFinite(value) && value > 0 ? value : fallback
 }
 
-function normalizeBandtTuple(value: any, fallback: [number, number]): [number, number] {
+function normalizeBanditTuple(value: any, fallback: [number, number]): [number, number] {
   if (!Array.isArray(value)) {
     return [...fallback]
   }
   return [positiveNumber(value[0], fallback[0]), positiveNumber(value[1], fallback[1])]
 }
 
-export function createDefaultBandtState(): BanditState {
+export function createDefaultBanditState(): BanditState {
   return {
     A: [1, 1],
     B: [1, 1],
@@ -67,17 +67,17 @@ export function createDefaultBandtState(): BanditState {
   }
 }
 
-export function normalizeBandtState(bandtState: any): BanditState {
-  const defaults = createDefaultBandtState()
+export function normalizeBanditState(banditState: any): BanditState {
+  const defaults = createDefaultBanditState()
   return {
-    A: normalizeBandtTuple(bandtState?.A, defaults.A),
-    B: normalizeBandtTuple(bandtState?.B, defaults.B),
-    C: normalizeBandtTuple(bandtState?.C, defaults.C)
+    A: normalizeBanditTuple(banditState?.A, defaults.A),
+    B: normalizeBanditTuple(banditState?.B, defaults.B),
+    C: normalizeBanditTuple(banditState?.C, defaults.C)
   }
 }
 
-export function selectArm(bandtState: BanditState): keyof BanditState {
-  const normalized = normalizeBandtState(bandtState)
+export function selectArm(banditState: BanditState): keyof BanditState {
+  const normalized = normalizeBanditState(banditState)
   const samples = ARMS.map((arm) => {
     const [alpha, beta] = normalized[arm]
     return { arm, sample: sampleBeta(alpha, beta) }
@@ -87,8 +87,8 @@ export function selectArm(bandtState: BanditState): keyof BanditState {
   return samples[0].arm
 }
 
-export function recordReward(bandtState: BanditState, arm: keyof BanditState, reward: number): BanditState {
-  const normalized = normalizeBandtState(bandtState)
+export function recordReward(banditState: BanditState, arm: keyof BanditState, reward: number): BanditState {
+  const normalized = normalizeBanditState(banditState)
   const [alpha, beta] = normalized[arm]
 
   const updated = {
@@ -101,8 +101,8 @@ export function recordReward(bandtState: BanditState, arm: keyof BanditState, re
   return updated as BanditState
 }
 
-export function getCurrentStyle(bandtState: BanditState): string {
-  const normalized = normalizeBandtState(bandtState)
+export function getCurrentStyle(banditState: BanditState): string {
+  const normalized = normalizeBanditState(banditState)
   const ranked = ARMS.map((arm) => {
     const [alpha, beta] = normalized[arm]
     return { arm, mean: alpha / (alpha + beta) }

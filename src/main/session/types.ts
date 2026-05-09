@@ -137,7 +137,7 @@ export interface LearningGraph {
   edges: Edge[];
   branches: Record<string, Branch>;
   sessions: Session[];
-  bandtState: BanditState;
+  banditState: BanditState;
   behavioralCheckpoints?: Record<string, BehavioralCheckpoint>;
   currentBehavioralCheckpointId?: string | null;
   behavioralFrames?: BehavioralFrame[];

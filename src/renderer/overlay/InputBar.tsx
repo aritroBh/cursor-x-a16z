@@ -83,6 +83,8 @@ export const InputBar: React.FC<InputBarProps> = ({
   onRecordingOverlayMouseLeave,
   mode = "silent",
   onUltraSpokenInput,
+  onTranscriptionStart,
+  onTranscriptionEnd,
 }) => {
   const recorderRef = useRef(new MicRecorder());
   const [value, setValue] = useState("");

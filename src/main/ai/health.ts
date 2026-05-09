@@ -9,7 +9,6 @@ import {
   isLocalhostUrl,
   OFFICIAL_ANTHROPIC_BASE_URL
 } from './config'
-import { safeLog } from '../logger'
 
 interface KeyHealth {
   present: boolean

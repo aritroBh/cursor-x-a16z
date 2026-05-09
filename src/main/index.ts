@@ -243,7 +243,7 @@ function isLearningGraph(value: any): boolean {
       'app' in value &&
       'nodes' in value &&
       'sessions' in value &&
-      'bandtState' in value
+      'banditState' in value
   )
 }
 
@@ -281,7 +281,7 @@ function realCheckpointOrNull(checkpoint: BehavioralCheckpoint | null): Behavior
   return checkpoint && checkpoint.synthetic !== true ? checkpoint : null
 }
 
-function safeFeedbackArm(value: any): keyof LearningGraph['bandtState'] {
+function safeFeedbackArm(value: any): keyof LearningGraph['banditState'] {
   return value === 'A' || value === 'B' || value === 'C' ? value : 'C'
 }
 
@@ -417,7 +417,6 @@ function createOverlayWindow(): void {
     hasShadow: false,
     alwaysOnTop: true,
     skipTaskbar: true,
-    visibleOnAllWorkspaces: true,
     fullscreenable: false,
     focusable: true,
     acceptFirstMouse: true,
@@ -801,7 +800,7 @@ app.whenReady().then(async () => {
     const result = recordBehavioralFeedback(input)
     const arm = safeFeedbackArm(input?.arm)
     graph.behavioralFrames = [...(graph.behavioralFrames || []), result.frame].slice(-500)
-    graph.bandtState = recordReward(graph.bandtState, arm, result.reward)
+    graph.banditState = recordReward(graph.banditState, arm, result.reward)
     saveGraph(graph)
     const state = getCurrentBehavioralState()
     sendOverlayEvent('spec:state', state)
@@ -812,7 +811,7 @@ app.whenReady().then(async () => {
       arm,
       actionType: result.frame.actionType
     })
-    return { frame: result.frame, state, reward: result.reward, bandtState: graph.bandtState }
+    return { frame: result.frame, state, reward: result.reward, banditState: graph.banditState }
   })
 
   ipcMain.handle('session:resume-prompt', async (_event, appName = DEFAULT_APP_NAME) =>
@@ -878,29 +877,29 @@ app.whenReady().then(async () => {
   )
 
   ipcMain.handle('bandit:select', async (_event, appName = DEFAULT_APP_NAME) =>
-    selectArm(loadGraph(appName).bandtState)
+    selectArm(loadGraph(appName).banditState)
   )
 
   ipcMain.handle('bandit:reward', async (_event, arm, reward, appName = DEFAULT_APP_NAME) => {
     const graph = loadGraph(appName)
-    graph.bandtState = recordReward(graph.bandtState, arm, reward)
+    graph.banditState = recordReward(graph.banditState, arm, reward)
     saveGraph(graph)
-    return { bandtState: graph.bandtState, style: getCurrentStyle(graph.bandtState) }
+    return { banditState: graph.banditState, style: getCurrentStyle(graph.banditState) }
   })
 
   ipcMain.handle('bandit:style', async (_event, appName = DEFAULT_APP_NAME) =>
-    getCurrentStyle(loadGraph(appName).bandtState)
+    getCurrentStyle(loadGraph(appName).banditState)
   )
 
   ipcMain.handle('bandit:selectStyle', async (_event, appName = DEFAULT_APP_NAME) =>
-    selectArm(loadGraph(appName).bandtState)
+    selectArm(loadGraph(appName).banditState)
   )
 
   ipcMain.handle('bandit:recordReward', async (_event, arm, reward, appName = DEFAULT_APP_NAME) => {
     const graph = loadGraph(appName)
-    graph.bandtState = recordReward(graph.bandtState, arm, reward)
+    graph.banditState = recordReward(graph.banditState, arm, reward)
     saveGraph(graph)
-    return { bandtState: graph.bandtState, style: getCurrentStyle(graph.bandtState) }
+    return { banditState: graph.banditState, style: getCurrentStyle(graph.banditState) }
   })
 
   ipcMain.handle('session:markComplete', async (_event, nodeId, appName = DEFAULT_APP_NAME) => {

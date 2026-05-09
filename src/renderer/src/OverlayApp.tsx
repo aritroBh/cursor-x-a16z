@@ -178,7 +178,6 @@ function formatAIHealthStatus(health: any): string {
   const elevenlabs = health?.elevenlabs || {};
   const elevenlabsKey = elevenlabs.key || {};
   const openaiTTS = health?.openaiTTS || {};
-  const openaiTTSKey = openaiTTS.key || {};
   const overall = health?.overall || {};
 
   const claudeTextStatus = testRequest.pass
@@ -329,7 +328,6 @@ const OverlayApp: React.FC = () => {
   const isInputFocusedRef = useRef(false);
 
   const modeRef = useRef(mode);
-  const lastSpeechAtRef = useRef(0);
 
   useEffect(() => {
     modeRef.current = mode;
@@ -463,7 +461,7 @@ const OverlayApp: React.FC = () => {
     if (!shouldTrackCursor) return;
 
     let isDisposed = false;
-    let timer: ReturnType<typeof window.setTimeout> | null = null;
+    let timer: number | null = null;
     let hasLoggedCursorError = false;
 
     const isWalkthroughActive =
@@ -1236,15 +1234,10 @@ const OverlayApp: React.FC = () => {
     setAiHealthPills(null);
 
     try {
-      const health = await api.checkAIBackend();
+      const health = await api.healthCheck();
       console.log("[AI_BACKEND] health check", health);
       setAiHealthMessage(formatAIHealthStatus(health));
       setAiHealthPills(health);
-      if (!health?.anthropic?.testRequest?.pass) {
-        setRealAppNotice(
-          "I couldn't confidently detect the target. Pick it manually or use Fallback Practice.",
-        );
-      }
     } catch (error) {
       console.error("[AI_BACKEND] health check failed:", error);
       setAiHealthMessage(`AI backend check failed: ${messageFromError(error)}`);
@@ -2169,7 +2162,7 @@ const OverlayApp: React.FC = () => {
                           padding: "8px",
                           color: "white",
                           background:
-                            mirrorStatus === "running"
+                            isMirrorRunning
                               ? "rgba(27,240,255,0.26)"
                               : "rgba(191,90,242,0.18)",
                           fontSize: "11px",
@@ -2484,10 +2477,7 @@ const OverlayApp: React.FC = () => {
                     </button>
                     <button
                       disabled={isLoading}
-                      onClick={async () => {
-                        const health = await api.healthCheck();
-                        setAiHealthMessage(formatAIHealthStatus(health));
-                      }}
+                      onClick={checkAIBackend}
                       style={{
                         flex: 1,
                         minWidth: "130px",

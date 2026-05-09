@@ -115,7 +115,10 @@ export function normalizeBehavioralState(value: any): BehavioralState {
 
 export function normalizeBehavioralFrame(value: any): BehavioralFrame {
   const raw = isRecord(value) ? value : {}
-  const actionType = typeof raw.actionType === 'string' && ACTIONS.includes(raw.actionType) ? raw.actionType : 'unknown'
+  const actionType: BehavioralFrame['actionType'] =
+    typeof raw.actionType === 'string' && ACTIONS.includes(raw.actionType as BehavioralFrame['actionType'])
+      ? (raw.actionType as BehavioralFrame['actionType'])
+      : 'unknown'
   const cursorDelta = isRecord(raw.cursorDelta)
     ? {
         dx: typeof raw.cursorDelta.dx === 'number' && Number.isFinite(raw.cursorDelta.dx) ? raw.cursorDelta.dx : 0,

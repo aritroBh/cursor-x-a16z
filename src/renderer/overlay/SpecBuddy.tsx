@@ -131,10 +131,11 @@ export const SpecBuddy: React.FC<SpecBuddyProps> = ({
 
   return (
     <div
-      className={`spec-buddy spec-buddy--${mood} ${animClass} ${tiltClass} ${compact ? 'spec-buddy--compact' : ''} ${pitchMode ? 'spec-buddy--pitch' : ''}`}
+      className={`spec-buddy spec-buddy--${mood} ${compact ? 'spec-buddy--compact' : ''} ${pitchMode ? 'spec-buddy--pitch' : ''}`}
       style={{
-        left: `${x}px`,
-        top: `${y}px`,
+        transform: `translate3d(${x}px, ${y}px, 0)`,
+        left: 0,
+        top: 0,
         transitionDuration: `${transitionDuration}ms`,
       }}
     >
@@ -146,36 +147,48 @@ export const SpecBuddy: React.FC<SpecBuddyProps> = ({
           <span>feedback reward</span>
         </div>
       )}
-      <div className="spec-buddy__trail" />
-      <div className="spec-buddy__stars" aria-hidden="true">
-        <span />
-        <span />
-        <span />
+      
+      <div className={`spec-buddy__anim ${animClass}`}>
+        <div className={`spec-buddy__tilt ${tiltClass}`}>
+          <div className="spec-buddy__trail" />
+          <div className="spec-buddy__stars" aria-hidden="true">
+            <span />
+            <span />
+            <span />
+          </div>
+          <svg className="spec-buddy__svg" width="72" height="78" viewBox="0 0 72 78" aria-hidden="true">
+            <defs>
+              <filter id="spec-soft-glow" x="-40%" y="-40%" width="180%" height="180%">
+                <feGaussianBlur stdDeviation="3" result="blur" />
+                <feMerge>
+                  <feMergeNode in="blur" />
+                  <feMergeNode in="SourceGraphic" />
+                </feMerge>
+              </filter>
+            </defs>
+            
+            <g className="spec-buddy__body-group">
+              {/* Cute ghost body with rounded top and wavy bottom */}
+              <path
+                className="spec-buddy__body"
+                d="M36 4c18 0 32 14 32 32v24c0 3-2 5-4 3l-5-4-5 6c-2 2-4 2-6 0l-4-5-4 5c-2 2-4 2-6 0l-4-5-5 4c-2 2-4 0-4-3V36C16 18 18 4 36 4Z"
+              />
+              <path className="spec-buddy__shine" d="M22 16c3-5 8-8 14-9" />
+              {mood === 'judging' && (
+                <>
+                  <path className="spec-buddy__arm-cross" d="M21 40c8 5 20 6 31 1" />
+                  <path className="spec-buddy__arm-cross" d="M51 38c-9 7-20 9-31 5" />
+                </>
+              )}
+            </g>
+
+            <g className="spec-buddy__face-group">
+              {renderEyes(mood)}
+            </g>
+          </svg>
+        </div>
       </div>
-      <svg className="spec-buddy__svg" width="72" height="78" viewBox="0 0 72 78" aria-hidden="true">
-        <defs>
-          <filter id="spec-soft-glow" x="-40%" y="-40%" width="180%" height="180%">
-            <feGaussianBlur stdDeviation="3" result="blur" />
-            <feMerge>
-              <feMergeNode in="blur" />
-              <feMergeNode in="SourceGraphic" />
-            </feMerge>
-          </filter>
-        </defs>
-        {/* Cute ghost body with rounded top and wavy bottom */}
-        <path
-          className="spec-buddy__body"
-          d="M36 4c18 0 32 14 32 32v24c0 3-2 5-4 3l-5-4-5 6c-2 2-4 2-6 0l-4-5-4 5c-2 2-4 2-6 0l-4-5-5 4c-2 2-4 0-4-3V36C16 18 18 4 36 4Z"
-        />
-        <path className="spec-buddy__shine" d="M22 16c3-5 8-8 14-9" />
-        {mood === 'judging' && (
-          <>
-            <path className="spec-buddy__arm-cross" d="M21 40c8 5 20 6 31 1" />
-            <path className="spec-buddy__arm-cross" d="M51 38c-9 7-20 9-31 5" />
-          </>
-        )}
-        {renderEyes(mood)}
-      </svg>
+
       {!compact && <div className="spec-buddy__checkpoint">{checkpointLabel}</div>}
       <div className="spec-buddy__label">{labelForMood(mood, state)}</div>
     </div>

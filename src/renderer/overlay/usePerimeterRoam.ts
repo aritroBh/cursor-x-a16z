@@ -9,8 +9,8 @@ interface Point {
 
 export interface UsePerimeterRoamOptions {
   ghostSize?: number
-  minMargin?: number
-  maxMargin?: number
+  padding?: number
+  topPadding?: number
   minTravelMs?: number
   maxTravelMs?: number
   minPauseMs?: number
@@ -19,9 +19,9 @@ export interface UsePerimeterRoamOptions {
 }
 
 const DEFAULTS = {
-  ghostSize: 48,
-  minMargin: 18,
-  maxMargin: 32,
+  ghostSize: 56,
+  padding: 12,
+  topPadding: 16, // Extra safe area for macOS menu bar / edge glow
   minTravelMs: 4000,
   maxTravelMs: 9000,
   minPauseMs: 1000,
@@ -59,6 +59,82 @@ export interface PerimeterRoamResult {
   transitionDuration: number
 }
 
+export function mapOffsetToPerimeterPoint(
+  offset: number,
+  rawRect: DOMRect,
+  ghostSize: number,
+  padding: number,
+  topPadding: number,
+  avoidBottomCenter: boolean
+): { x: number; y: number; edge: Edge; totalLen: number } {
+  const ghostRadius = ghostSize / 2
+
+  const safeLeft = rawRect.left + padding + ghostRadius
+  const safeTop = rawRect.top + padding + ghostRadius + topPadding
+  const safeRight = Math.max(safeLeft, rawRect.right - padding - ghostRadius)
+  const safeBottom = Math.max(safeTop, rawRect.bottom - padding - ghostRadius)
+
+  const topLen = Math.max(0, safeRight - safeLeft)
+  const rightLen = Math.max(0, safeBottom - safeTop)
+  const bottomLen = Math.max(0, safeRight - safeLeft)
+  const leftLen = Math.max(0, safeBottom - safeTop)
+
+  const totalLen = topLen + rightLen + bottomLen + leftLen
+
+  if (totalLen <= 0) {
+    return { x: safeLeft, y: safeTop, edge: 'top', totalLen: 1 }
+  }
+
+  let normalizedOffset = offset % totalLen
+  if (normalizedOffset < 0) normalizedOffset += totalLen
+
+  let x = 0
+  let y = 0
+  let edge: Edge = 'top'
+
+  let remaining = normalizedOffset
+
+  if (remaining < topLen) {
+    x = safeLeft + remaining
+    y = safeTop
+    edge = 'top'
+  } else {
+    remaining -= topLen
+    if (remaining < rightLen) {
+      x = safeRight
+      y = safeTop + remaining
+      edge = 'right'
+    } else {
+      remaining -= rightLen
+      if (remaining < bottomLen) {
+        let bottomOffset = remaining
+        if (avoidBottomCenter) {
+          const leftBound = bottomLen * 0.25
+          const rightBound = bottomLen * 0.75
+          if (bottomOffset > leftBound && bottomOffset < rightBound) {
+            // Snap to the edge of the avoid zone
+            if (bottomOffset < bottomLen * 0.5) {
+              bottomOffset = leftBound
+            } else {
+              bottomOffset = rightBound
+            }
+          }
+        }
+        x = safeRight - bottomOffset
+        y = safeBottom
+        edge = 'bottom'
+      } else {
+        remaining -= bottomLen
+        x = safeLeft
+        y = safeBottom - remaining
+        edge = 'left'
+      }
+    }
+  }
+
+  return { x, y, edge, totalLen }
+}
+
 export function usePerimeterRoam(
   enabled: boolean,
   boundaryRefOrSelector?: RefObject<HTMLElement> | string,
@@ -66,16 +142,17 @@ export function usePerimeterRoam(
 ): PerimeterRoamResult {
   const {
     ghostSize = DEFAULTS.ghostSize,
-    minMargin = DEFAULTS.minMargin,
-    maxMargin = DEFAULTS.maxMargin,
+    padding = DEFAULTS.padding,
+    topPadding = DEFAULTS.topPadding,
+    avoidBottomCenter = false
   } = options || {}
 
-  const [position, setPosition] = useState<Point>({ x: minMargin, y: minMargin })
+  const [position, setPosition] = useState<Point>({ x: -1000, y: -1000 })
   const [edge, setEdge] = useState<Edge>('top')
   const [isPaused, setIsPaused] = useState(false)
   
   const stateRef = useRef({
-    offset: 0,
+    offset: -1, // Uninitialized flag
     direction: 1 as 1 | -1,
     speed: 50,
     isPaused: false,
@@ -198,71 +275,42 @@ export function usePerimeterRoam(
       if (reducedMotionRef.current) {
         st.isPaused = true
         setIsPaused(true)
+        if (st.rect) {
+           const { x, y, edge } = mapOffsetToPerimeterPoint(0, st.rect, ghostSize, padding, topPadding, false)
+           setPosition({ x, y })
+           setEdge(edge)
+        }
         animationFrameId = requestAnimationFrame(tick)
         return
       }
 
       if (!st.isPaused && st.rect) {
         const rect = st.rect
-        const margin = minMargin 
         
-        const left = rect.left + margin
-        const top = rect.top + margin
-        const right = Math.max(left, rect.right - margin - ghostSize)
-        const bottom = Math.max(top, rect.bottom - margin - ghostSize)
-
-        const topLen = Math.max(0, right - left)
-        const rightLen = Math.max(0, bottom - top)
-        const bottomLen = Math.max(0, right - left)
-        const leftLen = Math.max(0, bottom - top)
-
-        const totalLen = topLen + rightLen + bottomLen + leftLen
-
-        if (totalLen > 0) {
-          st.offset = (st.offset + st.direction * st.speed * dt) % totalLen
-          if (st.offset < 0) {
-            st.offset += totalLen
-          }
-
-          let x = 0, y = 0
-          let currentEdge: Edge = 'top'
-
-          let remaining = st.offset
-
-          if (remaining < topLen) {
-            x = left + remaining
-            y = top
-            currentEdge = 'top'
-          } else {
-            remaining -= topLen
-            if (remaining < rightLen) {
-              x = right
-              y = top + remaining
-              currentEdge = 'right'
-            } else {
-              remaining -= rightLen
-              if (remaining < bottomLen) {
-                x = right - remaining
-                y = bottom
-                currentEdge = 'bottom'
-              } else {
-                remaining -= bottomLen
-                x = left
-                y = bottom - remaining
-                currentEdge = 'left'
-              }
-            }
-          }
-
-          setPosition((prev) => {
-            // Avoid triggering re-renders if position hasn't changed enough to matter
-            if (Math.abs(prev.x - x) < 0.5 && Math.abs(prev.y - y) < 0.5) {
-              return prev
-            }
-            return { x, y }
-          })
-          setEdge(currentEdge)
+        // Initialize offset randomly on first tick
+        if (st.offset === -1) {
+           const { totalLen } = mapOffsetToPerimeterPoint(0, rect, ghostSize, padding, topPadding, avoidBottomCenter)
+           st.offset = Math.random() * totalLen
         }
+
+        const { x, y, edge, totalLen } = mapOffsetToPerimeterPoint(
+          st.offset,
+          rect,
+          ghostSize,
+          padding,
+          topPadding,
+          avoidBottomCenter
+        )
+
+        st.offset = (st.offset + st.direction * st.speed * dt) % totalLen
+
+        setPosition((prev) => {
+          if (Math.abs(prev.x - x) < 0.5 && Math.abs(prev.y - y) < 0.5) {
+            return prev
+          }
+          return { x, y }
+        })
+        setEdge(edge)
       }
 
       animationFrameId = requestAnimationFrame(tick)
@@ -274,7 +322,7 @@ export function usePerimeterRoam(
     return () => {
       cancelAnimationFrame(animationFrameId)
     }
-  }, [enabled, ghostSize, minMargin])
+  }, [enabled, ghostSize, padding, topPadding, avoidBottomCenter])
 
   return {
     x: position.x,

@@ -19,6 +19,8 @@ import {
   stopReplay
 } from './replayController'
 import { assertWalkthroughReplaySafety } from './replaySafety'
+import { validateSender } from '../security/ipcGuards'
+import { validateAutomationAction } from '../security/automationGate'
 
 const DEFAULT_STEP_TIMEOUT_MS = 12000
 const DEFAULT_WAIT_STEP_MS = 800
@@ -327,19 +329,26 @@ export async function replayWalkthrough(steps: Step[], onStep: (step: Step, inde
 export function registerReplayIpc(ipcMain: IpcMain, windowProvider: () => BrowserWindow | null, appName = 'Specter'): void {
   setReplayWindowProvider(windowProvider)
 
-  ipcMain.handle('replay:walkthrough', async (_event, nodeId) => {
+  ipcMain.handle('replay:walkthrough', async (event, nodeId) => {
+    if (!validateSender(event, windowProvider())) throw new Error('Unauthorized sender')
     const steps = stepsForNode(nodeId, appName)
     await replayWalkthrough(steps, () => {})
   })
 
-  ipcMain.handle('replay:auto', async (_event, nodeId) => {
+  ipcMain.handle('replay:auto', async (event, nodeId) => {
+    if (!validateSender(event, windowProvider())) throw new Error('Unauthorized sender')
     const steps = stepsForNode(nodeId, appName)
+    if (!validateAutomationAction('replay:auto', steps?.length || 1)) throw new Error('Automation blocked by gate')
     await replayAutoExecute(steps)
   })
 
-  ipcMain.handle('replay:stop', async () => {
+  ipcMain.handle('replay:stop', async (event) => {
+    if (!validateSender(event, windowProvider())) throw new Error('Unauthorized sender')
     stopReplay()
   })
 
-  ipcMain.handle('replay:confirmStep', async () => confirmReplayStep())
+  ipcMain.handle('replay:confirmStep', async (event) => {
+    if (!validateSender(event, windowProvider())) throw new Error('Unauthorized sender')
+    return confirmReplayStep()
+  })
 }

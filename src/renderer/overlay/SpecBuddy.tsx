@@ -133,7 +133,7 @@ export const SpecBuddy: React.FC<SpecBuddyProps> = ({
     <div
       className={`spec-buddy spec-buddy--${mood} ${compact ? 'spec-buddy--compact' : ''} ${pitchMode ? 'spec-buddy--pitch' : ''}`}
       style={{
-        transform: `translate3d(${x}px, ${y}px, 0)`,
+        transform: `translate3d(${x - 28}px, ${y - 28}px, 0)`,
         left: 0,
         top: 0,
         transitionDuration: `${transitionDuration}ms`,

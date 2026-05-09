@@ -54,6 +54,13 @@ import {
   stopBehavioralTracking
 } from './behavioral/tracker'
 import { safeLog, safeWarn, safeError } from './logger'
+import {
+  requestAutomationSession,
+  confirmAutomationSession,
+  validateAutomationAction,
+  cancelAutomationSession
+} from './security/automationGate'
+import { validateSender } from './security/ipcGuards'
 
 const icon = join(__dirname, '../../resources/icon.png')
 const DEFAULT_APP_NAME = 'Specter'
@@ -426,6 +433,7 @@ function createWindow(): void {
     mainWindow = null
   })
 
+  // Prevent full access from main practice window
   mainWindow.webContents.setWindowOpenHandler((details) => {
     shell.openExternal(details.url)
     return { action: 'deny' }
@@ -554,24 +562,43 @@ app.whenReady().then(async () => {
     overlayWindow.setIgnoreMouseEvents(true, { forward: true })
     overlayWindow.hide()
   })
+  
+  // Security Gate
+  ipcMain.handle('automation:request', async (_event, mode, steps) => requestAutomationSession(mode, steps))
+  ipcMain.handle('automation:confirm', async (_event, token) => confirmAutomationSession(token))
+  ipcMain.handle('automation:cancel', async () => cancelAutomationSession())
 
-  ipcMain.handle('cursor:move', async (_event, x, y, durationMs) => {
+  ipcMain.handle('cursor:move', async (event, x, y, durationMs) => {
+    if (!validateSender(event, overlayWindow)) throw new Error('Unauthorized sender')
+    if (!validateAutomationAction('cursor:move')) throw new Error('Automation blocked by gate')
     safeLog('[IPC] cursor:move', { x, y, durationMs })
     return moveRealMouse(x, y, durationMs)
   })
 
-  ipcMain.handle('cursor:click', async (_event, x, y) => clickRealMouse(x, y))
-  ipcMain.handle('cursor:replay', async (_event, steps) => {
+  ipcMain.handle('cursor:click', async (event, x, y) => {
+    if (!validateSender(event, overlayWindow)) throw new Error('Unauthorized sender')
+    if (!validateAutomationAction('cursor:click')) throw new Error('Automation blocked by gate')
+    return clickRealMouse(x, y)
+  })
+
+  ipcMain.handle('cursor:replay', async (event, steps) => {
+    if (!validateSender(event, overlayWindow)) throw new Error('Unauthorized sender')
+    if (!validateAutomationAction('cursor:replay', steps?.length || 1)) throw new Error('Automation blocked by gate')
     safeWarn('[AUTO_REAL_MOUSE] LOUD WARNING: REAL OS automation steps triggered from IPC', { count: steps?.length })
     return executeRealMouseSteps(steps)
   })
+
   ipcMain.handle('cursor:getPosition', async () => getMousePosition())
   ipcMain.handle('cursor:getPositionPercent', async () => getMousePercent())
   ipcMain.handle('cursor:diagnostics', async () => getCoordinateCalibrationDiagnostics())
-  ipcMain.handle('cursor:moveCenter', async () => {
+
+  ipcMain.handle('cursor:moveCenter', async (event) => {
+    if (!validateSender(event, overlayWindow)) throw new Error('Unauthorized sender')
+    if (!validateAutomationAction('cursor:moveCenter')) throw new Error('Automation blocked by gate')
     safeLog('[COORD_CALIBRATION] explicit center move requested')
     return moveRealMouse(50, 50)
   })
+
   ipcMain.handle('cursor:waitForTarget', async (_event, x, y, tolerancePx = 50, timeoutMs = 12000) => {
     safeLog('[IPC] cursor:waitForTarget', { x, y, tolerancePx, timeoutMs })
     return waitForMouseAtTarget(x, y, tolerancePx, timeoutMs)

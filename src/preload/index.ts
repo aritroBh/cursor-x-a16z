@@ -23,6 +23,11 @@ const api = {
   waitForCursorTarget: (x: number, y: number, tolerancePx?: number, timeoutMs?: number) =>
     ipcRenderer.invoke('cursor:waitForTarget', x, y, tolerancePx, timeoutMs),
 
+  // Automation Gate
+  requestAutomationSession: (mode: string, steps?: number) => ipcRenderer.invoke('automation:request', mode, steps),
+  confirmAutomationSession: (token: string) => ipcRenderer.invoke('automation:confirm', token),
+  cancelAutomationSession: () => ipcRenderer.invoke('automation:cancel'),
+
   // Overlay
   hideOverlay: () => ipcRenderer.send('overlay:hide'),
   setOverlayClickThrough: (clickThrough: boolean) => ipcRenderer.invoke('overlay:setClickThrough', clickThrough),

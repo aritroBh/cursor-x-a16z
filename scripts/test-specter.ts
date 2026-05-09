@@ -559,6 +559,42 @@ async function main() {
   check(realityLock.includes('Spec can be funny, but the system cannot be fake.'), 'Reality Lock documents the non-fake product rule')
   check(realityLock.includes('measured, not magic'), 'Reality Lock pitch language says measured, not magic')
 
+  printHeader('Runtime Unit Tests')
+  
+  try {
+    const gatePath = filePath('src/main/security/automationGate.ts')
+    if (fs.existsSync(gatePath)) {
+       const gate = await import('file://' + gatePath)
+       gate.cancelAutomationSession()
+       check(!gate.validateAutomationAction('test'), 'AutomationGate blocks action when no session exists')
+       const token = gate.requestAutomationSession('auto', 10)
+       check(!gate.validateAutomationAction('test'), 'AutomationGate blocks action when session not confirmed')
+       check(gate.confirmAutomationSession(token), 'AutomationGate accepts valid confirmation')
+       check(gate.validateAutomationAction('test', 5), 'AutomationGate allows action when confirmed')
+       check(!gate.validateAutomationAction('test', 10), 'AutomationGate blocks action when step limit exceeded')
+       gate.cancelAutomationSession()
+    } else {
+       report('fail', 'automationGate.ts is missing')
+    }
+  } catch (err) {
+    report('fail', 'AutomationGate tests failed: ' + err)
+  }
+
+  try {
+    const roamPath = filePath('src/renderer/overlay/usePerimeterRoam.ts')
+    if (fs.existsSync(roamPath)) {
+      const roam = await import('file://' + roamPath)
+      const rect = { left: 0, top: 0, right: 1000, bottom: 800, width: 1000, height: 800 } as DOMRect
+      const result = roam.mapOffsetToPerimeterPoint(0, rect, 56, 12, 16, true)
+      check(result.x >= 40 && result.y >= 44, 'Ghost geometry never returns interior points (safe margin applied)')
+      check(result.totalLen > 0, 'Ghost geometry calculates positive perimeter length')
+    } else {
+      report('fail', 'usePerimeterRoam.ts is missing')
+    }
+  } catch (err) {
+    report('fail', 'Ghost geometry tests failed: ' + err)
+  }
+
   const total = passed + failed
   console.log('\n' + chalk.bold('-'.repeat(48)))
   console.log(chalk.bold(`${passed}/${total} automated checks passed`))

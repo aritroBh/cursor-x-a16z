@@ -5,7 +5,12 @@ import { clipboard as nutClipboard, keyboard, Key } from "@nut-tree-fork/nut-js"
 
 import { captureScreenBase64 } from "../capture";
 import { clickRealMouse } from "../cursor";
-import { safeLog, safeWarn } from "../logger";
+import {
+  classifyAnthropicError,
+  createAnthropicClient,
+  getAnthropicModel,
+} from "../ai/config";
+import { safeError, safeLog, safeWarn } from "../logger";
 import { analyzeVision, type VisionElement } from "../vision";
 
 interface NoteRowTarget {
@@ -23,8 +28,16 @@ interface CapturedNote {
   text: string;
 }
 
+interface HpiSynthesis {
+  hpi: string;
+  warnings: string[];
+}
+
 export interface NoteHtmlAgentResult {
   htmlPath: string;
+  hpiPath: string;
+  hpiText: string;
+  warnings: string[];
   rawNotePaths: string[];
   noteCount: number;
   noteSummaries: Array<{
@@ -34,14 +47,25 @@ export interface NoteHtmlAgentResult {
 }
 
 const NOTE_HTML_AGENT_PROMPT = `The user wants the desktop agent to operate Epic Hyperspace Notes.
-Find the four visible note rows under the December 2049 heading in the left Notes list.
+Epic Notes is already open. Find the four visible note rows under the December 2049 heading in the left Notes list.
 The expected rows are:
 1. Walt Whitecoat / H&P / Addendum
 2. Jim Urgent / ED Provider Note
 3. Deb Gurney / ED Triage Note
 4. Colon Oscopy / Gastroenterology / Consult
 Return targetable elements for those note rows only. Do not target the right Sidebar Summary, orders, meds, or index links.
-The agent will click each note row, focus the note content pane, copy the full note text, and generate one local HTML file.`;
+The agent will open each note row, focus the note content pane, copy the full note text, synthesize one HPI with the LLM, and generate local HPI/HTML files.`;
+
+const HPI_SYNTHESIS_SYSTEM_PROMPT = `You are a clinical documentation assistant drafting an HPI from copied Epic note text.
+Use ONLY the provided source notes. Do not invent diagnoses, timelines, symptoms, exam findings, labs, imaging, medications, or history.
+Write one concise but complete HPI paragraph in clinician style. Preserve clinically important chronology: onset, duration, location, quality, severity, associated symptoms, pertinent negatives, ED/hospital course, and relevant source conflicts.
+Prefer the newest/most complete note when sources conflict, but mention uncertainty only when it affects the HPI.
+Do not include assessment/plan, billing language, signatures, headers, or note metadata unless required for the clinical story.
+Return ONLY valid JSON in this shape:
+{"hpi":"single HPI paragraph","warnings":["short warning strings, or empty array"]}`;
+
+const CLAUDE_MODEL = getAnthropicModel();
+const MAX_NOTE_CHARS_FOR_HPI = 18000;
 
 const EXPECTED_ROWS = [
   {
@@ -283,18 +307,18 @@ async function copyNote(row: NoteRowTarget): Promise<CapturedNote> {
     source: row.source,
   });
 
-  await selectRow(row);
-  let text = await tryCopyFromPoints(NOTE_CONTENT_FOCUS_POINTS);
+  await openRow(row);
+  let text = await tryCopyFromPoints(OPENED_NOTE_FOCUS_POINTS);
+  await tap(Key.Escape);
+  await delay(350);
 
   if (!text) {
-    safeWarn("[NOTE_HTML_AGENT] preview copy failed; retrying after opening", {
+    safeWarn("[NOTE_HTML_AGENT] opened-note copy failed; retrying preview", {
       id: row.id,
       label: row.label,
     });
-    await openRow(row);
-    text = await tryCopyFromPoints(OPENED_NOTE_FOCUS_POINTS);
-    await tap(Key.Escape);
-    await delay(350);
+    await selectRow(row);
+    text = await tryCopyFromPoints(NOTE_CONTENT_FOCUS_POINTS);
   }
 
   if (!text) {
@@ -333,7 +357,103 @@ function escapeHtml(text: string): string {
     .replace(/"/g, "&quot;");
 }
 
-function htmlForNotes(notes: CapturedNote[]): string {
+function clippedForHpi(note: CapturedNote): string {
+  if (note.text.length <= MAX_NOTE_CHARS_FOR_HPI) return note.text;
+  return `${note.text.slice(0, MAX_NOTE_CHARS_FOR_HPI)}\n\n[Note clipped for LLM synthesis; full text was saved locally.]`;
+}
+
+function rawTextFromAnthropic(response: any): string {
+  return response.content
+    .flatMap((part: any) =>
+      part.type === "text" && typeof part.text === "string" ? [part.text] : [],
+    )
+    .join("\n")
+    .trim();
+}
+
+function extractJsonObject(text: string): any {
+  const fenced = text.match(/```(?:json)?\s*([\s\S]*?)```/i);
+  const candidate = fenced?.[1] || text.match(/\{[\s\S]*\}/)?.[0] || text;
+  return JSON.parse(candidate);
+}
+
+function fallbackHpiFromNotes(notes: CapturedNote[]): HpiSynthesis {
+  const hpiSections = notes
+    .map((note) => {
+      const match = note.text.match(
+        /\bHPI\s*:?\s*([\s\S]*?)(?=\n\s*(?:ROS|Review of Systems|Past Medical|PMH|Assessment|Plan|Physical Exam|Exam|ED Course|Medical Decision Making|MDM)\b|$)/i,
+      );
+      const excerpt = (match?.[1] || note.text)
+        .split("\n")
+        .map((line) => line.trim())
+        .filter(Boolean)
+        .slice(0, 10)
+        .join(" ");
+      return excerpt ? `${note.title}: ${excerpt}` : "";
+    })
+    .filter(Boolean);
+
+  return {
+    hpi:
+      hpiSections.join(" ") ||
+      "Unable to synthesize an HPI from the copied note text.",
+    warnings: ["LLM synthesis was unavailable; used extracted note text."],
+  };
+}
+
+async function synthesizeHpi(notes: CapturedNote[]): Promise<HpiSynthesis> {
+  const client = createAnthropicClient();
+  if (!client) {
+    safeWarn("[NOTE_HTML_AGENT] Anthropic client unavailable for HPI synthesis");
+    return fallbackHpiFromNotes(notes);
+  }
+
+  const payload = {
+    task:
+      "Synthesize one HPI from Epic notes that the desktop agent copied after opening each note.",
+    sourceNotes: notes.map((note, index) => ({
+      noteNumber: index + 1,
+      title: note.title,
+      text: clippedForHpi(note),
+      fullCharacterCount: note.text.length,
+    })),
+  };
+
+  try {
+    const response = await client.messages.create({
+      model: CLAUDE_MODEL,
+      max_tokens: 1200,
+      temperature: 0.1,
+      system: HPI_SYNTHESIS_SYSTEM_PROMPT,
+      messages: [
+        {
+          role: "user",
+          content: JSON.stringify(payload, null, 2),
+        },
+      ],
+    });
+    const parsed = extractJsonObject(rawTextFromAnthropic(response));
+    const hpi =
+      typeof parsed?.hpi === "string" && parsed.hpi.trim()
+        ? parsed.hpi.trim()
+        : fallbackHpiFromNotes(notes).hpi;
+    const warnings = Array.isArray(parsed?.warnings)
+      ? parsed.warnings
+          .filter((warning: unknown) => typeof warning === "string")
+          .map((warning: string) => warning.trim())
+          .filter(Boolean)
+      : [];
+
+    return { hpi, warnings };
+  } catch (error: any) {
+    safeError("[NOTE_HTML_AGENT] HPI synthesis failed", {
+      error: classifyAnthropicError(error),
+    });
+    return fallbackHpiFromNotes(notes);
+  }
+}
+
+function htmlForNotes(notes: CapturedNote[], hpi: HpiSynthesis): string {
   const nav = notes
     .map(
       (note, index) =>
@@ -389,6 +509,25 @@ function htmlForNotes(notes: CapturedNote[]): string {
       letter-spacing: 0;
     }
     .meta { margin: 0; color: var(--muted); font-size: 15px; }
+    .hpi {
+      max-width: 1120px;
+      margin: 0 auto;
+      padding: 24px 28px 8px;
+    }
+    .hpi-box {
+      border: 1px solid #acd6e1;
+      border-left: 5px solid var(--accent);
+      border-radius: 6px;
+      background: #f1fbfd;
+      padding: 18px 20px;
+    }
+    .hpi-box h2 { margin: 0 0 10px; font-size: 22px; letter-spacing: 0; }
+    .hpi-box p { margin: 0; font-size: 16px; }
+    .warnings {
+      margin: 12px 0 0;
+      color: #785900;
+      font-size: 13px;
+    }
     nav {
       display: flex;
       flex-wrap: wrap;
@@ -445,9 +584,20 @@ function htmlForNotes(notes: CapturedNote[]): string {
 </head>
 <body>
   <header class="hero">
-    <h1>Patient Notes Compilation</h1>
-    <p class="meta">Compiled locally by Specter from four Epic notes.</p>
+    <h1>Patient HPI From Epic Notes</h1>
+    <p class="meta">Compiled locally by Specter after opening and copying four Epic notes.</p>
   </header>
+  <section class="hpi" aria-label="Synthesized HPI">
+    <div class="hpi-box">
+      <h2>Synthesized HPI</h2>
+      <p>${escapeHtml(hpi.hpi)}</p>
+      ${
+        hpi.warnings.length
+          ? `<p class="warnings">${escapeHtml(hpi.warnings.join(" "))}</p>`
+          : ""
+      }
+    </div>
+  </section>
   <nav aria-label="Notes index">${nav}</nav>
   <main>${sections}</main>
 </body>
@@ -459,12 +609,17 @@ function timestampSlug(): string {
   return new Date().toISOString().replace(/[:.]/g, "-");
 }
 
-async function writeNotesHtml(notes: CapturedNote[]): Promise<{
+async function writeNotesHtml(
+  notes: CapturedNote[],
+  hpi: HpiSynthesis,
+): Promise<{
   htmlPath: string;
+  hpiPath: string;
   rawNotePaths: string[];
 }> {
   const outputDir = join(app.getPath("documents"), "Specter", "Generated Notes");
-  const rawDir = join(outputDir, `raw-${timestampSlug()}`);
+  const slug = timestampSlug();
+  const rawDir = join(outputDir, `raw-${slug}`);
   await mkdir(rawDir, { recursive: true });
 
   const rawNotePaths: string[] = [];
@@ -474,9 +629,12 @@ async function writeNotesHtml(notes: CapturedNote[]): Promise<{
     rawNotePaths.push(rawPath);
   }
 
-  const htmlPath = join(outputDir, `patient-notes-${timestampSlug()}.html`);
-  await writeFile(htmlPath, htmlForNotes(notes), "utf8");
-  return { htmlPath, rawNotePaths };
+  const hpiPath = join(outputDir, `patient-hpi-${slug}.txt`);
+  await writeFile(hpiPath, hpi.hpi, "utf8");
+
+  const htmlPath = join(outputDir, `patient-notes-hpi-${slug}.html`);
+  await writeFile(htmlPath, htmlForNotes(notes, hpi), "utf8");
+  return { htmlPath, hpiPath, rawNotePaths };
 }
 
 export async function compileEpicNotesToHtml(
@@ -500,15 +658,21 @@ export async function compileEpicNotesToHtml(
     );
   }
 
-  const output = await writeNotesHtml(notes);
-  safeLog("[NOTE_HTML_AGENT] generated HTML", {
+  const hpi = await synthesizeHpi(notes);
+  const output = await writeNotesHtml(notes, hpi);
+  safeLog("[NOTE_HTML_AGENT] generated HPI and HTML", {
     htmlPath: output.htmlPath,
+    hpiPath: output.hpiPath,
     noteCount: notes.length,
     noteCharacterCounts: notes.map((note) => note.text.length),
+    hpiCharacterCount: hpi.hpi.length,
+    warningCount: hpi.warnings.length,
   });
 
   return {
     ...output,
+    hpiText: hpi.hpi,
+    warnings: hpi.warnings,
     noteCount: notes.length,
     noteSummaries: notes.map((note) => ({
       title: note.title,

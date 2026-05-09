@@ -1219,7 +1219,7 @@ app.whenReady().then(async () => {
     const intent =
       typeof input?.intent === "string" && input.intent.trim()
         ? input.intent.trim()
-        : "Click each Epic note, copy the note content, and generate HTML.";
+        : "Epic Notes is already open. Open each visible note, copy the full note content, and synthesize one HPI with the LLM.";
     const wasOverlayVisible = Boolean(
       overlayWindow &&
         !overlayWindow.isDestroyed() &&

@@ -127,10 +127,19 @@ function messageFromError(error: unknown): string {
 
 function isNoteHtmlCompilationIntent(text: string): boolean {
   const normalized = text.toLowerCase();
+  const asksForNotes = /\b(epic|notes?|note list)\b/.test(normalized);
+  const asksForOutput =
+    /\b(html|hpi|llm|summary|summari[sz]e|synthesis|synthesi[sz]e|draft)\b/.test(
+      normalized,
+    );
+  const asksForAgentAction =
+    /\b(copy|compile|generate|open|capture|export|summari[sz]e|synthesi[sz]e|draft)\b/.test(
+      normalized,
+    );
   return (
-    /\bnotes?\b/.test(normalized) &&
-    /\bhtml\b/.test(normalized) &&
-    /\b(copy|compile|generate|open|capture|export)\b/.test(normalized)
+    asksForNotes &&
+    asksForOutput &&
+    asksForAgentAction
   );
 }
 
@@ -1261,12 +1270,12 @@ const OverlayApp: React.FC = () => {
     const agentIntent =
       text.trim() ||
       intent.trim() ||
-      "Click each Epic note, copy the note content, and generate HTML.";
+      "Epic Notes is already open. Open each visible note, copy the full note content, and synthesize one HPI with the LLM.";
 
     console.log("[NOTE_HTML_AGENT] confirmation shown");
     if (
       !window.confirm(
-        "Specter will control your mouse, copy note text, and write a local HTML file. Continue?",
+        "Specter will control your mouse, open Epic notes, copy note text, synthesize an HPI with the LLM, and write local files. Continue?",
       )
     ) {
       console.log("[NOTE_HTML_AGENT] confirmation canceled");
@@ -1290,7 +1299,7 @@ const OverlayApp: React.FC = () => {
     setIsManualTargetPicking(false);
     setRealAppNotice("");
     setIsLoading(true);
-    setLoadingMessage("Compiling notes into HTML...");
+    setLoadingMessage("Opening notes, copying text, and drafting HPI...");
     setSpecMood("thinking");
 
     let automationArmed = false;
@@ -1298,13 +1307,16 @@ const OverlayApp: React.FC = () => {
       await confirmAutomationGate("agent", 50);
       automationArmed = true;
       const result = await api.compileNotesToHtml({ intent: agentIntent });
-      const message = `Generated HTML from ${result?.noteCount ?? 0} notes: ${result?.htmlPath || "output file ready"}`;
+      const message = `Drafted HPI from ${result?.noteCount ?? 0} notes: ${result?.hpiPath || result?.htmlPath || "output file ready"}`;
       console.log("[NOTE_HTML_AGENT] completed", {
         htmlPath: result?.htmlPath,
+        hpiPath: result?.hpiPath,
         noteCount: result?.noteCount,
+        hpiLength:
+          typeof result?.hpiText === "string" ? result.hpiText.length : 0,
       });
       setAgentStatusMessage(message);
-      speakIfUltra("Done. I generated the notes HTML file.", "agent complete");
+      speakIfUltra("Done. I drafted the HPI from the notes.", "agent complete");
       setSpecMood("celebrating");
     } catch (error) {
       console.error("[NOTE_HTML_AGENT] failed:", error);

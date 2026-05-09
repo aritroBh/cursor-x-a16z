@@ -1,17 +1,22 @@
-import { VisionProvider, VisionAnalyzeInput, VisionAnalyzeResult } from './types';
-import { VisionProviderError } from './errors';
+import {
+  VisionProvider,
+  VisionAnalyzeInput,
+  VisionAnalyzeResult,
+} from "./types";
+import { VisionProviderError } from "./errors";
 
 export class MockVisionProvider implements VisionProvider {
   public name = "mock" as const;
 
   async analyze(input: VisionAnalyzeInput): Promise<VisionAnalyzeResult> {
-    const isAllowed = process.env.NODE_ENV !== "production" || process.env.DEMO_MODE === "true";
+    const isAllowed =
+      process.env.NODE_ENV !== "production" || process.env.DEMO_MODE === "true";
 
     if (!isAllowed) {
       throw new VisionProviderError(
         "VISION_PROVIDER_NOT_ALLOWED",
         this.name,
-        "Mock vision provider is not allowed in production unless DEMO_MODE is true."
+        "Mock vision provider is not allowed in production unless DEMO_MODE is true.",
       );
     }
 
@@ -29,11 +34,11 @@ export class MockVisionProvider implements VisionProvider {
           confidence: 0.95,
           bbox: { x: 100, y: 100, width: 80, height: 30 },
           center: { x: 140, y: 115 },
-          reasoning: "Mock element for development"
-        }
+          reasoning: "Mock element for development",
+        },
       ],
       recommendedAction: "Click the mock button",
-      warnings: ["This is a mock response"]
+      warnings: ["This is a mock response"],
     };
   }
 }

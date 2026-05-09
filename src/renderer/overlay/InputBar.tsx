@@ -88,7 +88,9 @@ export const InputBar: React.FC<InputBarProps> = ({
 }) => {
   const recorderRef = useRef(new MicRecorder());
   const [value, setValue] = useState("");
-  const [micState, setMicState] = useState<"idle" | "recording" | "transcribing" | "error">("idle");
+  const [micState, setMicState] = useState<
+    "idle" | "recording" | "transcribing" | "error"
+  >("idle");
   const [micMessage, setMicMessage] = useState("");
   const inputRef = useRef<HTMLInputElement | null>(null);
   const recordingActiveRef = useRef(false);
@@ -137,7 +139,10 @@ export const InputBar: React.FC<InputBarProps> = ({
     } catch (error: any) {
       console.error("[InputBar] Microphone recording failed:", error);
       recordingActiveRef.current = false;
-      setMicMessage(error?.userMessage || "Microphone unavailable. Check permission and try again.");
+      setMicMessage(
+        error?.userMessage ||
+          "Microphone unavailable. Check permission and try again.",
+      );
       setMicState("idle");
     }
   };
@@ -180,8 +185,16 @@ export const InputBar: React.FC<InputBarProps> = ({
       const result = await Promise.race([
         (window as any).api.transcribe(buffer),
         new Promise((_, reject) =>
-          setTimeout(() => reject(Object.assign(new Error("Transcription timed out"), { code: "WHISPER_TIMEOUT" })), 25_000)
-        )
+          setTimeout(
+            () =>
+              reject(
+                Object.assign(new Error("Transcription timed out"), {
+                  code: "WHISPER_TIMEOUT",
+                }),
+              ),
+            25_000,
+          ),
+        ),
       ]);
 
       if (result.ok && typeof result.text === "string" && result.text.trim()) {
@@ -197,9 +210,13 @@ export const InputBar: React.FC<InputBarProps> = ({
           window.setTimeout(() => inputRef.current?.focus(), 0);
         }
       } else {
-        const msg = result.message || "No transcription returned. Try speaking again.";
+        const msg =
+          result.message || "No transcription returned. Try speaking again.";
         setMicMessage(msg);
-        console.warn("[MIC] transcription failed/empty", { error: result.error, message: msg });
+        console.warn("[MIC] transcription failed/empty", {
+          error: result.error,
+          message: msg,
+        });
       }
     } catch (error: any) {
       console.error("[MIC] transcription failed", error);
@@ -229,7 +246,8 @@ export const InputBar: React.FC<InputBarProps> = ({
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [micState]);
 
-  const isOverlayVisible = micState === "recording" || micState === "transcribing";
+  const isOverlayVisible =
+    micState === "recording" || micState === "transcribing";
 
   return (
     <div className="input-bar-wrapper">
@@ -248,61 +266,67 @@ export const InputBar: React.FC<InputBarProps> = ({
           <SpecterMarkIcon />
         </div>
         <input
-        ref={inputRef}
-        autoFocus
-        className="input-bar-field"
-        type="text"
-        placeholder="Ask Specter about the app in front of you"
-        value={value}
-        disabled={disabled}
-        onChange={(e) => setValue(e.target.value)}
-        onKeyDown={handleKeyDown}
-        onFocus={onFocus}
-        onBlur={onBlur}
-      />
-      <div className="input-bar-actions">
-        <button
-          type="button"
-          className={`input-bar-icon-button input-bar-mic-button ${
-            micState === "recording" ? "is-recording" : ""
-          }`}
-          disabled={disabled || micState !== "idle"}
-          onClick={startRecording}
-          aria-label={
-            micState === "recording" ? "Recording in progress" : "Record voice input"
-          }
-          title={
-            micState === "recording" ? "Recording in progress" : "Record voice input"
-          }
-        >
-          <MicrophoneIcon />
-        </button>
-        {onNewChat && (
+          ref={inputRef}
+          autoFocus
+          className="input-bar-field"
+          type="text"
+          placeholder="Ask Specter about the app in front of you"
+          value={value}
+          disabled={disabled}
+          onChange={(e) => setValue(e.target.value)}
+          onKeyDown={handleKeyDown}
+          onFocus={onFocus}
+          onBlur={onBlur}
+        />
+        <div className="input-bar-actions">
           <button
             type="button"
-            className="input-bar-new-chat"
-            disabled={disabled}
-            onClick={handleNewChat}
-            aria-label="Start a new chat"
-            title="Start a new chat"
+            className={`input-bar-icon-button input-bar-mic-button ${
+              micState === "recording" ? "is-recording" : ""
+            }`}
+            disabled={disabled || micState !== "idle"}
+            onClick={startRecording}
+            aria-label={
+              micState === "recording"
+                ? "Recording in progress"
+                : "Record voice input"
+            }
+            title={
+              micState === "recording"
+                ? "Recording in progress"
+                : "Record voice input"
+            }
           >
-            <span>New Chat</span>
-            <ChevronDownIcon />
+            <MicrophoneIcon />
           </button>
+          {onNewChat && (
+            <button
+              type="button"
+              className="input-bar-new-chat"
+              disabled={disabled}
+              onClick={handleNewChat}
+              aria-label="Start a new chat"
+              title="Start a new chat"
+            >
+              <span>New Chat</span>
+              <ChevronDownIcon />
+            </button>
+          )}
+          <button
+            type="button"
+            className="input-bar-send-button"
+            disabled={!canSubmit}
+            onClick={submitValue}
+            aria-label="Send message"
+            title="Send message"
+          >
+            <SendArrowIcon />
+          </button>
+        </div>
+        {micMessage && (
+          <div className="input-bar-mic-message">{micMessage}</div>
         )}
-        <button
-          type="button"
-          className="input-bar-send-button"
-          disabled={!canSubmit}
-          onClick={submitValue}
-          aria-label="Send message"
-          title="Send message"
-        >
-          <SendArrowIcon />
-        </button>
       </div>
-      {micMessage && <div className="input-bar-mic-message">{micMessage}</div>}
-    </div>
     </div>
   );
 };

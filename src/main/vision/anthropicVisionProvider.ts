@@ -1,7 +1,11 @@
-import { VisionProvider, VisionAnalyzeInput, VisionAnalyzeResult, VisionElement } from './types';
-import { VisionProviderError } from './errors';
-import { createAnthropicClient, getAnthropicVisionModel } from '../ai/config';
-import { safeLog } from '../logger';
+import {
+  VisionProvider,
+  VisionAnalyzeInput,
+  VisionAnalyzeResult,
+} from "./types";
+import { VisionProviderError } from "./errors";
+import { createAnthropicClient, getAnthropicVisionModel } from "../ai/config";
+import { safeLog } from "../logger";
 
 export class AnthropicVisionProvider implements VisionProvider {
   public name = "anthropic" as const;
@@ -15,44 +19,49 @@ export class AnthropicVisionProvider implements VisionProvider {
       throw new VisionProviderError(
         "PROVIDER_NOT_CONFIGURED",
         this.name,
-        "Anthropic API key is missing."
+        "Anthropic API key is missing.",
       );
     }
 
     try {
-      safeLog(`[VISION][ANTHROPIC] Calling ${this.model}...`, { task: input.task });
+      safeLog(`[VISION][ANTHROPIC] Calling ${this.model}...`, {
+        task: input.task,
+      });
 
       const message = await anthropic.messages.create({
         model: this.model,
         max_tokens: 1200,
-        system: "You are a UI state analyzer. Return ONLY valid JSON matching the requested schema.",
+        system:
+          "You are a UI state analyzer. Return ONLY valid JSON matching the requested schema.",
         messages: [
           {
-            role: 'user',
+            role: "user",
             content: [
               {
-                type: 'image',
+                type: "image",
                 source: {
-                  type: 'base64',
+                  type: "base64",
                   media_type: input.mimeType,
-                  data: input.imageBase64
-                }
+                  data: input.imageBase64,
+                },
               },
               {
-                type: 'text',
-                text: `Analyze this screenshot for the task: ${input.task}. User prompt: ${input.userPrompt || "none"}. Return JSON with summary, elements (label, type, text, confidence, bbox {x, y, width, height}, center {x, y}), recommendedAction, and warnings.`
-              }
-            ]
-          }
-        ]
+                type: "text",
+                text: `Analyze this screenshot for the task: ${input.task}. User prompt: ${input.userPrompt || "none"}. Return JSON with summary, elements (label, type, text, confidence, bbox {x, y, width, height}, center {x, y}), recommendedAction, and warnings.`,
+              },
+            ],
+          },
+        ],
       });
 
-      const content = message.content.flatMap(part => part.type === 'text' ? [part.text] : []).join('\n');
-      
+      const content = message.content
+        .flatMap((part) => (part.type === "text" ? [part.text] : []))
+        .join("\n");
+
       // Simple parsing for now, ideally use same json.ts as Nvidia
       const jsonMatch = content.match(/\{[\s\S]*\}/);
       const parsed = jsonMatch ? JSON.parse(jsonMatch[0]) : {};
-      
+
       const latencyMs = Date.now() - startTime;
 
       return {
@@ -67,11 +76,11 @@ export class AnthropicVisionProvider implements VisionProvider {
           text: el.text,
           confidence: el.confidence,
           bbox: el.bbox,
-          center: el.center
+          center: el.center,
         })),
         recommendedAction: parsed.recommendedAction,
         warnings: parsed.warnings || [],
-        rawText: content
+        rawText: content,
       };
     } catch (error: any) {
       throw new VisionProviderError(
@@ -79,7 +88,7 @@ export class AnthropicVisionProvider implements VisionProvider {
         this.name,
         error.message || "Anthropic API error",
         undefined,
-        error
+        error,
       );
     }
   }

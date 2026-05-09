@@ -1,0 +1,334 @@
+
+> specter@1.0.0 test:specter
+> npx ts-node scripts/test-specter.ts
+
+
+== Files ==
+PASS package.json exists
+PASS package-lock.json exists
+PASS src/main/index.ts exists
+PASS src/main/cursor.ts exists
+PASS src/main/capture.ts exists
+PASS src/main/permissions.ts exists
+PASS src/main/ai/config.ts exists
+PASS src/main/ai/health.ts exists
+PASS src/main/ai/planner.ts exists
+PASS src/main/ai/screener.ts exists
+PASS src/main/ai/tts.ts exists
+PASS src/main/ai/whisper.ts exists
+PASS src/main/behavioral/model.ts exists
+PASS src/main/behavioral/tracker.ts exists
+PASS src/main/session/types.ts exists
+PASS src/main/session/graph.ts exists
+PASS src/main/session/storage.ts exists
+PASS src/main/session/recorder.ts exists
+PASS src/main/session/replay.ts exists
+PASS src/main/session/replayAuto.ts exists
+PASS src/main/session/mirrorReplay.ts exists
+PASS src/main/session/replayController.ts exists
+PASS src/main/session/replaySafety.ts exists
+PASS src/main/userCursor.ts exists
+PASS src/main/screenCoordinates.ts exists
+PASS src/preload/index.ts exists
+PASS src/renderer/src/overlay.tsx exists
+PASS src/renderer/src/OverlayApp.tsx exists
+PASS src/renderer/overlay/GhostCursor.tsx exists
+PASS src/renderer/overlay/SpecBuddy.tsx exists
+PASS src/renderer/overlay/InputBar.tsx exists
+PASS src/renderer/overlay/MicRecorder.ts exists
+PASS src/renderer/overlay/ModeToggle.tsx exists
+PASS src/renderer/overlay/SessionPanel.tsx exists
+PASS src/renderer/src/assets/overlay.css exists
+PASS docs/manual-stress-test-checklist.md exists
+PASS docs/reality-lock.md exists
+
+== Environment ==
+PASS .env exists at project root
+PASS .env is listed in .gitignore
+PASS OPENAI_API_KEY is not read from renderer/preload code
+PASS ANTHROPIC_API_KEY is present and non-empty in .env
+PASS ELEVENLABS_API_KEY is present and non-empty in .env
+PASS OPENAI_API_KEY is present and non-empty in .env
+
+== Package Scripts ==
+PASS package.json has npm run dev
+PASS package.json has npm run build
+PASS package.json has npm run test:specter
+
+== Overlay Contract ==
+PASS overlay.css keeps @property --angle
+PASS overlay.css keeps 5–8s Siri-style conic rotation
+PASS overlay.css defines a wider edge band and bloom
+PASS edge glow uses screen blending for varied backgrounds
+PASS crisp edge ring uses the wider visible band
+PASS old siri-glow-thin animation name is absent
+PASS overlay.css does not force an opaque black background
+PASS overlay entry does not wrap OverlayApp in React.StrictMode
+PASS GhostCursor uses normalized x/y
+PASS GhostCursor does not use targetX/targetY
+PASS GhostCursor renders a white pointer shape
+PASS GhostCursor is not a pointer dot/orb
+
+== Renderer Stability ==
+PASS OverlayApp passes fresh analyze result to planSteps
+PASS intent submission is wrapped in try/catch
+PASS intent submission clears loading in finally
+PASS OverlayApp can show a visible error message
+PASS renderer exposes walkthrough replay UI
+PASS renderer exposes auto-execute replay UI
+FAIL Ultra mode conditionally starts TTS through speakIfUltra
+PASS Silent mode stops/avoids speech
+PASS Silent mode logs skipped TTS
+PASS real-app workflow preserves the current mode
+PASS OverlayApp has dev-only walkthrough step/coordinate debug pill
+
+== Preload IPC ==
+PASS preload listener helpers return unsubscribe cleanup
+PASS preload exposes moveRealMouse
+PASS preload exposes clickRealMouse
+PASS preload exposes executeRealMouseSteps
+PASS preload exposes planSteps
+PASS preload exposes checkAIBackend
+PASS preload exposes walkthrough
+PASS preload exposes autoExecute
+PASS preload exposes stopReplay
+PASS preload exposes onReplayStep
+PASS preload exposes onReplayProgress
+
+== Whisper and Mic ==
+PASS whisper.ts classifies errors for the renderer
+PASS whisper.ts returns structured result objects
+PASS whisper.ts supports gpt-4o-mini-transcribe with whisper-1 fallback
+PASS InputBar displays specific Whisper error messages
+PASS whisper.ts does not use global File
+PASS whisper.ts uses toFile from openai/uploads
+PASS whisper.ts imports File as NodeFile from node:buffer
+PASS whisper.ts assigns globalThis.File when undefined
+PASS Whisper returns before OpenAI when buffer length is 0
+PASS whisper.ts logs File polyfill installation
+PASS whisper.ts logs buffer reception
+PASS whisper.ts logs transcription success with textLength
+PASS whisper.ts logs transcription failures
+PASS whisper IPC robustly converts ArrayBuffer and logs converted length
+PASS MicRecorder chooses supported mime type with fallback
+PASS MicRecorder starts with timeslice and requests final data before stop
+PASS MicRecorder/InputBar handle zero-byte recordings without Whisper
+PASS InputBar safely stops recording via cancel button or Escape
+PASS transcription populates input instead of submitting empty/implicit text
+PASS whisper.ts implements transcription timeout via Promise.race
+PASS InputBar displays timeout message on WHISPER_TIMEOUT
+PASS InputBar displays friendly microphone unavailable errors
+PASS InputBar guarantees mic state resets to idle after failure
+PASS InputBar uses Promise.race for api.transcribe timeout
+PASS InputBar mic reset does not use stale micState condition
+PASS whisper.ts installs globalThis.File at module load, not inside transcribe
+
+== Planner and Screener Safety ==
+PASS planner guards nullable screen state
+PASS planner accepts legacy targetX/targetY input
+PASS planner does not emit targetX as an object key
+PASS planner normalizes output to x/y
+FAIL screener fallback is { app: Unknown, coordinates: [] }
+PASS analyzeScreen does not return null on failures
+PASS main screen:analyze handler returns fallback on capture/analyze failure
+
+== Click-Through Safety ==
+PASS restoreOverlayAfterReplay does not force interactive by default
+PASS realApp:detectTargets restores click-through true after capture
+PASS screen:analyze hides overlay before capture when captureUnderlying is set
+PASS HUD shell does not block clicks in invisible surrounding space
+PASS .specter-hud-drag-handle remains clickable inside the inert HUD shell
+PASS .specter-workflow-card remains clickable inside the inert HUD shell
+PASS .mode-toggle remains clickable inside the inert HUD shell
+PASS .input-bar remains clickable inside the inert HUD shell
+PASS .session-panel remains clickable inside the inert HUD shell
+PASS .specter-debug-toggle remains clickable inside the inert HUD shell
+PASS .specter-debug-tools remains clickable inside the inert HUD shell
+PASS .specter-hud-shell button remains clickable inside the inert HUD shell
+PASS .specter-hud-shell input remains clickable inside the inert HUD shell
+
+== Walkthrough vs Auto ==
+PASS real mouse automation has explicit real-mouse names
+PASS real cursor module no longer exports ghostMove/ghostClick names
+PASS walkthrough replay module does not import cursor.ts
+PASS replayAuto.ts is the only replay module that imports cursor.ts
+PASS replayWalkthrough body does not call real mouse automation
+PASS walkthrough replay module does not import nut-js
+PASS replayWalkthrough emits renderer replay step events
+PASS click walkthrough steps require user click completion
+PASS click walkthrough steps arm click detection before hover-only waits
+PASS wait steps sleep and continue
+PASS walkthrough no longer uses 45 second per-step waits
+PASS walkthrough has max attempt protection
+PASS replayAutoExecute calls real mouse automation
+PASS auto replay logs real OS automation loudly
+PASS walkthrough replay has walkthrough and ghost logs
+PASS walkthrough replay has user cursor and click detection logs
+PASS development safety guard checks walkthrough real-mouse imports/calls
+PASS user cursor module can wait for an actual user click at target
+
+== AI Config Safety ==
+PASS src/main/ai/config.ts exists
+PASS config.ts exports createAnthropicClient
+PASS config.ts reads USE_LOCAL_MODEL
+PASS config.ts uses strict "true" check for USE_LOCAL_MODEL
+PASS config.ts has localhost URL guard
+PASS config.ts explicitly forces official Anthropic baseURL in non-local mode
+PASS config.ts gates getLocalModelBaseUrl behind USE_LOCAL_MODEL === "true"
+PASS config.ts does not use raw console.log/console.warn/console.error
+PASS config.ts classifies Anthropic failures into safe categories
+
+== AI Backend Health ==
+PASS index.ts registers ai:healthCheck IPC
+PASS preload exposes checkAIBackend without exposing keys
+PASS Debug UI exposes Check Voice Backend
+PASS Debug UI exposes Test Voice Output
+PASS AI health reports key length and placeholder status
+PASS AI health does not expose API key prefixes
+PASS AI health uses safe logging only
+PASS AI health uses a tiny text-only Anthropic test request
+PASS AI health reports OpenAI Whisper configuration
+PASS AI health reports ElevenLabs configuration
+PASS AI health reports OpenAI TTS configuration
+PASS AI health marks natural voice ready if either provider is available
+
+== Logger Safety ==
+PASS src/main/logger.ts exists
+PASS logger.ts exports safeLog
+PASS logger.ts exports safeWarn
+PASS logger.ts exports safeError
+PASS logger redacts secret-shaped values before printing
+PASS index.ts imports safe logger
+PASS index.ts uses safeLog/safeWarn/safeError
+PASS index.ts defines isBrokenPipeError
+PASS isBrokenPipeError checks for EPIPE code
+PASS index.ts guards uncaughtException against EPIPE
+PASS index.ts has safeSend utility for IPC
+PASS index.ts uses safeSend for overlay events
+PASS TTS has OpenAI fallback logic
+PASS TTS returns provider details
+PASS TTS logs speak attempts and safe fallback errors
+PASS TTS clearly logs when falling back to macOS say
+PASS TTS supports custom ElevenLabs voice and model IDs
+
+== Window Routing ==
+PASS double-shift summon logs window routing request
+PASS double-shift routing samples the current cursor point
+PASS double-shift routing selects the nearest active display
+PASS overlay is visible on all workspaces and fullscreen spaces
+PASS overlay uses non-fullscreenable macOS auxiliary behavior
+PASS overlay summon can show without stealing active-app focus
+PASS practice window is centered on the routed display
+PASS main process has stress-test lifecycle logs
+PASS devtools are opt-in for cleaner demo flow
+PASS coordinate conversion tracks the routed active display
+PASS coordinate mode says electron logical display bounds
+PASS toScreenPoint maps percent into active display bounds
+PASS toScreenPoint does not multiply percent coordinates by scaleFactor
+PASS screenCoordinates no longer uses physicalBoundsForDisplay for default percent mapping
+PASS screenPointToPercent uses the same logical display bounds
+PASS screen capture follows the routed active display
+PASS manual stress-test checklist covers A through H
+
+== Capture Log Naming ==
+PASS index.ts uses [CAPTURE_SCREEN] prefix when captureUnderlying is false
+PASS screen:analyze does not unconditionally log [CAPTURE_UNDERLYING]
+
+== Passive Overlay Behavior ==
+PASS OverlayApp does not unconditionally call api.analyzeScreen() inside a useEffect tied to isVisible
+PASS OverlayApp does not read mode === "ultra" directly inside useEffect() replay listeners
+PASS OverlayApp contains modeRef
+
+== Ultra Mode ==
+PASS renderer gates speech on ultra mode
+PASS renderer logs silent skips
+PASS real-app flow passes and logs current mode
+PASS TTS speak path logs speak calls
+PASS planner exports ultraConverse
+PASS index.ts registers ultra:converse IPC
+PASS preload exposes ultraConverse
+PASS UltraReplyBubble component exists
+PASS OverlayApp has handleUltraSpokenInput and ultraState
+PASS OverlayApp shows ultra state visibility
+PASS Ultra has hard timeouts for conversation
+PASS OverlayApp logs user said and tutor reply
+PASS InputBar auto-sends to tutor in Ultra mode
+PASS ultraConverse provides fallback replies
+
+== AI Backend Fallback Safety ==
+PASS screener uses analyzeVision for multi-provider support
+PASS planner handles vision errors
+PASS screener logs vision provider failures
+PASS planner logs AI_BACKEND fallback
+
+== Session Normalization ==
+PASS stored session steps preserve instructional labels
+PASS stored session steps preserve waitForMs
+PASS recorded steps preserve waitForMs
+
+== Mirror Mode / Spec ==
+PASS session/types.ts exports BehavioralState
+PASS session/types.ts exports BehavioralCheckpoint
+PASS LearningGraph includes behavioralCheckpoints
+PASS storage.ts normalizes behavioralCheckpoints
+PASS behavioral/model.ts aggregates signatures
+PASS behavioral/model.ts blends states
+PASS behavioral/model.ts diffs checkpoints
+PASS tracker.ts records repeated clicks and hesitation frames
+PASS tracker.ts records app switches and replay events
+PASS tracker.ts derives reward from real feedback
+PASS tracker.ts labels synthetic fallback checkpoints
+PASS tracker.ts refuses checkpoints without real frames
+PASS tracker.ts uses safe cursor percent snapshots
+PASS index.ts streams measured behavioral state to Spec
+PASS index.ts registers behavior:getState IPC
+PASS index.ts registers behavior:seedDemo IPC
+PASS index.ts registers real feedback IPC
+PASS index.ts registers mirror:run IPC
+PASS index.ts gates synthetic demo data behind dev fallback
+PASS Mirror Mode does not seed demo checkpoints in its main path
+PASS Mirror Mode does not fall back to the controlled demo
+PASS Mirror Mode refuses to run without real behavior and real workflow data
+PASS preload exposes behavioral IPC helpers
+PASS preload exposes Mirror Mode and Spec events
+PASS planner.ts exports planWithPersona
+PASS mirrorReplay includes persona-conditioned timing
+PASS SpecBuddy renders mood classes and labels
+PASS SpecBuddy uses measured pitch labels
+PASS overlay.css includes spec-buddy--idle
+PASS overlay.css includes spec-buddy--thinking
+PASS overlay.css includes spec-buddy--stuck
+PASS overlay.css includes spec-buddy--flow
+PASS overlay.css includes spec-buddy--celebrating
+PASS overlay.css includes spec-buddy--mirroring
+PASS overlay.css includes spec-buddy--judging
+PASS OverlayApp renders SpecBuddy
+PASS OverlayApp exposes Mirror Mode and labeled dev fallback controls
+PASS OverlayApp exposes checkpoint blend and diff controls
+PASS OverlayApp sends accept/override/hesitation/correction feedback
+PASS OverlayApp exposes Pitch Mode and final diff card
+PASS OverlayApp includes dev checkpoint shortcuts
+PASS OverlayApp does not hardcode dev mood shortcuts
+PASS Reality Lock documents the non-fake product rule
+PASS Reality Lock pitch language says measured, not magic
+
+== Runtime Unit Tests ==
+[AUTOMATION_GATE] Session cancelled
+[AUTOMATION_GATE] Blocked test: no active session
+PASS AutomationGate blocks action when no session exists
+[AUTOMATION_GATE] Session requested { mode: 'auto', token: '[REDACTED]' }
+[AUTOMATION_GATE] Blocked test: session not confirmed
+PASS AutomationGate blocks action when session not confirmed
+[AUTOMATION_GATE] Session confirmed { token: '[REDACTED]' }
+PASS AutomationGate accepts valid confirmation
+[AUTOMATION_GATE] Allowed test { consumed: 5, allowed: 10 }
+PASS AutomationGate allows action when confirmed
+[AUTOMATION_GATE] Blocked test: step limit exceeded
+PASS AutomationGate blocks action when step limit exceeded
+[AUTOMATION_GATE] Session cancelled
+PASS Ghost geometry never returns interior points (safe margin applied)
+PASS Ghost geometry calculates positive perimeter length
+
+------------------------------------------------
+274/276 automated checks passed
+2 automated check(s) failed

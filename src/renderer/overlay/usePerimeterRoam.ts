@@ -1,21 +1,27 @@
-import { useState, useEffect, useRef, useCallback, type RefObject } from 'react'
+import {
+  useState,
+  useEffect,
+  useRef,
+  useCallback,
+  type RefObject,
+} from "react";
 
-export type Edge = 'top' | 'right' | 'bottom' | 'left'
+export type Edge = "top" | "right" | "bottom" | "left";
 
 interface Point {
-  x: number
-  y: number
+  x: number;
+  y: number;
 }
 
 export interface UsePerimeterRoamOptions {
-  ghostSize?: number
-  padding?: number
-  topPadding?: number
-  minTravelMs?: number
-  maxTravelMs?: number
-  minPauseMs?: number
-  maxPauseMs?: number
-  avoidBottomCenter?: boolean
+  ghostSize?: number;
+  padding?: number;
+  topPadding?: number;
+  minTravelMs?: number;
+  maxTravelMs?: number;
+  minPauseMs?: number;
+  maxPauseMs?: number;
+  avoidBottomCenter?: boolean;
 }
 
 const DEFAULTS = {
@@ -26,16 +32,16 @@ const DEFAULTS = {
   maxTravelMs: 9000,
   minPauseMs: 1000,
   maxPauseMs: 3000,
-}
+};
 
 function getBounds(
   boundaryRefOrSelector?: RefObject<HTMLElement> | string,
 ): DOMRect {
-  if (typeof boundaryRefOrSelector === 'string') {
-    const el = document.querySelector(boundaryRefOrSelector)
-    if (el) return el.getBoundingClientRect()
+  if (typeof boundaryRefOrSelector === "string") {
+    const el = document.querySelector(boundaryRefOrSelector);
+    if (el) return el.getBoundingClientRect();
   } else if (boundaryRefOrSelector?.current) {
-    return boundaryRefOrSelector.current.getBoundingClientRect()
+    return boundaryRefOrSelector.current.getBoundingClientRect();
   }
   return {
     left: 0,
@@ -46,17 +52,19 @@ function getBounds(
     height: window.innerHeight,
     x: 0,
     y: 0,
-    toJSON() { return this },
-  } as DOMRect
+    toJSON() {
+      return this;
+    },
+  } as DOMRect;
 }
 
 export interface PerimeterRoamResult {
-  x: number
-  y: number
-  edge: Edge
-  isMoving: boolean
-  isPaused: boolean
-  transitionDuration: number
+  x: number;
+  y: number;
+  edge: Edge;
+  isMoving: boolean;
+  isPaused: boolean;
+  transitionDuration: number;
 }
 
 export function mapOffsetToPerimeterPoint(
@@ -65,74 +73,74 @@ export function mapOffsetToPerimeterPoint(
   ghostSize: number,
   padding: number,
   topPadding: number,
-  avoidBottomCenter: boolean
+  avoidBottomCenter: boolean,
 ): { x: number; y: number; edge: Edge; totalLen: number } {
-  const ghostRadius = ghostSize / 2
+  const ghostRadius = ghostSize / 2;
 
-  const safeLeft = rawRect.left + padding + ghostRadius
-  const safeTop = rawRect.top + padding + ghostRadius + topPadding
-  const safeRight = Math.max(safeLeft, rawRect.right - padding - ghostRadius)
-  const safeBottom = Math.max(safeTop, rawRect.bottom - padding - ghostRadius)
+  const safeLeft = rawRect.left + padding + ghostRadius;
+  const safeTop = rawRect.top + padding + ghostRadius + topPadding;
+  const safeRight = Math.max(safeLeft, rawRect.right - padding - ghostRadius);
+  const safeBottom = Math.max(safeTop, rawRect.bottom - padding - ghostRadius);
 
-  const topLen = Math.max(0, safeRight - safeLeft)
-  const rightLen = Math.max(0, safeBottom - safeTop)
-  const bottomLen = Math.max(0, safeRight - safeLeft)
-  const leftLen = Math.max(0, safeBottom - safeTop)
+  const topLen = Math.max(0, safeRight - safeLeft);
+  const rightLen = Math.max(0, safeBottom - safeTop);
+  const bottomLen = Math.max(0, safeRight - safeLeft);
+  const leftLen = Math.max(0, safeBottom - safeTop);
 
-  const totalLen = topLen + rightLen + bottomLen + leftLen
+  const totalLen = topLen + rightLen + bottomLen + leftLen;
 
   if (totalLen <= 0) {
-    return { x: safeLeft, y: safeTop, edge: 'top', totalLen: 1 }
+    return { x: safeLeft, y: safeTop, edge: "top", totalLen: 1 };
   }
 
-  let normalizedOffset = offset % totalLen
-  if (normalizedOffset < 0) normalizedOffset += totalLen
+  let normalizedOffset = offset % totalLen;
+  if (normalizedOffset < 0) normalizedOffset += totalLen;
 
-  let x = 0
-  let y = 0
-  let edge: Edge = 'top'
+  let x = 0;
+  let y = 0;
+  let edge: Edge = "top";
 
-  let remaining = normalizedOffset
+  let remaining = normalizedOffset;
 
   if (remaining < topLen) {
-    x = safeLeft + remaining
-    y = safeTop
-    edge = 'top'
+    x = safeLeft + remaining;
+    y = safeTop;
+    edge = "top";
   } else {
-    remaining -= topLen
+    remaining -= topLen;
     if (remaining < rightLen) {
-      x = safeRight
-      y = safeTop + remaining
-      edge = 'right'
+      x = safeRight;
+      y = safeTop + remaining;
+      edge = "right";
     } else {
-      remaining -= rightLen
+      remaining -= rightLen;
       if (remaining < bottomLen) {
-        let bottomOffset = remaining
+        let bottomOffset = remaining;
         if (avoidBottomCenter) {
-          const leftBound = bottomLen * 0.25
-          const rightBound = bottomLen * 0.75
+          const leftBound = bottomLen * 0.25;
+          const rightBound = bottomLen * 0.75;
           if (bottomOffset > leftBound && bottomOffset < rightBound) {
             // Snap to the edge of the avoid zone
             if (bottomOffset < bottomLen * 0.5) {
-              bottomOffset = leftBound
+              bottomOffset = leftBound;
             } else {
-              bottomOffset = rightBound
+              bottomOffset = rightBound;
             }
           }
         }
-        x = safeRight - bottomOffset
-        y = safeBottom
-        edge = 'bottom'
+        x = safeRight - bottomOffset;
+        y = safeBottom;
+        edge = "bottom";
       } else {
-        remaining -= bottomLen
-        x = safeLeft
-        y = safeBottom - remaining
-        edge = 'left'
+        remaining -= bottomLen;
+        x = safeLeft;
+        y = safeBottom - remaining;
+        edge = "left";
       }
     }
   }
 
-  return { x, y, edge, totalLen }
+  return { x, y, edge, totalLen };
 }
 
 export function usePerimeterRoam(
@@ -144,153 +152,167 @@ export function usePerimeterRoam(
     ghostSize = DEFAULTS.ghostSize,
     padding = DEFAULTS.padding,
     topPadding = DEFAULTS.topPadding,
-    avoidBottomCenter = false
-  } = options || {}
+    avoidBottomCenter = false,
+  } = options || {};
 
-  const [position, setPosition] = useState<Point>({ x: -1000, y: -1000 })
-  const [edge, setEdge] = useState<Edge>('top')
-  const [isPaused, setIsPaused] = useState(false)
-  
+  const [position, setPosition] = useState<Point>({ x: -1000, y: -1000 });
+  const [edge, setEdge] = useState<Edge>("top");
+  const [isPaused, setIsPaused] = useState(false);
+
   const stateRef = useRef({
     offset: -1, // Uninitialized flag
     direction: 1 as 1 | -1,
     speed: 50,
     isPaused: false,
     lastTime: performance.now(),
-    rect: null as DOMRect | null
-  })
+    rect: null as DOMRect | null,
+  });
 
-  const reducedMotionRef = useRef(false)
-  const isMountedRef = useRef(true)
+  const reducedMotionRef = useRef(false);
+  const isMountedRef = useRef(true);
 
   const getBoundsCallback = useCallback(
     () => getBounds(boundaryRefOrSelector),
     [boundaryRefOrSelector],
-  )
+  );
 
   useEffect(() => {
-    isMountedRef.current = true
-    const mql = window.matchMedia('(prefers-reduced-motion: reduce)')
-    reducedMotionRef.current = mql.matches
+    isMountedRef.current = true;
+    const mql = window.matchMedia("(prefers-reduced-motion: reduce)");
+    reducedMotionRef.current = mql.matches;
 
     const onChange = (e: MediaQueryListEvent) => {
-      reducedMotionRef.current = e.matches
-    }
+      reducedMotionRef.current = e.matches;
+    };
 
-    mql.addEventListener('change', onChange)
+    mql.addEventListener("change", onChange);
 
     return () => {
-      isMountedRef.current = false
-      mql.removeEventListener('change', onChange)
-    }
-  }, [])
+      isMountedRef.current = false;
+      mql.removeEventListener("change", onChange);
+    };
+  }, []);
 
   // Action loop (pick random behaviors: pause, reverse, keep moving)
   useEffect(() => {
-    if (!enabled || reducedMotionRef.current) return
-    let timeoutId: number
-    
+    if (!enabled || reducedMotionRef.current) return;
+    let timeoutId: number;
+
     const pickNextAction = () => {
-      if (!isMountedRef.current) return
-      
-      const st = stateRef.current
-      
+      if (!isMountedRef.current) return;
+
+      const st = stateRef.current;
+
       if (st.isPaused) {
         // We were paused, time to move
-        st.isPaused = false
-        setIsPaused(false)
-        
+        st.isPaused = false;
+        setIsPaused(false);
+
         // 25% chance to reverse direction
         if (Math.random() < 0.25) {
-          st.direction = (st.direction * -1) as 1 | -1
+          st.direction = (st.direction * -1) as 1 | -1;
         }
-        
+
         // Pick new speed (pixels per sec)
-        st.speed = 30 + Math.random() * 50
-        
+        st.speed = 30 + Math.random() * 50;
+
         // Move for 6-20 seconds
-        const moveTime = 6000 + Math.random() * 14000
-        timeoutId = window.setTimeout(pickNextAction, moveTime)
+        const moveTime = 6000 + Math.random() * 14000;
+        timeoutId = window.setTimeout(pickNextAction, moveTime);
       } else {
         // We were moving, time to pause
-        st.isPaused = true
-        setIsPaused(true)
-        
+        st.isPaused = true;
+        setIsPaused(true);
+
         // Pause for 0.8 to 2.5 seconds
-        const pauseTime = 800 + Math.random() * 1700
-        timeoutId = window.setTimeout(pickNextAction, pauseTime)
+        const pauseTime = 800 + Math.random() * 1700;
+        timeoutId = window.setTimeout(pickNextAction, pauseTime);
       }
-    }
-    
+    };
+
     // Start by moving
-    stateRef.current.isPaused = false
-    setIsPaused(false)
-    timeoutId = window.setTimeout(pickNextAction, 5000)
-    
-    return () => window.clearTimeout(timeoutId)
-  }, [enabled])
+    stateRef.current.isPaused = false;
+    setIsPaused(false);
+    timeoutId = window.setTimeout(pickNextAction, 5000);
+
+    return () => window.clearTimeout(timeoutId);
+  }, [enabled]);
 
   // Boundary change detection
   useEffect(() => {
-    if (!enabled) return
+    if (!enabled) return;
 
     const updateRect = () => {
-      stateRef.current.rect = getBoundsCallback()
-    }
+      stateRef.current.rect = getBoundsCallback();
+    };
 
-    updateRect()
-    window.addEventListener('resize', updateRect)
+    updateRect();
+    window.addEventListener("resize", updateRect);
 
-    let ro: ResizeObserver | null = null
-    if (typeof ResizeObserver !== 'undefined') {
+    let ro: ResizeObserver | null = null;
+    if (typeof ResizeObserver !== "undefined") {
       const el =
-        typeof boundaryRefOrSelector === 'string'
+        typeof boundaryRefOrSelector === "string"
           ? document.querySelector(boundaryRefOrSelector)
-          : boundaryRefOrSelector?.current || null
+          : boundaryRefOrSelector?.current || null;
       if (el) {
-        ro = new ResizeObserver(updateRect)
-        ro.observe(el)
+        ro = new ResizeObserver(updateRect);
+        ro.observe(el);
       }
     }
 
     return () => {
-      window.removeEventListener('resize', updateRect)
-      if (ro) ro.disconnect()
-    }
-  }, [enabled, getBoundsCallback, boundaryRefOrSelector])
+      window.removeEventListener("resize", updateRect);
+      if (ro) ro.disconnect();
+    };
+  }, [enabled, getBoundsCallback, boundaryRefOrSelector]);
 
   // Animation loop
   useEffect(() => {
-    if (!enabled) return
+    if (!enabled) return;
 
-    let animationFrameId: number
+    let animationFrameId: number;
 
     const tick = (now: number) => {
-      if (!isMountedRef.current) return
+      if (!isMountedRef.current) return;
 
-      const st = stateRef.current
-      const dt = (now - st.lastTime) / 1000 // seconds
-      st.lastTime = now
+      const st = stateRef.current;
+      const dt = (now - st.lastTime) / 1000; // seconds
+      st.lastTime = now;
 
       if (reducedMotionRef.current) {
-        st.isPaused = true
-        setIsPaused(true)
+        st.isPaused = true;
+        setIsPaused(true);
         if (st.rect) {
-           const { x, y, edge } = mapOffsetToPerimeterPoint(0, st.rect, ghostSize, padding, topPadding, false)
-           setPosition({ x, y })
-           setEdge(edge)
+          const { x, y, edge } = mapOffsetToPerimeterPoint(
+            0,
+            st.rect,
+            ghostSize,
+            padding,
+            topPadding,
+            false,
+          );
+          setPosition({ x, y });
+          setEdge(edge);
         }
-        animationFrameId = requestAnimationFrame(tick)
-        return
+        animationFrameId = requestAnimationFrame(tick);
+        return;
       }
 
       if (!st.isPaused && st.rect) {
-        const rect = st.rect
-        
+        const rect = st.rect;
+
         // Initialize offset randomly on first tick
         if (st.offset === -1) {
-           const { totalLen } = mapOffsetToPerimeterPoint(0, rect, ghostSize, padding, topPadding, avoidBottomCenter)
-           st.offset = Math.random() * totalLen
+          const { totalLen } = mapOffsetToPerimeterPoint(
+            0,
+            rect,
+            ghostSize,
+            padding,
+            topPadding,
+            avoidBottomCenter,
+          );
+          st.offset = Math.random() * totalLen;
         }
 
         const { x, y, edge, totalLen } = mapOffsetToPerimeterPoint(
@@ -299,30 +321,30 @@ export function usePerimeterRoam(
           ghostSize,
           padding,
           topPadding,
-          avoidBottomCenter
-        )
+          avoidBottomCenter,
+        );
 
-        st.offset = (st.offset + st.direction * st.speed * dt) % totalLen
+        st.offset = (st.offset + st.direction * st.speed * dt) % totalLen;
 
         setPosition((prev) => {
           if (Math.abs(prev.x - x) < 0.5 && Math.abs(prev.y - y) < 0.5) {
-            return prev
+            return prev;
           }
-          return { x, y }
-        })
-        setEdge(edge)
+          return { x, y };
+        });
+        setEdge(edge);
       }
 
-      animationFrameId = requestAnimationFrame(tick)
-    }
+      animationFrameId = requestAnimationFrame(tick);
+    };
 
-    stateRef.current.lastTime = performance.now()
-    animationFrameId = requestAnimationFrame(tick)
+    stateRef.current.lastTime = performance.now();
+    animationFrameId = requestAnimationFrame(tick);
 
     return () => {
-      cancelAnimationFrame(animationFrameId)
-    }
-  }, [enabled, ghostSize, padding, topPadding, avoidBottomCenter])
+      cancelAnimationFrame(animationFrameId);
+    };
+  }, [enabled, ghostSize, padding, topPadding, avoidBottomCenter]);
 
   return {
     x: position.x,
@@ -331,5 +353,5 @@ export function usePerimeterRoam(
     isMoving: !isPaused,
     isPaused,
     transitionDuration: 0, // Enforce 0 for JS continuous animation
-  }
+  };
 }

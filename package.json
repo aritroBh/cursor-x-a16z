@@ -17,7 +17,8 @@
     "build:linux": "npm run build && electron-builder --linux",
     "test:specter": "npx ts-node scripts/test-specter.ts",
     "security-check": "npx ts-node scripts/security-check.ts",
-    "test:vision": "npx ts-node scripts/test-vision.ts"
+    "test:vision": "npx ts-node scripts/test-vision.ts",
+    "test:vision:live": "npx ts-node scripts/test-vision.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.33.0",

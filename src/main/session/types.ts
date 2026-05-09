@@ -5,7 +5,7 @@ export interface Step {
   targetLabel?: string;
   x: number;
   y: number;
-  action: 'click' | 'type' | 'scroll' | 'wait';
+  action: "click" | "type" | "scroll" | "wait";
   typeText?: string;
   delayMs?: number;
   waitForMs?: number;
@@ -35,7 +35,7 @@ export interface Branch {
     stepIndex: number;
   };
   nodesCovered: string[];
-  status: 'active' | 'completed';
+  status: "active" | "completed";
 }
 
 export interface Session {
@@ -53,13 +53,13 @@ export interface BanditState {
 }
 
 export type SpecMood =
-  | 'idle'
-  | 'thinking'
-  | 'stuck'
-  | 'flow'
-  | 'celebrating'
-  | 'mirroring'
-  | 'judging';
+  | "idle"
+  | "thinking"
+  | "stuck"
+  | "flow"
+  | "celebrating"
+  | "mirroring"
+  | "judging";
 
 export interface BehavioralState {
   cognitiveLoad: number;
@@ -79,20 +79,20 @@ export interface BehavioralFrame {
   cursorDelta?: { dx: number; dy: number };
   dwellMs: number;
   actionType:
-    | 'scan'
-    | 'click'
-    | 'repeat-click'
-    | 'type'
-    | 'pause'
-    | 'backtrack'
-    | 'app-switch'
-    | 'replay-retry'
-    | 'replay-failure'
-    | 'accept'
-    | 'override'
-    | 'hesitation'
-    | 'correction'
-    | 'unknown';
+    | "scan"
+    | "click"
+    | "repeat-click"
+    | "type"
+    | "pause"
+    | "backtrack"
+    | "app-switch"
+    | "replay-retry"
+    | "replay-failure"
+    | "accept"
+    | "override"
+    | "hesitation"
+    | "correction"
+    | "unknown";
   revisionSignal: number;
   app?: string;
   targetLabel?: string;
@@ -106,7 +106,7 @@ export interface BehavioralCheckpoint {
   signature: BehavioralState;
   specPersonality: {
     defaultMood: SpecMood;
-    eyeShape: 'wide' | 'focused' | 'sleepy' | 'judging' | 'glow';
+    eyeShape: "wide" | "focused" | "sleepy" | "judging" | "glow";
     bounce: number;
     sass: number;
   };

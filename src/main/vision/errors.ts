@@ -1,4 +1,4 @@
-import { VisionProviderName } from './types';
+import { VisionProviderName } from "./types";
 
 export type VisionErrorCode =
   | "PROVIDER_NOT_CONFIGURED"
@@ -15,23 +15,24 @@ export class VisionProviderError extends Error {
   public code: VisionErrorCode;
   public provider: VisionProviderName;
   public safeDetails?: string;
+  public cause?: Error;
 
   constructor(
     code: VisionErrorCode,
     provider: VisionProviderName,
     message: string,
     safeDetails?: string,
-    cause?: Error
+    cause?: Error,
   ) {
     super(message);
-    this.name = 'VisionProviderError';
+    this.name = "VisionProviderError";
     this.code = code;
     this.provider = provider;
     this.safeDetails = safeDetails;
     if (cause) {
       this.cause = cause;
     }
-    
+
     // Ensure the prototype is set correctly for custom errors in TS
     Object.setPrototypeOf(this, VisionProviderError.prototype);
   }

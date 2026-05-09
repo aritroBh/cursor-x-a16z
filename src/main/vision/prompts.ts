@@ -1,8 +1,16 @@
-import { VisionTask } from './types';
+import { VisionTask } from "./types";
 
-export function buildVisionPrompt(task: VisionTask, userPrompt?: string, appContext?: string): string {
+export function buildVisionPrompt(
+  task: VisionTask,
+  userPrompt?: string,
+  appContext?: string,
+  width?: number,
+  height?: number,
+): string {
+  const dimensions =
+    width && height ? `\nImage dimensions: ${width}x${height} pixels.` : "";
   const basePrompt = `You are the vision layer for Specter, a desktop automation assistant.
-Analyze the screenshot and identify visible UI elements.
+Analyze the screenshot and identify visible UI elements.${dimensions}
 Return ONLY valid JSON.
 Do not use markdown.
 Do not include commentary.
@@ -28,10 +36,10 @@ Return this exact JSON shape:
 }
 
 Coordinate rules:
-- Coordinates must be screenshot pixel coordinates.
-- x/y origin is the top-left of the screenshot.
-- bbox must tightly approximate the visible UI element.
-- center must be the center of bbox.
+- Coordinates MUST be pixels based on the original image dimensions.
+- x/y origin (0,0) is the top-left of the screenshot.
+- bbox must tightly approximate the visible UI element in pixels.
+- center must be the center of bbox in pixels.
 - If unsure about exact coordinates, lower confidence and add a warning.
 - Do not invent precise coordinates for invisible elements.
 - Prefer identifying visible buttons, input boxes, dialogs, permission prompts, app windows, menus, toggles, and targetable controls.
@@ -46,7 +54,7 @@ Coordinate rules:
     case "target_detection":
       taskSpecific = `\n\nFor target_detection:
 - Prioritize clickable controls.
-- Include likely target center coordinates.
+- Include likely target center coordinates (0-100).
 - Add confidence.
 - Warn if the target is ambiguous.`;
       break;

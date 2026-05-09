@@ -1,16 +1,22 @@
-import { VisionProvider, VisionAnalyzeInput, VisionAnalyzeResult, VisionProviderName } from './types';
-import { NvidiaVisionProvider } from './nvidiaVisionProvider';
-import { AnthropicVisionProvider } from './anthropicVisionProvider';
-import { MockVisionProvider } from './mockVisionProvider';
-import { VisionProviderError } from './errors';
-import { safeLog, safeWarn, safeError } from '../logger';
+import {
+  VisionProvider,
+  VisionAnalyzeInput,
+  VisionAnalyzeResult,
+  VisionProviderName,
+} from "./types";
+import { NvidiaVisionProvider } from "./nvidiaVisionProvider";
+import { AnthropicVisionProvider } from "./anthropicVisionProvider";
+import { MockVisionProvider } from "./mockVisionProvider";
+import { VisionProviderError } from "./errors";
+import { safeWarn, safeError } from "../logger";
 
 let nvidiaProvider: NvidiaVisionProvider | null = null;
 let anthropicProvider: AnthropicVisionProvider | null = null;
 let mockProvider: MockVisionProvider | null = null;
 
 export function getVisionProvider(name?: VisionProviderName): VisionProvider {
-  const providerName = name || (process.env.VISION_PROVIDER as VisionProviderName) || "nvidia";
+  const providerName =
+    name || (process.env.VISION_PROVIDER as VisionProviderName) || "nvidia";
 
   switch (providerName) {
     case "nvidia":
@@ -26,14 +32,16 @@ export function getVisionProvider(name?: VisionProviderName): VisionProvider {
       throw new VisionProviderError(
         "PROVIDER_NOT_CONFIGURED",
         "nvidia", // Defaulting to nvidia in error
-        `Unknown vision provider: ${providerName}`
+        `Unknown vision provider: ${providerName}`,
       );
   }
 }
 
-export async function analyzeVision(input: VisionAnalyzeInput): Promise<VisionAnalyzeResult> {
+export async function analyzeVision(
+  input: VisionAnalyzeInput,
+): Promise<VisionAnalyzeResult> {
   const primaryProvider = getVisionProvider();
-  
+
   try {
     return await primaryProvider.analyze(input);
   } catch (error: any) {
@@ -41,22 +49,25 @@ export async function analyzeVision(input: VisionAnalyzeInput): Promise<VisionAn
     const canFallback = primaryProvider.name === "nvidia" && isFallbackEnabled;
 
     if (canFallback) {
-      safeWarn(`[VISION] Primary provider (${primaryProvider.name}) failed. Attempting fallback to Anthropic...`, {
-        error: error.message
-      });
-      
+      safeWarn(
+        `[VISION] Primary provider (${primaryProvider.name}) failed. Attempting fallback to Anthropic...`,
+        {
+          error: error.message,
+        },
+      );
+
       try {
         const fallbackProvider = getVisionProvider("anthropic");
         const result = await fallbackProvider.analyze(input);
-        
+
         return {
           ...result,
           fallbackUsed: true,
-          fallbackFrom: primaryProvider.name as VisionProviderName
+          fallbackFrom: primaryProvider.name as VisionProviderName,
         };
       } catch (fallbackError: any) {
         safeError(`[VISION] Fallback provider (anthropic) also failed.`, {
-          error: fallbackError.message
+          error: fallbackError.message,
         });
         // Rethrow the original primary error or the fallback error?
         // Usually primary error is more relevant to why the first choice failed.
@@ -72,5 +83,5 @@ export function getConfiguredVisionProviderName(): VisionProviderName {
   return (process.env.VISION_PROVIDER as VisionProviderName) || "nvidia";
 }
 
-export * from './types';
-export * from './errors';
+export * from "./types";
+export * from "./errors";

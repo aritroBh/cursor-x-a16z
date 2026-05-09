@@ -20,11 +20,19 @@ To use NVIDIA as your provider:
 2. Add it to your `.env`:
    ```env
    NVIDIA_API_KEY=<your_key_here>
+   NVIDIA_CHAT_COMPLETIONS_URL=https://integrate.api.nvidia.com/v1/chat/completions
+   NVIDIA_VISION_MODEL=meta/llama-4-maverick-17b-128e-instruct
    VISION_PROVIDER=nvidia
    ```
-3. (Optional) Adjust the timeout:
+3. (Optional) Adjust request behavior:
    ```env
    NVIDIA_VISION_TIMEOUT_MS=20000
+   NVIDIA_VISION_STREAM=false
+   NVIDIA_VISION_MAX_TOKENS=1200
+   NVIDIA_VISION_TEMPERATURE=0.1
+   NVIDIA_VISION_TOP_P=1
+   NVIDIA_VISION_FREQUENCY_PENALTY=0
+   NVIDIA_VISION_PRESENCE_PENALTY=0
    ```
 
 ### Anthropic Claude

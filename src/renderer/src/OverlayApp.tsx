@@ -162,11 +162,15 @@ function signedBehaviorPercent(value: unknown): string {
   return `${rounded >= 0 ? "+" : ""}${rounded}%`;
 }
 
-function latestCheckpoint(checkpoints: BehavioralCheckpoint[]): BehavioralCheckpoint | null {
+function latestCheckpoint(
+  checkpoints: BehavioralCheckpoint[],
+): BehavioralCheckpoint | null {
   return checkpoints.length > 0 ? checkpoints[checkpoints.length - 1] : null;
 }
 
-function firstCheckpoint(checkpoints: BehavioralCheckpoint[]): BehavioralCheckpoint | null {
+function firstCheckpoint(
+  checkpoints: BehavioralCheckpoint[],
+): BehavioralCheckpoint | null {
   return checkpoints.length > 0 ? checkpoints[0] : null;
 }
 
@@ -188,10 +192,12 @@ function formatAIHealthStatus(health: any): string {
   const whisperStatus = `Whisper voice: ${openai.whisperConfigured ? "ready" : "missing key"}`;
   const elevenlabsStatus = `ElevenLabs TTS: ${elevenlabs.configured ? "ready" : "fallback mode"}`;
   const openaiTTSStatus = `OpenAI TTS: ${openaiTTS.configured ? "ready" : "not configured"}`;
-  
+
   const overallAppAI = overall.readyForRealAppAI ? "ready" : "not ready";
   const overallVoiceInput = overall.readyForVoiceInput ? "ready" : "not ready";
-  const overallVoiceOutput = overall.readyForNaturalVoiceOutput ? "Natural" : "macOS say";
+  const overallVoiceOutput = overall.readyForNaturalVoiceOutput
+    ? "Natural"
+    : "macOS say";
   const reason = testRequest.reason ? `\nReason: ${testRequest.reason}` : "";
 
   return [
@@ -264,7 +270,7 @@ const OverlayApp: React.FC = () => {
   const [currentStep, setCurrentStep] = useState<any>(null);
   const [replayState, setReplayState] = useState<ReplayState>("idle");
   const [replayMode, setReplayMode] = useState<ReplayMode>(null);
-  
+
   const [ultraState, setUltraState] = useState<UltraState>("idle");
   const [ultraReply, setUltraReply] = useState("");
   const [ultraSessionHistory, setUltraSessionHistory] = useState<any[]>([]);
@@ -296,18 +302,23 @@ const OverlayApp: React.FC = () => {
   const [hasCompletedWalkthrough, setHasCompletedWalkthrough] = useState(false);
   const [activeCheckpoint, setActiveCheckpoint] =
     useState<BehavioralCheckpoint | null>(null);
-  const [blendedPreview, setBlendedPreview] =
-    useState<BehavioralState | null>(null);
+  const [blendedPreview, setBlendedPreview] = useState<BehavioralState | null>(
+    null,
+  );
   const [behaviorDiff, setBehaviorDiff] = useState<BehavioralDiff | null>(null);
   const [blendT, setBlendT] = useState(1);
   const [mirrorStatus, setMirrorStatus] = useState<
     "idle" | "running" | "complete" | "error"
   >("idle");
   const [mirrorFeedbackStatus, setMirrorFeedbackStatus] = useState("");
-  const [mirrorFeedbackArm, setMirrorFeedbackArm] = useState<string | null>(null);
+  const [mirrorFeedbackArm, setMirrorFeedbackArm] = useState<string | null>(
+    null,
+  );
   const [mirrorCorrectionCount, setMirrorCorrectionCount] = useState(0);
   const [pitchMode, setPitchMode] = useState(false);
-  const [lastTTSProvider, setLastTTSProvider] = useState<'elevenlabs' | 'openai' | 'macos' | null>(null);
+  const [lastTTSProvider, setLastTTSProvider] = useState<
+    "elevenlabs" | "openai" | "macos" | null
+  >(null);
   const [screenState, setScreenState] = useState<any>(null);
   const [isInputFocused, setIsInputFocused] = useState(false);
   const [isClickThrough, setIsClickThrough] = useState(true);
@@ -345,23 +356,26 @@ const OverlayApp: React.FC = () => {
         setUltraState("waitingForUser");
       }, 20_000);
 
-      void api.speak(text).then((result: any) => {
-        clearTimeout(timeout);
-        if (result?.providerUsed) {
-          setLastTTSProvider(result.providerUsed);
-        }
-        if (result?.providerUsed === "macos" && result?.fallbackReason) {
-          console.warn("[TTS] used macOS fallback", result.fallbackReason);
-        } else if (result?.providerUsed === "openai") {
-          console.log("[TTS] used OpenAI fallback");
-        }
-        setUltraState("waitingForUser");
-      }).catch((error: unknown) => {
-        clearTimeout(timeout);
-        console.error("[TTS] error fallback", error);
-        setLastTTSProvider("macos");
-        setUltraState("waitingForUser");
-      });
+      void api
+        .speak(text)
+        .then((result: any) => {
+          clearTimeout(timeout);
+          if (result?.providerUsed) {
+            setLastTTSProvider(result.providerUsed);
+          }
+          if (result?.providerUsed === "macos" && result?.fallbackReason) {
+            console.warn("[TTS] used macOS fallback", result.fallbackReason);
+          } else if (result?.providerUsed === "openai") {
+            console.log("[TTS] used OpenAI fallback");
+          }
+          setUltraState("waitingForUser");
+        })
+        .catch((error: unknown) => {
+          clearTimeout(timeout);
+          console.error("[TTS] error fallback", error);
+          setLastTTSProvider("macos");
+          setUltraState("waitingForUser");
+        });
       return;
     }
     console.log("[ULTRA] skipped because silent mode");
@@ -370,10 +384,10 @@ const OverlayApp: React.FC = () => {
 
   const handleUltraSpokenInput = async (text: string) => {
     if (mode !== "ultra") return;
-    
+
     setUltraState("thinking");
     console.log("[ULTRA] user said", { text });
-    
+
     const timeout = setTimeout(() => {
       console.warn("[ULTRA] converse timeout");
       setUltraState("waitingForUser");
@@ -387,27 +401,32 @@ const OverlayApp: React.FC = () => {
         currentGoal: intent,
         currentStep,
         screenState,
-        sessionHistory: ultraSessionHistory
+        sessionHistory: ultraSessionHistory,
       });
       clearTimeout(timeout);
-      
+
       console.log("[ULTRA] tutor reply", result);
       setUltraReply(result.reply);
-      
-      setUltraSessionHistory(prev => [
+
+      setUltraSessionHistory((prev) => [
         ...prev,
         { role: "user", content: text },
-        { role: "assistant", content: result.reply }
+        { role: "assistant", content: result.reply },
       ]);
-      
+
       if (result.shouldSpeak) {
         console.log("[TTS] speak called");
         speakIfUltra(result.reply, "tutor reply");
       } else {
         setUltraState("waitingForUser");
       }
-      
-      if (result.shouldStartWalkthrough && !currentStep && replayState === "idle" && lastNodeId) {
+
+      if (
+        result.shouldStartWalkthrough &&
+        !currentStep &&
+        replayState === "idle" &&
+        lastNodeId
+      ) {
         void replaySavedWorkflow("walkthrough");
       }
     } catch (error) {
@@ -450,7 +469,10 @@ const OverlayApp: React.FC = () => {
 
   useEffect(() => {
     const shouldTrackCursor =
-      isVisible || replayState !== "idle" || isLoading || mirrorStatus === "running";
+      isVisible ||
+      replayState !== "idle" ||
+      isLoading ||
+      mirrorStatus === "running";
     if (!shouldTrackCursor) return;
 
     let isDisposed = false;
@@ -655,7 +677,9 @@ const OverlayApp: React.FC = () => {
       setSpecMood("celebrating");
       setReplayState("idle");
       setReplayMode(null);
-      setMirrorFeedbackStatus("Compare the replay with what you would have done.");
+      setMirrorFeedbackStatus(
+        "Compare the replay with what you would have done.",
+      );
     });
     const offMirrorError = api.onMirrorError((data: any) => {
       setMirrorStatus("error");
@@ -727,7 +751,8 @@ const OverlayApp: React.FC = () => {
     const onKeyDown = (event: KeyboardEvent) => {
       const target = event.target as HTMLElement | null;
       const tag = target?.tagName?.toLowerCase();
-      if (tag === "input" || tag === "textarea" || target?.isContentEditable) return;
+      if (tag === "input" || tag === "textarea" || target?.isContentEditable)
+        return;
 
       const key = event.key.toLowerCase();
       if (!["c", "b"].includes(key)) return;
@@ -748,9 +773,10 @@ const OverlayApp: React.FC = () => {
   // Return to click-through if input is blurred and mouse is not over UI
   useEffect(() => {
     if (!isInputFocused) {
-      if (import.meta.env.VITE_DEBUG_VERBOSE === "true") console.log(
-        "[OVERLAY_INTERACTION] input blurred, restoring click-through",
-      );
+      if (import.meta.env.VITE_DEBUG_VERBOSE === "true")
+        console.log(
+          "[OVERLAY_INTERACTION] input blurred, restoring click-through",
+        );
       setInteractivity(false);
     }
   }, [isInputFocused]);
@@ -806,7 +832,7 @@ const OverlayApp: React.FC = () => {
       setReplayState("running");
       setIsLoading(false);
       setSpecMood("thinking");
-      
+
       if (modeRef.current === "ultra") {
         speakIfUltra("Follow the ghost cursor.", "step start");
         setUltraState("guiding");
@@ -830,7 +856,7 @@ const OverlayApp: React.FC = () => {
         };
       });
       setSpecMood("flow");
-      
+
       if (modeRef.current === "ultra") {
         speakIfUltra("Nice, you're close. Click when ready.", "target reached");
       }
@@ -995,7 +1021,8 @@ const OverlayApp: React.FC = () => {
   };
 
   const handleInputSubmit = async (text: string) => {
-    const isTutorActive = currentStep || replayState === "running" || ultraReply || lastNodeId;
+    const isTutorActive =
+      currentStep || replayState === "running" || ultraReply || lastNodeId;
     if (modeRef.current === "ultra" && isTutorActive) {
       await handleUltraSpokenInput(text);
       return;
@@ -1024,7 +1051,8 @@ const OverlayApp: React.FC = () => {
     try {
       const result = await api.detectRealAppTargets(testIntent);
       if (result?.error === "AI_BACKEND_UNAVAILABLE") {
-        const msg = "I couldn't confidently detect the target. Pick it manually or use Fallback Practice.";
+        const msg =
+          "I couldn't confidently detect the target. Pick it manually or use Fallback Practice.";
         setRealAppTargets({
           error: "AI_BACKEND_UNAVAILABLE",
           fallbackAvailable: true,
@@ -1037,9 +1065,14 @@ const OverlayApp: React.FC = () => {
         setIsLoading(false);
 
         if (mode === "ultra") {
-          setUltraReply("I couldn't inspect the screen right now. Click something you want to learn, and the ghost cursor will guide you to it.");
+          setUltraReply(
+            "I couldn't inspect the screen right now. Click something you want to learn, and the ghost cursor will guide you to it.",
+          );
           setUltraState("waitingForUser");
-          speakIfUltra("I couldn't inspect the screen right now. Click something you want to learn, and the ghost cursor will guide you to it.", "fallback");
+          speakIfUltra(
+            "I couldn't inspect the screen right now. Click something you want to learn, and the ghost cursor will guide you to it.",
+            "fallback",
+          );
         }
 
         return;
@@ -1065,15 +1098,23 @@ const OverlayApp: React.FC = () => {
       setSelectedRealAppTarget(bestTarget);
 
       if (!bestTarget) {
-        setRealAppNotice("I couldn't confidently see the target. Click the thing you want Specter to teach.");
+        setRealAppNotice(
+          "I couldn't confidently see the target. Click the thing you want Specter to teach.",
+        );
         setIsManualTargetPicking(true);
       } else if ((bestTarget.confidence ?? 0) < threshold) {
-        speakIfUltra(`I found a possible target: ${bestTarget.label}. Confirm it before we start.`, "target found");
+        speakIfUltra(
+          `I found a possible target: ${bestTarget.label}. Confirm it before we start.`,
+          "target found",
+        );
         setRealAppNotice(
           "Low confidence — confirm or pick a different target manually.",
         );
       } else {
-        speakIfUltra(`Target found: ${bestTarget.label}. Confirm it before we start.`, "target found");
+        speakIfUltra(
+          `Target found: ${bestTarget.label}. Confirm it before we start.`,
+          "target found",
+        );
         setRealAppNotice("Target found — confirm it and the ghost will start.");
       }
     } catch (error) {
@@ -1183,7 +1224,10 @@ const OverlayApp: React.FC = () => {
 
       setLastNodeId(nodeId);
       setIntent(workflow?.intent || workflowInput.intent);
-      speakIfUltra(`Starting walkthrough for ${target.label}.`, "starting walkthrough");
+      speakIfUltra(
+        `Starting walkthrough for ${target.label}.`,
+        "starting walkthrough",
+      );
       setReplayMode("walkthrough");
       setReplayState("running");
       await api.walkthrough(nodeId);
@@ -1281,7 +1325,9 @@ const OverlayApp: React.FC = () => {
       setSpecMood(current?.signature?.moodLabel || "celebrating");
       setBlendT(1);
       setBlendedPreview(null);
-      setMirrorFeedbackStatus("DEV FALLBACK: synthetic demo data loaded. Not learned behavior.");
+      setMirrorFeedbackStatus(
+        "DEV FALLBACK: synthetic demo data loaded. Not learned behavior.",
+      );
       await refreshBehaviorDiff(firstCheckpoint(list), latestCheckpoint(list));
     } catch (error) {
       console.error("[BEHAVIOR] seed demo failed:", error);
@@ -1334,7 +1380,11 @@ const OverlayApp: React.FC = () => {
 
   const runMirrorMode = async () => {
     if (mirrorStatus === "running") return;
-    if (!window.confirm("Spec will control your real mouse in Mirror Mode. Continue?")) {
+    if (
+      !window.confirm(
+        "Spec will control your real mouse in Mirror Mode. Continue?",
+      )
+    ) {
       return;
     }
 
@@ -1347,7 +1397,9 @@ const OverlayApp: React.FC = () => {
     setMirrorCorrectionCount(0);
 
     try {
-      const arm = api.selectStyle ? await api.selectStyle().catch(() => null) : null;
+      const arm = api.selectStyle
+        ? await api.selectStyle().catch(() => null)
+        : null;
       setMirrorFeedbackArm(typeof arm === "string" ? arm : "C");
       await api.runMirrorMode({
         nodeId: lastNodeId || undefined,
@@ -1473,7 +1525,13 @@ const OverlayApp: React.FC = () => {
     }
   };
 
-  if (!isVisible && replayState === "idle" && !isLoading && mirrorStatus !== "running") return null;
+  if (
+    !isVisible &&
+    replayState === "idle" &&
+    !isLoading &&
+    mirrorStatus !== "running"
+  )
+    return null;
 
   const isMirrorRunning = mirrorStatus === "running";
   const isReplayRunning = replayState === "running" || isMirrorRunning;
@@ -1488,8 +1546,8 @@ const OverlayApp: React.FC = () => {
     : isMirrorRunning
       ? "Mirror Mode controlling cursor..."
       : replayMode === "auto"
-      ? "Executing workflow..."
-      : "Walkthrough running...";
+        ? "Executing workflow..."
+        : "Walkthrough running...";
   const displayedBehavior = blendedPreview || behavioralState;
   const blendFrom = firstCheckpoint(behaviorCheckpoints);
   const blendTo = latestCheckpoint(behaviorCheckpoints);
@@ -1497,7 +1555,8 @@ const OverlayApp: React.FC = () => {
   const hasRealBehaviorCheckpoint = behaviorCheckpoints.some(
     (checkpoint) => checkpoint.synthetic !== true,
   );
-  const isMirrorModeLocked = !hasCompletedWalkthrough && !hasRealBehaviorCheckpoint;
+  const isMirrorModeLocked =
+    !hasCompletedWalkthrough && !hasRealBehaviorCheckpoint;
   const isMirrorButtonDisabled =
     isLoading || mirrorStatus === "running" || isMirrorModeLocked;
   const mirrorButtonLabel =
@@ -1827,12 +1886,14 @@ const OverlayApp: React.FC = () => {
               ref={hudRef}
               className={`specter-hud-shell ${isHudDragging ? "is-dragging" : ""}`}
               onMouseEnter={() => {
-                if (import.meta.env.VITE_DEBUG_VERBOSE === "true") console.log("[OVERLAY_INTERACTION] mouse entered Specter UI");
+                if (import.meta.env.VITE_DEBUG_VERBOSE === "true")
+                  console.log("[OVERLAY_INTERACTION] mouse entered Specter UI");
                 isHudHoveredRef.current = true;
                 setInteractivity(true);
               }}
               onMouseLeave={() => {
-                if (import.meta.env.VITE_DEBUG_VERBOSE === "true") console.log("[OVERLAY_INTERACTION] mouse left Specter UI");
+                if (import.meta.env.VITE_DEBUG_VERBOSE === "true")
+                  console.log("[OVERLAY_INTERACTION] mouse left Specter UI");
                 isHudHoveredRef.current = false;
                 setInteractivity(false);
               }}
@@ -1857,7 +1918,9 @@ const OverlayApp: React.FC = () => {
                   <div className="specter-workflow-header">
                     <div>
                       <div className="specter-kicker">
-                        {showFallbackWorkflow ? "Vision unavailable" : "Guided Workspace"}
+                        {showFallbackWorkflow
+                          ? "Vision unavailable"
+                          : "Guided Workspace"}
                       </div>
                       <div className="specter-workflow-title">
                         {showFallbackWorkflow
@@ -1908,7 +1971,8 @@ const OverlayApp: React.FC = () => {
                       </div>
                     ) : (
                       <div className="specter-workflow-note">
-                        Pick a numbered marker, or click anywhere to set manually.
+                        Pick a numbered marker, or click anywhere to set
+                        manually.
                       </div>
                     ))}
 
@@ -2021,14 +2085,17 @@ const OverlayApp: React.FC = () => {
                     if (mode === "ultra") setUltraState("transcribing");
                   }}
                   onTranscriptionEnd={() => {
-                    if (mode === "ultra" && ultraState === "transcribing") setUltraState("waitingForUser");
+                    if (mode === "ultra" && ultraState === "transcribing")
+                      setUltraState("waitingForUser");
                   }}
                   onFocus={() => {
-                    if (import.meta.env.VITE_DEBUG_VERBOSE === "true") console.log("[OVERLAY_INTERACTION] input focused");
+                    if (import.meta.env.VITE_DEBUG_VERBOSE === "true")
+                      console.log("[OVERLAY_INTERACTION] input focused");
                     setIsInputFocused(true);
                   }}
                   onBlur={() => {
-                    if (import.meta.env.VITE_DEBUG_VERBOSE === "true") console.log("[OVERLAY_INTERACTION] input blurred");
+                    if (import.meta.env.VITE_DEBUG_VERBOSE === "true")
+                      console.log("[OVERLAY_INTERACTION] input blurred");
                     setIsInputFocused(false);
                   }}
                   onRecordingOverlayMouseEnter={() => setInteractivity(true)}
@@ -2044,21 +2111,28 @@ const OverlayApp: React.FC = () => {
                       fontWeight: 600,
                       color: "rgba(255,255,255,0.42)",
                       letterSpacing: "0.2px",
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: '8px'
+                      display: "flex",
+                      alignItems: "center",
+                      gap: "8px",
                     }}
                   >
                     <span>Looking at {screenState.app}</span>
                     {mode === "ultra" && (
-                      <span style={{ 
-                        color: ultraState === 'thinking' || ultraState === 'speaking' || ultraState === 'transcribing' ? '#30d158' : 'rgba(255,255,255,0.25)',
-                        fontSize: '9px',
-                        textTransform: 'uppercase',
-                        letterSpacing: '1px',
-                        fontWeight: 800
-                      }}>
-                        {ultraState === 'waitingForUser' ? 'Ready' : ultraState}
+                      <span
+                        style={{
+                          color:
+                            ultraState === "thinking" ||
+                            ultraState === "speaking" ||
+                            ultraState === "transcribing"
+                              ? "#30d158"
+                              : "rgba(255,255,255,0.25)",
+                          fontSize: "9px",
+                          textTransform: "uppercase",
+                          letterSpacing: "1px",
+                          fontWeight: 800,
+                        }}
+                      >
+                        {ultraState === "waitingForUser" ? "Ready" : ultraState}
                       </span>
                     )}
                   </div>
@@ -2152,14 +2226,14 @@ const OverlayApp: React.FC = () => {
                           borderRadius: "10px",
                           padding: "8px",
                           color: "white",
-                          background:
-                            isMirrorRunning
-                              ? "rgba(27,240,255,0.26)"
-                              : "rgba(191,90,242,0.18)",
+                          background: isMirrorRunning
+                            ? "rgba(27,240,255,0.26)"
+                            : "rgba(191,90,242,0.18)",
                           fontSize: "11px",
                           fontWeight: 800,
-                          cursor:
-                            isMirrorButtonDisabled ? "default" : "pointer",
+                          cursor: isMirrorButtonDisabled
+                            ? "default"
+                            : "pointer",
                         }}
                       >
                         {mirrorButtonLabel}
@@ -2193,7 +2267,8 @@ const OverlayApp: React.FC = () => {
                           fontWeight: 700,
                         }}
                       >
-                        Use computer 60s → Create Checkpoint → start a walkthrough → Mirror Mode unlocks
+                        Use computer 60s → Create Checkpoint → start a
+                        walkthrough → Mirror Mode unlocks
                       </div>
                     )}
 
@@ -2209,28 +2284,32 @@ const OverlayApp: React.FC = () => {
                           fontWeight: 850,
                         }}
                       >
-                        {["Measured", "Signature", "Checkpoint", "Mirror", "Feedback"].map(
-                          (label, index) => (
-                            <div
-                              key={label}
-                              style={{
-                                minHeight: "34px",
-                                borderRadius: "9px",
-                                padding: "6px",
-                                background: "rgba(255,255,255,0.07)",
-                                border: "1px solid rgba(255,255,255,0.08)",
-                                display: "grid",
-                                alignContent: "center",
-                                gap: "2px",
-                              }}
-                            >
-                              <span style={{ color: "rgba(100,210,255,0.82)" }}>
-                                Step {index + 1}
-                              </span>
-                              <span>{label}</span>
-                            </div>
-                          ),
-                        )}
+                        {[
+                          "Measured",
+                          "Signature",
+                          "Checkpoint",
+                          "Mirror",
+                          "Feedback",
+                        ].map((label, index) => (
+                          <div
+                            key={label}
+                            style={{
+                              minHeight: "34px",
+                              borderRadius: "9px",
+                              padding: "6px",
+                              background: "rgba(255,255,255,0.07)",
+                              border: "1px solid rgba(255,255,255,0.08)",
+                              display: "grid",
+                              alignContent: "center",
+                              gap: "2px",
+                            }}
+                          >
+                            <span style={{ color: "rgba(100,210,255,0.82)" }}>
+                              Step {index + 1}
+                            </span>
+                            <span>{label}</span>
+                          </div>
+                        ))}
                       </div>
                     )}
 
@@ -2248,7 +2327,10 @@ const OverlayApp: React.FC = () => {
                           fontWeight: 800,
                         }}
                       >
-                        <div>{mirrorFeedbackStatus || "Compare Mirror Mode against your real override."}</div>
+                        <div>
+                          {mirrorFeedbackStatus ||
+                            "Compare Mirror Mode against your real override."}
+                        </div>
                         <div
                           style={{
                             display: "grid",
@@ -2256,12 +2338,14 @@ const OverlayApp: React.FC = () => {
                             gap: "6px",
                           }}
                         >
-                          {([
-                            ["accept", "Accept"],
-                            ["override", "Override"],
-                            ["hesitation", "Hesitated"],
-                            ["correction", "Corrected"],
-                          ] as Array<[MirrorFeedbackKind, string]>).map(([kind, label]) => (
+                          {(
+                            [
+                              ["accept", "Accept"],
+                              ["override", "Override"],
+                              ["hesitation", "Hesitated"],
+                              ["correction", "Corrected"],
+                            ] as Array<[MirrorFeedbackKind, string]>
+                          ).map(([kind, label]) => (
                             <button
                               key={kind}
                               onClick={() => void submitMirrorFeedback(kind)}
@@ -2332,12 +2416,31 @@ const OverlayApp: React.FC = () => {
                           fontWeight: 700,
                         }}
                       >
-                        <span>load {behaviorPercent(displayedBehavior.cognitiveLoad)}</span>
-                        <span>impulse {behaviorPercent(displayedBehavior.impulsivity)}</span>
-                        <span>flow {behaviorPercent(displayedBehavior.flowScore)}</span>
-                        <span>revision {behaviorPercent(displayedBehavior.revisionRate)}</span>
-                        <span>confidence {behaviorPercent(displayedBehavior.decisionConfidence)}</span>
-                        <span>{activeCheckpoint?.commitMessage || "behavior model live"}</span>
+                        <span>
+                          load{" "}
+                          {behaviorPercent(displayedBehavior.cognitiveLoad)}
+                        </span>
+                        <span>
+                          impulse{" "}
+                          {behaviorPercent(displayedBehavior.impulsivity)}
+                        </span>
+                        <span>
+                          flow {behaviorPercent(displayedBehavior.flowScore)}
+                        </span>
+                        <span>
+                          revision{" "}
+                          {behaviorPercent(displayedBehavior.revisionRate)}
+                        </span>
+                        <span>
+                          confidence{" "}
+                          {behaviorPercent(
+                            displayedBehavior.decisionConfidence,
+                          )}
+                        </span>
+                        <span>
+                          {activeCheckpoint?.commitMessage ||
+                            "behavior model live"}
+                        </span>
                       </div>
                     )}
 
@@ -2366,12 +2469,29 @@ const OverlayApp: React.FC = () => {
                             flexWrap: "wrap",
                           }}
                         >
-                          <span>Impulsivity {signedBehaviorPercent(behaviorDiff.deltas.impulsivity)}</span>
-                          <span>Decision confidence {signedBehaviorPercent(behaviorDiff.deltas.decisionConfidence)}</span>
-                          <span>Revision rate {signedBehaviorPercent(behaviorDiff.deltas.revisionRate)}</span>
+                          <span>
+                            Impulsivity{" "}
+                            {signedBehaviorPercent(
+                              behaviorDiff.deltas.impulsivity,
+                            )}
+                          </span>
+                          <span>
+                            Decision confidence{" "}
+                            {signedBehaviorPercent(
+                              behaviorDiff.deltas.decisionConfidence,
+                            )}
+                          </span>
+                          <span>
+                            Revision rate{" "}
+                            {signedBehaviorPercent(
+                              behaviorDiff.deltas.revisionRate,
+                            )}
+                          </span>
                         </div>
                         <div style={{ color: "rgba(100,210,255,0.78)" }}>
-                          {blendTo?.commitMessage || activeCheckpoint?.commitMessage || "behavioral checkpoint ready"}
+                          {blendTo?.commitMessage ||
+                            activeCheckpoint?.commitMessage ||
+                            "behavioral checkpoint ready"}
                         </div>
                       </div>
                     )}
@@ -2379,35 +2499,50 @@ const OverlayApp: React.FC = () => {
 
                   {/* Provider status pills */}
                   {aiHealthPills && (
-                    <div style={{
-                      display: "flex",
-                      gap: "6px",
-                      flexWrap: "wrap",
-                      marginBottom: "2px"
-                    }}>
-                      {([
-                        {
-                          label: "Claude vision",
-                          ok: aiHealthPills?.anthropic?.testRequest?.pass,
-                          detail: aiHealthPills?.anthropic?.testRequest?.pass ? "ready" : (aiHealthPills?.anthropic?.testRequest?.category || "failing")
-                        },
-                        {
-                          label: "Whisper",
-                          ok: aiHealthPills?.openai?.whisperConfigured,
-                          detail: aiHealthPills?.openai?.whisperConfigured ? "ready" : "missing key"
-                        },
-                        {
-                          label: "Voice",
-                          ok: aiHealthPills?.elevenlabs?.configured || aiHealthPills?.openaiTTS?.configured,
-                          detail: aiHealthPills?.elevenlabs?.configured
-                            ? "ElevenLabs"
-                            : aiHealthPills?.openaiTTS?.configured
-                              ? "OpenAI TTS"
-                              : lastTTSProvider === "macos"
-                                ? "macOS fallback"
-                                : "macOS fallback"
-                        }
-                      ] as Array<{label: string; ok: boolean; detail: string}>).map((pill) => (
+                    <div
+                      style={{
+                        display: "flex",
+                        gap: "6px",
+                        flexWrap: "wrap",
+                        marginBottom: "2px",
+                      }}
+                    >
+                      {(
+                        [
+                          {
+                            label: "Claude vision",
+                            ok: aiHealthPills?.anthropic?.testRequest?.pass,
+                            detail: aiHealthPills?.anthropic?.testRequest?.pass
+                              ? "ready"
+                              : aiHealthPills?.anthropic?.testRequest
+                                  ?.category || "failing",
+                          },
+                          {
+                            label: "Whisper",
+                            ok: aiHealthPills?.openai?.whisperConfigured,
+                            detail: aiHealthPills?.openai?.whisperConfigured
+                              ? "ready"
+                              : "missing key",
+                          },
+                          {
+                            label: "Voice",
+                            ok:
+                              aiHealthPills?.elevenlabs?.configured ||
+                              aiHealthPills?.openaiTTS?.configured,
+                            detail: aiHealthPills?.elevenlabs?.configured
+                              ? "ElevenLabs"
+                              : aiHealthPills?.openaiTTS?.configured
+                                ? "OpenAI TTS"
+                                : lastTTSProvider === "macos"
+                                  ? "macOS fallback"
+                                  : "macOS fallback",
+                          },
+                        ] as Array<{
+                          label: string;
+                          ok: boolean;
+                          detail: string;
+                        }>
+                      ).map((pill) => (
                         <div
                           key={pill.label}
                           style={{
@@ -2416,15 +2551,21 @@ const OverlayApp: React.FC = () => {
                             gap: "5px",
                             padding: "3px 8px",
                             borderRadius: "999px",
-                            background: pill.ok ? "rgba(48,209,88,0.12)" : "rgba(255,69,58,0.12)",
+                            background: pill.ok
+                              ? "rgba(48,209,88,0.12)"
+                              : "rgba(255,69,58,0.12)",
                             border: `1px solid ${pill.ok ? "rgba(48,209,88,0.3)" : "rgba(255,69,58,0.3)"}`,
                             fontSize: "10px",
                             fontWeight: 600,
-                            color: pill.ok ? "rgba(48,209,88,0.9)" : "rgba(255,100,80,0.9)",
+                            color: pill.ok
+                              ? "rgba(48,209,88,0.9)"
+                              : "rgba(255,100,80,0.9)",
                           }}
                         >
                           <span>{pill.ok ? "✓" : "✗"}</span>
-                          <span>{pill.label}: {pill.detail}</span>
+                          <span>
+                            {pill.label}: {pill.detail}
+                          </span>
                         </div>
                       ))}
                     </div>
@@ -2492,15 +2633,20 @@ const OverlayApp: React.FC = () => {
                           const providerNames = {
                             elevenlabs: "ElevenLabs",
                             openai: "OpenAI TTS",
-                            macos: "macOS Fallback (Robotic)"
+                            macos: "macOS Fallback (Robotic)",
                           };
                           let msg = `Voice test successful using ${providerNames[res.providerUsed as keyof typeof providerNames] || res.providerUsed}.`;
-                          if (res.providerUsed !== "elevenlabs" && res.fallbackReason) {
+                          if (
+                            res.providerUsed !== "elevenlabs" &&
+                            res.fallbackReason
+                          ) {
                             msg += `\nElevenLabs failed: ${res.fallbackReason}`;
                           }
                           setAiHealthMessage(msg);
                         } catch (err) {
-                          setAiHealthMessage(`Voice test failed: ${messageFromError(err)}`);
+                          setAiHealthMessage(
+                            `Voice test failed: ${messageFromError(err)}`,
+                          );
                         }
                       }}
                       style={{

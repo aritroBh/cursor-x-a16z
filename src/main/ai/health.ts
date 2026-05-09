@@ -57,6 +57,8 @@ interface OverallHealth {
   readyForRealAppAI: boolean;
   readyForVoiceInput: boolean;
   readyForNaturalVoiceOutput: boolean;
+  /** true = key is present but no runtime test was performed; "configured" ≠ "working" */
+  naturalVoiceConfiguredOnly: boolean;
 }
 
 export interface AIHealthResult {
@@ -122,6 +124,7 @@ export async function checkAIHealth(): Promise<AIHealthResult> {
       readyForRealAppAI: false,
       readyForVoiceInput: false,
       readyForNaturalVoiceOutput: false,
+      naturalVoiceConfiguredOnly: false,
     },
     anthropic: {
       key: anthropicKey,
@@ -219,8 +222,15 @@ export async function checkAIHealth(): Promise<AIHealthResult> {
   result.overall.readyForRealAppAI =
     result.anthropic.configured && result.anthropic.testRequest.pass;
   result.overall.readyForVoiceInput = result.openai.whisperConfigured;
-  result.overall.readyForNaturalVoiceOutput =
+
+  // "configured" = key present; runtime test NOT performed here (expensive).
+  // Use naturalVoiceConfiguredOnly=true to signal that "ready" means configured,
+  // not verified. Use the testVoiceOutput IPC to do a live end-to-end check.
+  const voiceProviderConfigured =
     result.elevenlabs.configured || result.openaiTTS.configured;
+  result.overall.readyForNaturalVoiceOutput = voiceProviderConfigured;
+  result.overall.naturalVoiceConfiguredOnly = voiceProviderConfigured;
+
   result.ok =
     result.overall.readyForRealAppAI &&
     result.overall.readyForVoiceInput &&

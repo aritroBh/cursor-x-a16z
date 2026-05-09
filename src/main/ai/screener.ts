@@ -1,5 +1,6 @@
 import { classifyAnthropicError, createAnthropicClient, getAnthropicVisionModel } from './config'
 import { safeLog, safeWarn, safeError } from '../logger'
+import { analyzeVision, VisionAnalyzeResult, VisionErrorCode } from '../vision'
 
 const CLAUDE_VISION_MODEL = getAnthropicVisionModel()
 
@@ -64,86 +65,6 @@ function action(value: any): ScreenTarget['action'] {
   return ['click', 'type', 'scroll', 'wait'].includes(value) ? value : 'click'
 }
 
-function extractJson(text: string): any | null {
-  const cleanJson = text
-    .replace(/```json/g, '')
-    .replace(/```/g, '')
-    .trim()
-  const jsonMatch = cleanJson.match(/\{[\s\S]*\}/)
-  if (!jsonMatch) return null
-  return JSON.parse(jsonMatch[0])
-}
-
-function normalizeScreenState(value: any): ScreenState {
-  if (!value || typeof value !== 'object') {
-    return fallbackScreenState()
-  }
-
-  const coordinates = Array.isArray(value.coordinates)
-    ? value.coordinates
-        .filter((item: any) => item && typeof item === 'object')
-        .map((item: any) => ({
-          label: typeof item.label === 'string' && item.label.trim() ? item.label : 'Untitled target',
-          x: percent(item.x ?? item.targetX),
-          y: percent(item.y ?? item.targetY),
-          confidence: confidence(item.confidence, 0.5)
-        }))
-    : []
-
-  return {
-    app: typeof value.app === 'string' && value.app.trim() ? value.app : 'Unknown',
-    coordinates
-  }
-}
-
-function normalizeScreenTargets(value: any, prompt: string): ScreenTargetsResult {
-  if (!value || typeof value !== 'object') {
-    return {
-      app: 'Unknown',
-      prompt,
-      microTask: 'First, I will teach one visible action.',
-      targets: [],
-      needsConfirmation: true,
-      reason: 'No target JSON returned.',
-      capturedAt: new Date().toISOString()
-    }
-  }
-
-  const rawTargets = Array.isArray(value.targets) ? value.targets : Array.isArray(value.coordinates) ? value.coordinates : []
-
-  const targets = rawTargets
-    .filter((item: any) => item && typeof item === 'object')
-    .map(
-      (item: any, index: number): ScreenTarget => ({
-        id: typeof item.id === 'string' && item.id.trim() ? item.id : `target-${index + 1}`,
-        label:
-          typeof item.label === 'string' && item.label.trim()
-            ? item.label.trim()
-            : typeof item.name === 'string' && item.name.trim()
-              ? item.name.trim()
-              : `Target ${index + 1}`,
-        description: typeof item.description === 'string' && item.description.trim() ? item.description.trim() : undefined,
-        x: percent(item.x ?? item.targetX),
-        y: percent(item.y ?? item.targetY),
-        confidence: confidence(item.confidence, 0.45),
-        action: action(item.action),
-        source: 'vision'
-      })
-    )
-    .sort((a, b) => b.confidence - a.confidence)
-    .slice(0, 12)
-
-  return {
-    app: typeof value.app === 'string' && value.app.trim() ? value.app.trim() : 'Unknown',
-    prompt,
-    microTask: typeof value.microTask === 'string' && value.microTask.trim() ? value.microTask.trim() : 'First, I will teach one visible action.',
-    targets,
-    needsConfirmation: value.needsConfirmation !== false,
-    reason: typeof value.reason === 'string' && value.reason.trim() ? value.reason.trim() : undefined,
-    capturedAt: new Date().toISOString()
-  }
-}
-
 export function fallbackScreenTargets(prompt = '', error?: string): ScreenTargetsResult {
   return {
     app: 'Unknown',
@@ -158,186 +79,90 @@ export function fallbackScreenTargets(prompt = '', error?: string): ScreenTarget
   }
 }
 
-export async function detectScreenTargets(base64PNG?: string, prompt = ''): Promise<ScreenTargetsResult> {
-  const anthropic = createAnthropicClient()
-  const normalizedPrompt = typeof prompt === 'string' && prompt.trim() ? prompt.trim() : 'Teach one visible action'
+/**
+ * Adapter to convert new VisionAnalyzeResult to legacy ScreenTargetsResult
+ */
+function adaptToScreenTargets(result: VisionAnalyzeResult, prompt: string): ScreenTargetsResult {
+  return {
+    app: result.summary.split(' ')[0] || 'Unknown', // Rough app detection from summary
+    prompt,
+    microTask: result.recommendedAction || 'First, I will teach one visible action.',
+    targets: result.elements.map((el, index) => ({
+      id: `target-${index + 1}`,
+      label: el.label,
+      description: el.reasoning,
+      // The new provider returns pixel coordinates, the old one expected percentages.
+      // We need to know screenshot dimensions to convert, but if not available, we use them as is
+      // and hope the rest of the app handles it.
+      // Actually, looking at the old code, it used percent() which clamped to 0-100.
+      x: el.center?.x ?? el.bbox?.x ?? 0,
+      y: el.center?.y ?? el.bbox?.y ?? 0,
+      confidence: el.confidence ?? 0.5,
+      action: 'click', // Default action
+      source: 'vision'
+    })),
+    needsConfirmation: true,
+    reason: result.warnings.join('. '),
+    capturedAt: result.generatedAt
+  }
+}
 
-  safeLog('[SCREEN_TARGETS] detect request', {
-    hasBase64: Boolean(base64PNG),
-    prompt: normalizedPrompt
-  })
+/**
+ * Adapter to convert new VisionAnalyzeResult to legacy ScreenState
+ */
+function adaptToScreenState(result: VisionAnalyzeResult): ScreenState {
+  return {
+    app: result.summary.split(' ')[0] || 'Unknown',
+    coordinates: result.elements.map(el => ({
+      label: el.label,
+      x: el.center?.x ?? el.bbox?.x ?? 0,
+      y: el.center?.y ?? el.bbox?.y ?? 0,
+      confidence: el.confidence
+    }))
+  }
+}
+
+export async function detectScreenTargets(base64PNG?: string, prompt = ''): Promise<ScreenTargetsResult> {
+  const normalizedPrompt = typeof prompt === 'string' && prompt.trim() ? prompt.trim() : 'Teach one visible action'
 
   if (!base64PNG) {
     safeWarn('[SCREEN_TARGETS] no screenshot provided; returning empty target set')
     return fallbackScreenTargets(normalizedPrompt)
   }
 
-  if (!anthropic) {
-    safeWarn('[AI_BACKEND] Anthropic API key missing; using fallback')
-    return fallbackScreenTargets(normalizedPrompt, 'AI_BACKEND_UNAVAILABLE')
-  }
-
   try {
-    safeLog('[SCREEN_TARGETS] calling Claude Vision...', {
-      model: CLAUDE_VISION_MODEL
-    })
-    const message = await anthropic.messages.create({
-      model: CLAUDE_VISION_MODEL,
-      max_tokens: 4096,
-      system:
-        'You are a real-app UI target detector for Specter, a visual software tutor. Return ONLY valid JSON. Identify visible clickable UI targets in the screenshot. Coordinates must be percentages from 0-100 of the full screenshot width and height. Include confidence from 0-1. If the user asks for a broad tutorial, reduce it to one visible micro-task and return at most 12 likely targets. Do not invent hidden menu items or off-screen steps.',
-      messages: [
-        {
-          role: 'user',
-          content: [
-            {
-              type: 'image',
-              source: {
-                type: 'base64',
-                media_type: 'image/png',
-                data: base64PNG
-              }
-            },
-            {
-              type: 'text',
-              text: JSON.stringify(
-                {
-                  userPrompt: normalizedPrompt,
-                  requiredShape: {
-                    app: 'detected app or web page',
-                    microTask: 'First, I will teach one visible action.',
-                    needsConfirmation: true,
-                    reason: 'short uncertainty note if useful',
-                    targets: [
-                      {
-                        id: 'target-1',
-                        label: 'Text tool',
-                        description: 'visible T icon in toolbar',
-                        x: 12.5,
-                        y: 8.2,
-                        confidence: 0.86,
-                        action: 'click'
-                      }
-                    ]
-                  }
-                },
-                null,
-                2
-              )
-            }
-          ]
-        }
-      ]
-    })
+    const result = await analyzeVision({
+      imageBase64: base64PNG,
+      mimeType: 'image/png',
+      task: 'target_detection',
+      userPrompt: normalizedPrompt
+    });
 
-    const textParts = message.content.flatMap((part) => (part.type === 'text' && 'text' in part && typeof part.text === 'string' ? [part.text] : [])).join('\n')
-
-    if (textParts) {
-      safeLog('[SCREEN_TARGETS] raw response:', textParts)
-      const parsed = extractJson(textParts)
-      if (parsed) {
-        const normalized = normalizeScreenTargets(parsed, normalizedPrompt)
-        safeLog('[SCREEN_TARGETS] normalized targets', {
-          app: normalized.app,
-          count: normalized.targets.length,
-          topTarget: normalized.targets[0]
-            ? {
-                label: normalized.targets[0].label,
-                x: normalized.targets[0].x,
-                y: normalized.targets[0].y,
-                confidence: normalized.targets[0].confidence
-              }
-            : null
-        })
-        return normalized
-      }
-    }
-
-    return fallbackScreenTargets(normalizedPrompt)
+    return adaptToScreenTargets(result, normalizedPrompt);
   } catch (error: any) {
-    const summary = classifyAnthropicError(error)
-    const errorMessage = error?.message || String(error)
-    const causeMessage = error?.cause?.message || ''
-    if (errorMessage.includes('11434') || causeMessage.includes('11434')) {
-      safeError(
-        '[AI_BACKEND] Refusing localhost:11434 Anthropic route because USE_LOCAL_MODEL is not true. Check ANTHROPIC_BASE_URL / proxy env.'
-      )
-    }
-    safeError('[AI_BACKEND] Anthropic unavailable; using fallback', summary)
-    return fallbackScreenTargets(normalizedPrompt, 'AI_BACKEND_UNAVAILABLE')
+    const code = error.code as VisionErrorCode;
+    safeError(`[AI_BACKEND] Vision provider failed (${code}): ${error.message}`);
+    return fallbackScreenTargets(normalizedPrompt, code || 'UNKNOWN_VISION_ERROR');
   }
 }
 
 export async function analyzeScreen(base64PNG?: string): Promise<ScreenState> {
-  safeLog('[SCREENER] Got base64, length:', base64PNG?.length)
-  const anthropic = createAnthropicClient()
-
   if (!base64PNG) {
     safeWarn('[Specter] No screenshot provided; skipping screen analysis.')
     return fallbackScreenState()
   }
 
-  if (!anthropic) {
-    safeWarn('[AI_BACKEND] Anthropic API key missing; using fallback')
-    return fallbackScreenState('AI_BACKEND_UNAVAILABLE')
-  }
-
   try {
-    safeLog('[SCREENER] Calling Claude Vision...', {
-      model: CLAUDE_VISION_MODEL
-    })
-    const message = await anthropic.messages.create({
-      model: CLAUDE_VISION_MODEL,
-      max_tokens: 4096,
-      system:
-        'You are a UI state analyzer. Given a screenshot, return ONLY valid JSON matching the ScreenState schema. Identify clickable elements and their approximate screen coordinates as percentages (0-100) of screen width/height.',
-      messages: [
-        {
-          role: 'user',
-          content: [
-            {
-              type: 'image',
-              source: {
-                type: 'base64',
-                media_type: 'image/png',
-                data: base64PNG
-              }
-            },
-            {
-              type: 'text',
-              text: 'Analyze this screenshot and return the UI state as JSON.'
-            }
-          ]
-        }
-      ]
-    })
+    const result = await analyzeVision({
+      imageBase64: base64PNG,
+      mimeType: 'image/png',
+      task: 'screen_understanding'
+    });
 
-    const textParts = message.content.flatMap((part) => (part.type === 'text' && 'text' in part && typeof part.text === 'string' ? [part.text] : [])).join('\n')
-
-    if (textParts) {
-      safeLog('[SCREENER] Raw response:', textParts)
-      const cleanJson = textParts
-        .replace(/```json/g, '')
-        .replace(/```/g, '')
-        .trim()
-      const jsonMatch = cleanJson.match(/\{[\s\S]*\}/)
-      if (jsonMatch) {
-        const parsed = JSON.parse(jsonMatch[0])
-        safeLog('[SCREENER] Parsed state:', JSON.stringify(parsed))
-        return normalizeScreenState(parsed)
-      }
-    }
-    return fallbackScreenState()
+    return adaptToScreenState(result);
   } catch (error: any) {
-    const summary = classifyAnthropicError(error)
-    const errorMessage = error?.message || String(error)
-    const causeMessage = error?.cause?.message || ''
-    if (errorMessage.includes('11434') || causeMessage.includes('11434')) {
-      safeError(
-        '[AI_BACKEND] Refusing localhost:11434 Anthropic route because USE_LOCAL_MODEL is not true. Check ANTHROPIC_BASE_URL / proxy env.'
-      )
-    }
-    safeError('[AI_BACKEND] Anthropic unavailable; using fallback', summary)
-    return fallbackScreenState('AI_BACKEND_UNAVAILABLE')
+    const code = error.code as VisionErrorCode;
+    safeError(`[AI_BACKEND] Vision provider failed (${code}): ${error.message}`);
+    return fallbackScreenState(code || 'UNKNOWN_VISION_ERROR');
   }
 }

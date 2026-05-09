@@ -1,8 +1,12 @@
 node_modules/
 .env
+.env.*
+!.env.example
 .DS_Store
 *.tsbuildinfo
 out/
 dist/
 release/
 build/
+logs/
+*.log

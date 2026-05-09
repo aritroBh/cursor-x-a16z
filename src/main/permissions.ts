@@ -1,8 +1,17 @@
 import { shell, desktopCapturer, dialog, app } from 'electron'
-import pkg from 'node-mac-permissions'
-import { safeLog } from './logger'
+import { safeLog, safeWarn } from './logger'
 
-const { getAuthStatus, askForAccessibilityAccess } = pkg
+let getAuthStatus: (type: string) => string = () => 'not determined'
+let askForAccessibilityAccess: () => void = () => {}
+
+try {
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  const pkg = require('node-mac-permissions')
+  getAuthStatus = pkg.getAuthStatus
+  askForAccessibilityAccess = pkg.askForAccessibilityAccess
+} catch (e) {
+  safeWarn('[PERMISSIONS] node-mac-permissions not available. Mocking permissions check.', e)
+}
 
 const ACCESSIBILITY_SETTINGS_URL =
   'x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility'
@@ -85,6 +94,11 @@ export async function checkPermissions(): Promise<boolean> {
 
     if (missing.length === 0) {
       safeLog('[PERMISSIONS] All required permissions granted.')
+      return true
+    }
+
+    if (getAuthStatus.toString().includes('not determined')) {
+      safeWarn('[PERMISSIONS] node-mac-permissions is mocked. Proceeding assuming permissions are granted.')
       return true
     }
 

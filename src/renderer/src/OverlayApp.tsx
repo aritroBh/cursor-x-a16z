@@ -1824,6 +1824,24 @@ const OverlayApp: React.FC = () => {
     }
   };
 
+  const enterNewPrompt = () => {
+    setIntent("");
+    setRealAppIntent("");
+    setCurrentStep(null);
+    setReplayState("idle");
+    setReplayMode(null);
+    setErrorMessage("");
+    setManualConfirmMessage("");
+    setCalibrationMessage("");
+    setRealAppTargets(null);
+    setSelectedRealAppTarget(null);
+    setSelectedTargetMapping(null);
+    setHoveredRealAppTargetKey("");
+    setIsManualTargetPicking(false);
+    setRealAppNotice("");
+    setInteractivity(true);
+  };
+
   const isMirrorRunning = mirrorStatus === "running";
   const isReplayRunning = replayState === "running" || isMirrorRunning;
   const showWalkthroughDebug =
@@ -2492,6 +2510,13 @@ const OverlayApp: React.FC = () => {
                         <button
                           className="specter-action-button"
                           disabled={isLoading}
+                          onClick={enterNewPrompt}
+                        >
+                          New prompt
+                        </button>
+                        <button
+                          className="specter-action-button"
+                          disabled={isLoading}
                           onClick={prepareControlledDemo}
                         >
                           Practice Mode
@@ -2522,6 +2547,13 @@ const OverlayApp: React.FC = () => {
                           }}
                         >
                           Retry
+                        </button>
+                        <button
+                          className="specter-action-button"
+                          disabled={isLoading}
+                          onClick={enterNewPrompt}
+                        >
+                          New prompt
                         </button>
                         {showDebugTools && (
                           <button

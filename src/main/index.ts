@@ -725,21 +725,24 @@ app.whenReady().then(async () => {
     cancelAutomationSession();
   });
 
-  ipcMain.handle("cursor:move", async (event, x, y, durationMs) => {
-    if (!validateSender(event, overlayWindow))
-      throw new Error("Unauthorized sender");
-    if (!validateAutomationAction("cursor:move"))
-      throw new Error("Automation blocked by gate");
-    safeLog("[IPC] cursor:move", { x, y, durationMs });
-    return moveRealMouse(x, y, durationMs);
-  });
+  ipcMain.handle(
+    "cursor:move",
+    async (event, x, y, durationMs, expectedDisplayId) => {
+      if (!validateSender(event, overlayWindow))
+        throw new Error("Unauthorized sender");
+      if (!validateAutomationAction("cursor:move"))
+        throw new Error("Automation blocked by gate");
+      safeLog("[IPC] cursor:move", { x, y, durationMs, expectedDisplayId });
+      return moveRealMouse(x, y, durationMs, expectedDisplayId);
+    },
+  );
 
-  ipcMain.handle("cursor:click", async (event, x, y) => {
+  ipcMain.handle("cursor:click", async (event, x, y, expectedDisplayId) => {
     if (!validateSender(event, overlayWindow))
       throw new Error("Unauthorized sender");
     if (!validateAutomationAction("cursor:click"))
       throw new Error("Automation blocked by gate");
-    return clickRealMouse(x, y);
+    return clickRealMouse(x, y, undefined, expectedDisplayId);
   });
 
   ipcMain.handle("cursor:replay", async (event, steps) => {

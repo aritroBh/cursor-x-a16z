@@ -1984,39 +1984,53 @@ const OverlayApp: React.FC = () => {
           className="siri-glow-fullscreen"
           style={{ pointerEvents: "none" }}
         />
-        <GhostCursor
-          mood={specMood}
-          isVisible={isVisible || isReplayRunning}
-          step={currentStep}
-        />
-        <WalkthroughGuide step={currentStep} />
-        <TargetPreviewGhost
-          target={
-            selectedRealAppTarget
-              ? {
-                  x: selectedRealAppTarget.viewportX ?? selectedRealAppTarget.x,
-                  y: selectedRealAppTarget.viewportY ?? selectedRealAppTarget.y,
-                  label: selectedRealAppTarget.label,
-                }
-              : null
-          }
-          start={previewGhostStart || undefined}
-          active={Boolean(
+        {(() => {
+          const targetPreviewActive = Boolean(
             showWorkflowCard && selectedRealAppTarget && !isReplayRunning,
+          );
+          return (
+            <>
+              <GhostCursor
+                mood={specMood}
+                isVisible={
+                  (isVisible || isReplayRunning) && !targetPreviewActive
+                }
+                step={currentStep}
+              />
+              <WalkthroughGuide step={currentStep} />
+              <TargetPreviewGhost
+                target={
+                  selectedRealAppTarget
+                    ? {
+                        x:
+                          selectedRealAppTarget.viewportX ??
+                          selectedRealAppTarget.x,
+                        y:
+                          selectedRealAppTarget.viewportY ??
+                          selectedRealAppTarget.y,
+                        label: selectedRealAppTarget.label,
+                      }
+                    : null
+                }
+                start={previewGhostStart || undefined}
+                active={targetPreviewActive}
+              />
+            </>
+          );
+        })()}
+        {(isVisible || isReplayRunning || isLoading) &&
+          !(showWorkflowCard && selectedRealAppTarget && !isReplayRunning) && (
+            <SpecBuddy
+              mood={specMood}
+              state={displayedBehavior || undefined}
+              enabled={isVisible || isReplayRunning || isLoading}
+              checkpointLabel={activeCheckpoint?.label}
+              compact={!showDebugTools}
+              pitchMode={pitchMode}
+            />
           )}
-        />
-        {(isVisible || isReplayRunning || isLoading) && (
-          <SpecBuddy
-            mood={specMood}
-            state={displayedBehavior || undefined}
-            enabled={isVisible || isReplayRunning || isLoading}
-            checkpointLabel={activeCheckpoint?.label}
-            compact={!showDebugTools}
-            pitchMode={pitchMode}
-          />
-        )}
 
-        {isManualTargetPicking && !isReplayRunning && (
+        {false && isManualTargetPicking && !isReplayRunning && (
           <>
             <div
               onClick={handleManualTargetPick}
@@ -2531,6 +2545,7 @@ const OverlayApp: React.FC = () => {
                 </div>
               )}
 
+              {!showWorkflowCard && (
               <div
                 style={{
                   display: "flex",
@@ -2563,7 +2578,9 @@ const OverlayApp: React.FC = () => {
                   {showDebugTools ? "⚙️ Hide Debug" : "⚙️ Debug"}
                 </button>
               </div>
+              )}
 
+              {!showWorkflowCard && (
               <div
                 onMouseEnter={() => setInteractivity(true)}
                 onMouseLeave={() => setInteractivity(false)}
@@ -2638,6 +2655,7 @@ const OverlayApp: React.FC = () => {
                   </div>
                 )}
               </div>
+              )}
 
               {showDebugTools && (
                 <div

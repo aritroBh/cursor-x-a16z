@@ -13,16 +13,24 @@ function onIpc(
 // Custom APIs for renderer
 const api = {
   // Cursor
-  moveRealMouse: (x: number, y: number, durationMs?: number) =>
-    ipcRenderer.invoke("cursor:move", x, y, durationMs),
-  clickRealMouse: (x: number, y: number) =>
-    ipcRenderer.invoke("cursor:click", x, y),
+  moveRealMouse: (
+    x: number,
+    y: number,
+    durationMs?: number,
+    expectedDisplayId?: number,
+  ) => ipcRenderer.invoke("cursor:move", x, y, durationMs, expectedDisplayId),
+  clickRealMouse: (x: number, y: number, expectedDisplayId?: number) =>
+    ipcRenderer.invoke("cursor:click", x, y, expectedDisplayId),
   executeRealMouseSteps: (steps: any[]) =>
     ipcRenderer.invoke("cursor:replay", steps),
-  moveCursor: (x: number, y: number, durationMs?: number) =>
-    ipcRenderer.invoke("cursor:move", x, y, durationMs),
-  clickCursor: (x: number, y: number) =>
-    ipcRenderer.invoke("cursor:click", x, y),
+  moveCursor: (
+    x: number,
+    y: number,
+    durationMs?: number,
+    expectedDisplayId?: number,
+  ) => ipcRenderer.invoke("cursor:move", x, y, durationMs, expectedDisplayId),
+  clickCursor: (x: number, y: number, expectedDisplayId?: number) =>
+    ipcRenderer.invoke("cursor:click", x, y, expectedDisplayId),
   replaySteps: (steps: any[]) => ipcRenderer.invoke("cursor:replay", steps),
   getCursorPosition: () => ipcRenderer.invoke("cursor:getPosition"),
   getCursorPercent: () => ipcRenderer.invoke("cursor:getPositionPercent"),

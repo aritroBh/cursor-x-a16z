@@ -217,7 +217,95 @@ export async function clickElementByIndex(
     });
     return false;
   }
+  const trailing = result.stdout
+    .split("\n")
+    .reverse()
+    .find((line) => line.trim().startsWith("{"));
+  if (!trailing) return true;
+  const parsed = parseToolResult(trailing);
+  if (parsed.isError) {
+    safeWarn("[OPENARA] clickElementByIndex reported error", {
+      text: parsed.text.slice(0, 200),
+    });
+    return false;
+  }
   return true;
+}
+
+export interface OpenaraAppState {
+  app: string;
+  axTree: string;
+  screenshotBase64: string | null;
+  screenshotMime: string | null;
+}
+
+export async function getAppState(
+  app?: string,
+): Promise<OpenaraAppState | null> {
+  if (!(await ensureOpenaraPermissions())) return null;
+
+  const targetApp = app || (await getFocusedAppBundleId());
+  if (!targetApp) {
+    safeWarn("[OPENARA] no focused app for getAppState");
+    return null;
+  }
+
+  const result = await runOpenara(
+    [
+      "call",
+      "get_app_state",
+      "--args",
+      JSON.stringify({ app: targetApp }),
+    ],
+    8000,
+  );
+
+  if (!result.ok) {
+    safeWarn("[OPENARA] getAppState failed", {
+      exitCode: result.exitCode,
+      stderr: result.stderr.slice(0, 300),
+    });
+    return null;
+  }
+
+  let parsed: any;
+  try {
+    parsed = JSON.parse(result.stdout);
+  } catch {
+    safeWarn("[OPENARA] getAppState returned non-JSON stdout");
+    return null;
+  }
+
+  if (parsed?.isError === true) {
+    safeWarn("[OPENARA] getAppState reported error", {
+      text: JSON.stringify(parsed?.content).slice(0, 200),
+    });
+    return null;
+  }
+
+  const items: any[] = Array.isArray(parsed?.content) ? parsed.content : [];
+  const axTreeItem = items.find(
+    (c) => c?.type === "text" && typeof c.text === "string",
+  );
+  const imageItem = items.find(
+    (c) => c?.type === "image" && typeof c.data === "string",
+  );
+
+  if (!axTreeItem) {
+    safeWarn("[OPENARA] getAppState missing AX text content");
+    return null;
+  }
+
+  return {
+    app: targetApp,
+    axTree: axTreeItem.text,
+    screenshotBase64: imageItem ? imageItem.data : null,
+    screenshotMime: imageItem
+      ? typeof imageItem.mimeType === "string"
+        ? imageItem.mimeType
+        : "image/png"
+      : null,
+  };
 }
 
 /**

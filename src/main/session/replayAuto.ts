@@ -1,4 +1,4 @@
-import { safeLog } from "../logger";
+import { safeLog, safeWarn } from "../logger";
 import { clickRealMouse, executeRealMouseSteps } from "../cursor";
 import type { Step } from "./types";
 import {
@@ -10,8 +10,21 @@ import {
   setOverlayForReplay,
   sleep,
 } from "./replayController";
+import { isProhibitedAutonomousLabel } from "../clinical/prohibitedActions";
 
 const DEFAULT_WAIT_STEP_MS = 800;
+
+function clinicalSafetyHaystack(step: Step): string {
+  return [
+    step.id ?? "",
+    step.title ?? "",
+    step.targetLabel ?? "",
+    step.instruction ?? "",
+    step.typeText ?? "",
+  ]
+    .filter((s) => typeof s === "string" && s.length > 0)
+    .join(" ");
+}
 
 function stepWaitMs(step: Step): number {
   return step.waitForMs || step.delayMs || DEFAULT_WAIT_STEP_MS;
@@ -32,6 +45,22 @@ export async function replayAutoExecute(steps: Step[]): Promise<void> {
     for (let index = 0; index < steps.length; index++) {
       if (!isActive(controller)) break;
       const step = steps[index];
+      if (isProhibitedAutonomousLabel(clinicalSafetyHaystack(step))) {
+        safeWarn(
+          "[AUTO_REAL_MOUSE] CLINICAL SAFETY: refusing to autonomously execute step matching prohibited action list. Use walkthrough mode for clinician confirmation.",
+          {
+            index,
+            title: stepTitle(step),
+            targetLabel: step.targetLabel,
+          },
+        );
+        sendOverlay("replay:clinical-blocked", {
+          index,
+          step,
+          reason: "prohibited autonomous action",
+        });
+        break;
+      }
       safeLog("[AUTO_REAL_MOUSE] real mouse step", {
         index,
         displayIndex: index + 1,

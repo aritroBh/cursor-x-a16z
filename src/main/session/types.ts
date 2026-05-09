@@ -28,6 +28,8 @@ export interface Step {
     scaleFactor: number;
     coordinateMode: string;
   };
+  axElementIndex?: string;
+  axApp?: string;
 }
 
 export interface Node {

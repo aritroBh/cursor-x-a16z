@@ -13,6 +13,7 @@ export default defineConfig({
         input: {
           index: resolve(__dirname, "src/preload/index.ts"),
           overlay: resolve(__dirname, "src/preload/overlay.ts"),
+          clinical: resolve(__dirname, "src/preload/clinical.ts"),
         },
       },
     },
@@ -29,6 +30,7 @@ export default defineConfig({
         input: {
           index: resolve(__dirname, "src/renderer/index.html"),
           overlay: resolve(__dirname, "src/renderer/overlay.html"),
+          clinical: resolve(__dirname, "src/renderer/clinical.html"),
         },
       },
     },

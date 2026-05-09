@@ -3,7 +3,11 @@ import { screen } from "electron";
 import { Step } from "./session/types";
 import { toScreenPoint, getActiveCoordinateDisplay } from "./screenCoordinates";
 import { safeLog, safeError, safeWarn } from "./logger";
-import { clickAtScreenPixel, isOpenaraInstalled } from "./openara";
+import {
+  clickAtScreenPixel,
+  clickElementByIndex,
+  isOpenaraInstalled,
+} from "./openara";
 
 const DEFAULT_MOVE_DURATION_MS = 650;
 
@@ -141,20 +145,51 @@ export async function moveRealMouse(
   }
 }
 
+export interface AxClickTarget {
+  app: string;
+  elementIndex: string;
+}
+
 export async function clickRealMouse(
   x: number,
   y: number,
   durationMs = DEFAULT_MOVE_DURATION_MS,
   expectedDisplayId?: number,
+  axTarget?: AxClickTarget,
 ): Promise<void> {
   safeLog(
     "[AUTO_REAL_MOUSE] clickRealMouse invoked REAL OS cursor automation",
-    { x, y, durationMs, expectedDisplayId },
+    { x, y, durationMs, expectedDisplayId, axTarget },
   );
 
   // moveRealMouse runs the same guardrails (percent range + display match
   // + bounds), so by the time we get to click, the target is verified.
   await moveRealMouse(x, y, durationMs, expectedDisplayId);
+
+  // AX path: openara clicks the element by its accessibility index, which
+  // resolves to the element's exact center natively. Pixel-perfect on any
+  // app that exposes an AX tree (every native + Electron app on macOS).
+  if (axTarget && isOpenaraInstalled()) {
+    try {
+      const ok = await clickElementByIndex(axTarget.app, axTarget.elementIndex);
+      if (ok) {
+        safeLog("[AUTO_REAL_MOUSE] AX element_index click complete", {
+          app: axTarget.app,
+          elementIndex: axTarget.elementIndex,
+        });
+        return;
+      }
+      safeWarn(
+        "[AUTO_REAL_MOUSE] AX element_index click rejected; falling back",
+        axTarget,
+      );
+    } catch (err) {
+      safeWarn("[AUTO_REAL_MOUSE] AX element_index click threw; falling back", {
+        ...axTarget,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+  }
 
   if (isOpenaraInstalled()) {
     try {
@@ -200,6 +235,21 @@ export async function clickRealMouse(
   }
 }
 
+function axTargetForStep(step: Step): AxClickTarget | undefined {
+  if (
+    step.axElementIndex &&
+    step.axElementIndex.trim() &&
+    step.axApp &&
+    step.axApp.trim()
+  ) {
+    return {
+      app: step.axApp.trim(),
+      elementIndex: step.axElementIndex.trim(),
+    };
+  }
+  return undefined;
+}
+
 export async function executeRealMouseSteps(
   steps: Step[],
   moveDurationMs = DEFAULT_MOVE_DURATION_MS,
@@ -214,18 +264,34 @@ export async function executeRealMouseSteps(
       action: step.action,
       x: step.x,
       y: step.y,
+      axElementIndex: step.axElementIndex,
+      axApp: step.axApp,
     });
     if (step.action !== "wait" && step.delayMs) {
       await sleep(step.delayMs);
     }
 
+    const axTarget = axTargetForStep(step);
+
     switch (step.action) {
       case "click":
-        await clickRealMouse(step.x, step.y, moveDurationMs);
+        await clickRealMouse(
+          step.x,
+          step.y,
+          moveDurationMs,
+          undefined,
+          axTarget,
+        );
         break;
       case "type":
         if (step.typeText) {
-          await clickRealMouse(step.x, step.y, moveDurationMs);
+          await clickRealMouse(
+            step.x,
+            step.y,
+            moveDurationMs,
+            undefined,
+            axTarget,
+          );
           await keyboard.type(step.typeText);
         } else {
           await moveRealMouse(step.x, step.y, moveDurationMs);

@@ -25,6 +25,7 @@ import {
 import {
   analyzeScreen,
   detectScreenTargets,
+  detectScreenTargetsViaAx,
   fallbackScreenState,
   fallbackScreenTargets,
 } from "./ai/screener";
@@ -48,6 +49,7 @@ import {
   saveToNode,
 } from "./session/recorder";
 import { registerReplayIpc, replayWalkthrough } from "./session/replay";
+import { registerClinicalIpc } from "./clinical/ipc";
 import { hasActiveReplay, stopReplay } from "./session/replayController";
 import { mirrorReplayExecute } from "./session/mirrorReplay";
 import {
@@ -87,6 +89,7 @@ import {
 } from "./behavioral/tracker";
 import { safeLog, safeWarn, safeError } from "./logger";
 import { probeOpenaraOnStartup } from "./openara";
+import { ensureAxDumpReady, getAxDumpStatus } from "./axDump";
 import {
   requestAutomationSession,
   confirmAutomationSession,
@@ -134,6 +137,47 @@ process.on("uncaughtException", (error, origin) => {
 
 let mainWindow: BrowserWindow | null = null;
 let overlayWindow: BrowserWindow | null = null;
+let clinicalWindow: BrowserWindow | null = null;
+
+function createClinicalWindow(): BrowserWindow {
+  if (clinicalWindow && !clinicalWindow.isDestroyed()) return clinicalWindow;
+  const win = new BrowserWindow({
+    width: 1100,
+    height: 760,
+    minWidth: 720,
+    minHeight: 520,
+    show: false,
+    title: "Specter Clinical",
+    autoHideMenuBar: true,
+    backgroundColor: "#0b0d10",
+    webPreferences: {
+      preload: join(__dirname, "../preload/clinical.js"),
+      contextIsolation: true,
+      nodeIntegration: false,
+      sandbox: true,
+    },
+  });
+  win.on("closed", () => {
+    if (clinicalWindow === win) clinicalWindow = null;
+  });
+  win.webContents.setWindowOpenHandler((details) => {
+    shell.openExternal(details.url);
+    return { action: "deny" };
+  });
+  if (is.dev && process.env["ELECTRON_RENDERER_URL"]) {
+    win.loadURL(`${process.env["ELECTRON_RENDERER_URL"]}/clinical.html`);
+  } else {
+    win.loadFile(join(__dirname, "../renderer/clinical.html"));
+  }
+  clinicalWindow = win;
+  return win;
+}
+
+function showClinicalWindow(): void {
+  const win = createClinicalWindow();
+  win.show();
+  win.focus();
+}
 
 function bufferFromAudioData(audioData: any): Buffer {
   if (!audioData) return Buffer.alloc(0);
@@ -328,6 +372,15 @@ function createRealAppStep(target: any, source: "vision" | "manual"): Step {
   const viewportX = clampPercent(target?.viewportX ?? target?.x);
   const viewportY = clampPercent(target?.viewportY ?? target?.y);
 
+  const axElementIndex =
+    typeof target?.axElementIndex === "string" && target.axElementIndex.trim()
+      ? target.axElementIndex.trim()
+      : undefined;
+  const axApp =
+    typeof target?.axApp === "string" && target.axApp.trim()
+      ? target.axApp.trim()
+      : undefined;
+
   return {
     id:
       source === "manual"
@@ -347,6 +400,8 @@ function createRealAppStep(target: any, source: "vision" | "manual"): Step {
       (source === "manual" ? "manual" : target?.coordinateFrame || "viewport"),
     rawTarget: target?.rawTarget,
     captureMeta: target?.captureMeta,
+    axElementIndex,
+    axApp,
   };
 }
 
@@ -663,8 +718,29 @@ app.whenReady().then(async () => {
     });
   }
 
+  globalShortcut.register("CommandOrControl+Shift+K", () => {
+    showClinicalWindow();
+  });
+
+  ipcMain.handle("clinical:window:show", async () => {
+    showClinicalWindow();
+    return { ok: true };
+  });
+
   uIOhook.start();
   void probeOpenaraOnStartup();
+
+  // Compile / locate the ax-dump helper that drives pixel-perfect AX targeting.
+  // Done off the critical path; the AX detector falls back to vision if this
+  // returns null.
+  setImmediate(() => {
+    const path = ensureAxDumpReady();
+    safeLog("[AX_DUMP] startup probe", {
+      ready: path !== null,
+      status: getAxDumpStatus(),
+    });
+  });
+
   setBehavioralStateEmitter((state) => {
     sendOverlayEvent("spec:state", state);
     sendOverlayEvent("spec:mood", state.moodLabel);
@@ -918,12 +994,33 @@ app.whenReady().then(async () => {
         overlayWindow.setIgnoreMouseEvents(true, { forward: true });
       }
 
-      const result = await detectScreenTargets(
-        screenshotResult.base64,
+      const axResult = await detectScreenTargetsViaAx(
         prompt,
+        screenshotResult.base64,
         screenshotResult.width,
         screenshotResult.height,
-      );
+      ).catch((err) => {
+        safeWarn("[AX_TARGETS] AX path threw; falling back to vision", {
+          message: err?.message,
+        });
+        return null;
+      });
+
+      const result =
+        axResult && axResult.targets.length > 0
+          ? axResult
+          : await detectScreenTargets(
+              screenshotResult.base64,
+              prompt,
+              screenshotResult.width,
+              screenshotResult.height,
+            );
+
+      safeLog("[REAL_APP_TEST] target source", {
+        source:
+          axResult && axResult.targets.length > 0 ? "ax" : "vision",
+        count: result.targets.length,
+      });
       const normalizedTargets = result.targets.map((target, index) => {
         safeLog("[COORD_FRAME] raw target", {
           index,
@@ -1483,6 +1580,7 @@ app.whenReady().then(async () => {
   });
 
   registerReplayIpc(ipcMain, () => overlayWindow);
+  registerClinicalIpc(ipcMain, () => clinicalWindow ?? overlayWindow);
 
   app.on("activate", function () {
     if (BrowserWindow.getAllWindows().length === 0) {

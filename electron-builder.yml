@@ -10,6 +10,11 @@ files:
   - '!{.env,.env.*,.npmrc,pnpm-lock.yaml}'
   - '!{tsconfig.json,tsconfig.*}'
   - '!{README.md,tailwind.config.js,postcss.config.js}'
+extraResources:
+  - from: resources/native
+    to: native
+    filter:
+      - '**/*'
 asarUnpack:
   - resources/**
   - node_modules/@nut-tree/**

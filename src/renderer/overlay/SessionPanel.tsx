@@ -6,6 +6,7 @@ interface SessionPanelProps {
   appName?: string
   isBusy?: boolean
   isWalkthroughActive?: boolean
+  stepProgress?: number
   onWalkthrough: () => void
   onAutoExecute: () => void
 }
@@ -16,11 +17,13 @@ export const SessionPanel: React.FC<SessionPanelProps> = ({
   appName,
   isBusy = false,
   isWalkthroughActive = false,
+  stepProgress = 0,
   onWalkthrough,
   onAutoExecute
 }) => {
   if (!intent) return null
 
+  const normalizedStepProgress = Math.min(1, Math.max(0, stepProgress))
   const disabled = isBusy || !nodeId
   const buttonBase: React.CSSProperties = {
     flex: 1,
@@ -118,7 +121,7 @@ export const SessionPanel: React.FC<SessionPanelProps> = ({
             overflow: 'hidden'
           }}>
             <div style={{
-              width: '40%', // We could pass real progress if available
+              width: `${Math.round(normalizedStepProgress * 100)}%`,
               height: '100%',
               background: '#fff',
               borderRadius: '2px',

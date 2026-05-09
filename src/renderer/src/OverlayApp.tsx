@@ -297,6 +297,7 @@ const OverlayApp: React.FC = () => {
   const [behaviorCheckpoints, setBehaviorCheckpoints] = useState<
     BehavioralCheckpoint[]
   >([]);
+  const [hasCompletedWalkthrough, setHasCompletedWalkthrough] = useState(false);
   const [activeCheckpoint, setActiveCheckpoint] =
     useState<BehavioralCheckpoint | null>(null);
   const [blendedPreview, setBlendedPreview] =
@@ -554,6 +555,7 @@ const OverlayApp: React.FC = () => {
       setReplayState("idle");
       setReplayMode(null);
       setManualConfirmMessage("");
+      setHasCompletedWalkthrough(true);
       setSpecMood("celebrating");
       if (modeRef.current === "ultra") {
         setUltraState("idle");
@@ -673,6 +675,13 @@ const OverlayApp: React.FC = () => {
       setReplayMode(null);
       setMirrorFeedbackStatus("");
     });
+    const offPermWarn = api.onBehaviorPermissionsWarning?.((data: any) => {
+      setErrorMessage(
+        data?.message ||
+          "Missing macOS permissions - grant Accessibility + Input Monitoring and restart.",
+      );
+      setSpecMood("stuck");
+    });
 
     return () => {
       offSpecState();
@@ -681,6 +690,7 @@ const OverlayApp: React.FC = () => {
       offMirrorStarted();
       offMirrorComplete();
       offMirrorError();
+      offPermWarn?.();
     };
   }, []);
 
@@ -1189,6 +1199,7 @@ const OverlayApp: React.FC = () => {
       setReplayState("running");
       await api.walkthrough(nodeId);
       await api.markNodeComplete(nodeId);
+      setHasCompletedWalkthrough(true);
       speakIfUltra("Walkthrough complete.", "walkthrough complete");
       setRealAppTargets(null);
       setSelectedRealAppTarget(null);
@@ -1499,6 +1510,18 @@ const OverlayApp: React.FC = () => {
   const blendFrom = firstCheckpoint(behaviorCheckpoints);
   const blendTo = latestCheckpoint(behaviorCheckpoints);
   const canBlend = Boolean(blendFrom && blendTo && blendFrom.id !== blendTo.id);
+  const hasRealBehaviorCheckpoint = behaviorCheckpoints.some(
+    (checkpoint) => checkpoint.synthetic !== true,
+  );
+  const isMirrorModeLocked = !hasCompletedWalkthrough && !hasRealBehaviorCheckpoint;
+  const isMirrorButtonDisabled =
+    isLoading || mirrorStatus === "running" || isMirrorModeLocked;
+  const mirrorButtonLabel =
+    mirrorStatus === "running"
+      ? "Mirroring..."
+      : !hasCompletedWalkthrough
+        ? "Mirror Mode (needs walkthrough)"
+        : "Mirror Mode ✓";
   const realAppConfidenceThreshold =
     realAppTargets?.confidenceThreshold || DEFAULT_CONFIDENCE_THRESHOLD;
   const realAppMarkerTargets = realAppTargets?.targets || [];
@@ -2137,7 +2160,7 @@ const OverlayApp: React.FC = () => {
                         Create Checkpoint
                       </button>
                       <button
-                        disabled={isLoading || mirrorStatus === "running"}
+                        disabled={isMirrorButtonDisabled}
                         onClick={runMirrorMode}
                         style={{
                           flex: 1,
@@ -2152,10 +2175,10 @@ const OverlayApp: React.FC = () => {
                           fontSize: "11px",
                           fontWeight: 800,
                           cursor:
-                            mirrorStatus === "running" ? "default" : "pointer",
+                            isMirrorButtonDisabled ? "default" : "pointer",
                         }}
                       >
-                        {mirrorStatus === "running" ? "Mirroring..." : "Mirror Mode"}
+                        {mirrorButtonLabel}
                       </button>
                       <button
                         onClick={() => setPitchMode((current) => !current)}
@@ -2177,6 +2200,18 @@ const OverlayApp: React.FC = () => {
                         Pitch Mode {pitchMode ? "ON" : "OFF"}
                       </button>
                     </div>
+
+                    {isMirrorModeLocked && (
+                      <div
+                        style={{
+                          fontSize: "9px",
+                          color: "rgba(255,255,255,0.35)",
+                          fontWeight: 700,
+                        }}
+                      >
+                        Use computer 60s → Create Checkpoint → start a walkthrough → Mirror Mode unlocks
+                      </div>
+                    )}
 
                     {pitchMode && (
                       <div
@@ -2584,6 +2619,12 @@ const OverlayApp: React.FC = () => {
                   appName={screenState?.app}
                   isBusy={isLoading}
                   isWalkthroughActive={false}
+                  stepProgress={
+                    currentStep
+                      ? (currentStep.index ?? 0) /
+                        Math.max(1, currentStep.total ?? 1)
+                      : 0
+                  }
                   onWalkthrough={() => replaySavedWorkflow("walkthrough")}
                   onAutoExecute={() => replaySavedWorkflow("auto")}
                 />

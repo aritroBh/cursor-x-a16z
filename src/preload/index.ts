@@ -61,6 +61,7 @@ const api = {
   onSpecState: (callback: (data: any) => void) => onIpc('spec:state', callback),
   onSpecMood: (callback: (data: any) => void) => onIpc('spec:mood', callback),
   onBehaviorCheckpointCreated: (callback: (data: any) => void) => onIpc('behavior:checkpoint-created', callback),
+  onBehaviorPermissionsWarning: (callback: (data: any) => void) => onIpc('behavior:permissions-warning', callback),
   onMirrorStarted: (callback: (data: any) => void) => onIpc('mirror:started', callback),
   onMirrorComplete: (callback: (data: any) => void) => onIpc('mirror:complete', callback),
   onMirrorError: (callback: (data: any) => void) => onIpc('mirror:error', callback),

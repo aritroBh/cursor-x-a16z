@@ -145,6 +145,13 @@ export function getBufferedBehavioralFrameCount(): number {
   return frames.filter((frame) => frame.synthetic !== true).length
 }
 
+export function getBehavioralFrameRate(): { realFrames: number; trackingMs: number } {
+  return {
+    realFrames: frames.filter((frame) => frame.synthetic !== true && frame.actionType !== 'pause').length,
+    trackingMs: isTracking ? Date.now() - (frames[0]?.t ?? Date.now()) : 0
+  }
+}
+
 export function startBehavioralTracking(): void {
   if (isTracking) return
   isTracking = true

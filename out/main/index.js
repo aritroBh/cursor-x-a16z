@@ -2482,6 +2482,12 @@ function setBehavioralStateEmitter(emitter) {
 function getBufferedBehavioralFrameCount() {
   return frames.filter((frame) => frame.synthetic !== true).length;
 }
+function getBehavioralFrameRate() {
+  return {
+    realFrames: frames.filter((frame) => frame.synthetic !== true && frame.actionType !== "pause").length,
+    trackingMs: isTracking ? Date.now() - (frames[0]?.t ?? Date.now()) : 0
+  };
+}
 function startBehavioralTracking() {
   if (isTracking) return;
   isTracking = true;
@@ -3494,6 +3500,16 @@ electron.app.whenReady().then(async () => {
     sendOverlayEvent("spec:mood", state.moodLabel);
   });
   startBehavioralTracking();
+  setTimeout(() => {
+    const { realFrames, trackingMs } = getBehavioralFrameRate();
+    if (trackingMs > 8e3 && realFrames < 3) {
+      safeWarn("[BEHAVIOR] No real frames after 12s - uiohook likely blocked by macOS permissions");
+      sendOverlayEvent("spec:mood", "stuck");
+      sendOverlayEvent("behavior:permissions-warning", {
+        message: "Specter needs Accessibility + Input Monitoring permissions. Grant them in System Settings -> Privacy & Security, then restart."
+      });
+    }
+  }, 12e3);
   electron.app.on("browser-window-blur", (_event, window) => {
     recordAppSwitchFrame(window === overlayWindow ? "overlay blur" : "window blur");
   });

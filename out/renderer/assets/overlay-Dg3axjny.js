@@ -903,10 +903,12 @@ const SessionPanel = ({
   appName,
   isBusy = false,
   isWalkthroughActive = false,
+  stepProgress = 0,
   onWalkthrough,
   onAutoExecute
 }) => {
   if (!intent) return null;
+  const normalizedStepProgress = Math.min(1, Math.max(0, stepProgress));
   const disabled = isBusy || !nodeId;
   const buttonBase = {
     flex: 1,
@@ -989,8 +991,7 @@ const SessionPanel = ({
         borderRadius: "2px",
         overflow: "hidden"
       }, children: /* @__PURE__ */ jsxRuntimeExports.jsx("div", { style: {
-        width: "40%",
-        // We could pass real progress if available
+        width: `${Math.round(normalizedStepProgress * 100)}%`,
         height: "100%",
         background: "#fff",
         borderRadius: "2px",
@@ -1273,6 +1274,7 @@ const OverlayApp = () => {
   const [specMood, setSpecMood] = reactExports.useState("idle");
   const [behavioralState, setBehavioralState] = reactExports.useState(null);
   const [behaviorCheckpoints, setBehaviorCheckpoints] = reactExports.useState([]);
+  const [hasCompletedWalkthrough, setHasCompletedWalkthrough] = reactExports.useState(false);
   const [activeCheckpoint, setActiveCheckpoint] = reactExports.useState(null);
   const [blendedPreview, setBlendedPreview] = reactExports.useState(null);
   const [behaviorDiff, setBehaviorDiff] = reactExports.useState(null);
@@ -1479,6 +1481,7 @@ const OverlayApp = () => {
       setReplayState("idle");
       setReplayMode(null);
       setManualConfirmMessage("");
+      setHasCompletedWalkthrough(true);
       setSpecMood("celebrating");
       if (modeRef.current === "ultra") {
         setUltraState("idle");
@@ -1583,6 +1586,12 @@ const OverlayApp = () => {
       setReplayMode(null);
       setMirrorFeedbackStatus("");
     });
+    const offPermWarn = api.onBehaviorPermissionsWarning?.((data) => {
+      setErrorMessage(
+        data?.message || "Missing macOS permissions - grant Accessibility + Input Monitoring and restart."
+      );
+      setSpecMood("stuck");
+    });
     return () => {
       offSpecState();
       offSpecMood();
@@ -1590,6 +1599,7 @@ const OverlayApp = () => {
       offMirrorStarted();
       offMirrorComplete();
       offMirrorError();
+      offPermWarn?.();
     };
   }, []);
   reactExports.useEffect(() => {
@@ -2000,6 +2010,7 @@ const OverlayApp = () => {
       setReplayState("running");
       await api.walkthrough(nodeId);
       await api.markNodeComplete(nodeId);
+      setHasCompletedWalkthrough(true);
       speakIfUltra("Walkthrough complete.", "walkthrough complete");
       setRealAppTargets(null);
       setSelectedRealAppTarget(null);
@@ -2240,6 +2251,12 @@ const OverlayApp = () => {
   const blendFrom = firstCheckpoint(behaviorCheckpoints);
   const blendTo = latestCheckpoint(behaviorCheckpoints);
   const canBlend = Boolean(blendFrom && blendTo && blendFrom.id !== blendTo.id);
+  const hasRealBehaviorCheckpoint = behaviorCheckpoints.some(
+    (checkpoint) => checkpoint.synthetic !== true
+  );
+  const isMirrorModeLocked = !hasCompletedWalkthrough && !hasRealBehaviorCheckpoint;
+  const isMirrorButtonDisabled = isLoading || mirrorStatus === "running" || isMirrorModeLocked;
+  const mirrorButtonLabel = mirrorStatus === "running" ? "Mirroring..." : !hasCompletedWalkthrough ? "Mirror Mode (needs walkthrough)" : "Mirror Mode ✓";
   const realAppConfidenceThreshold = realAppTargets?.confidenceThreshold || DEFAULT_CONFIDENCE_THRESHOLD;
   const realAppMarkerTargets = realAppTargets?.targets || [];
   const showRealAppVerification = Boolean(
@@ -2807,7 +2824,7 @@ const OverlayApp = () => {
                                 /* @__PURE__ */ jsxRuntimeExports.jsx(
                                   "button",
                                   {
-                                    disabled: isLoading || mirrorStatus === "running",
+                                    disabled: isMirrorButtonDisabled,
                                     onClick: runMirrorMode,
                                     style: {
                                       flex: 1,
@@ -2818,9 +2835,9 @@ const OverlayApp = () => {
                                       background: mirrorStatus === "running" ? "rgba(27,240,255,0.26)" : "rgba(191,90,242,0.18)",
                                       fontSize: "11px",
                                       fontWeight: 800,
-                                      cursor: mirrorStatus === "running" ? "default" : "pointer"
+                                      cursor: isMirrorButtonDisabled ? "default" : "pointer"
                                     },
-                                    children: mirrorStatus === "running" ? "Mirroring..." : "Mirror Mode"
+                                    children: mirrorButtonLabel
                                   }
                                 ),
                                 /* @__PURE__ */ jsxRuntimeExports.jsxs(
@@ -2846,6 +2863,17 @@ const OverlayApp = () => {
                                   }
                                 )
                               ]
+                            }
+                          ),
+                          isMirrorModeLocked && /* @__PURE__ */ jsxRuntimeExports.jsx(
+                            "div",
+                            {
+                              style: {
+                                fontSize: "9px",
+                                color: "rgba(255,255,255,0.35)",
+                                fontWeight: 700
+                              },
+                              children: "Use computer 60s → Create Checkpoint → start a walkthrough → Mirror Mode unlocks"
                             }
                           ),
                           pitchMode && /* @__PURE__ */ jsxRuntimeExports.jsx(
@@ -3306,6 +3334,7 @@ ElevenLabs failed: ${res.fallbackReason}`;
                   appName: screenState?.app,
                   isBusy: isLoading,
                   isWalkthroughActive: false,
+                  stepProgress: currentStep ? (currentStep.index ?? 0) / Math.max(1, currentStep.total ?? 1) : 0,
                   onWalkthrough: () => replaySavedWorkflow("walkthrough"),
                   onAutoExecute: () => replaySavedWorkflow("auto")
                 }

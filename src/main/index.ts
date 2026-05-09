@@ -42,6 +42,7 @@ import {
 } from './behavioral/model'
 import {
   createCheckpointFromCurrentGraph,
+  getBehavioralFrameRate,
   getBufferedBehavioralFrameCount,
   getCurrentBehavioralState,
   recordAppSwitchFrame,
@@ -487,6 +488,17 @@ app.whenReady().then(async () => {
     sendOverlayEvent('spec:mood', state.moodLabel)
   })
   startBehavioralTracking()
+  setTimeout(() => {
+    const { realFrames, trackingMs } = getBehavioralFrameRate()
+    if (trackingMs > 8000 && realFrames < 3) {
+      safeWarn('[BEHAVIOR] No real frames after 12s - uiohook likely blocked by macOS permissions')
+      sendOverlayEvent('spec:mood', 'stuck')
+      sendOverlayEvent('behavior:permissions-warning', {
+        message:
+          'Specter needs Accessibility + Input Monitoring permissions. Grant them in System Settings -> Privacy & Security, then restart.'
+      })
+    }
+  }, 12000)
 
   app.on('browser-window-blur', (_event, window) => {
     recordAppSwitchFrame(window === overlayWindow ? 'overlay blur' : 'window blur')

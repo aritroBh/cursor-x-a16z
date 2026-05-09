@@ -319,17 +319,17 @@ async function moveRealMouse(x, y, durationMs = DEFAULT_MOVE_DURATION_MS) {
     throw cursorPermissionError(error);
   }
 }
-async function clickRealMouse(x, y) {
+async function clickRealMouse(x, y, durationMs = DEFAULT_MOVE_DURATION_MS) {
   try {
-    safeLog("[AUTO_REAL_MOUSE] clickRealMouse invoked REAL OS cursor automation", { x, y });
-    await moveRealMouse(x, y);
+    safeLog("[AUTO_REAL_MOUSE] clickRealMouse invoked REAL OS cursor automation", { x, y, durationMs });
+    await moveRealMouse(x, y, durationMs);
     await nutJs.mouse.click(nutJs.Button.LEFT);
     safeLog("[AUTO_REAL_MOUSE] nut-js REAL OS click complete", { x, y });
   } catch (error) {
     throw cursorPermissionError(error);
   }
 }
-async function executeRealMouseSteps(steps) {
+async function executeRealMouseSteps(steps, moveDurationMs = DEFAULT_MOVE_DURATION_MS) {
   safeLog("[AUTO_REAL_MOUSE] executeRealMouseSteps invoked REAL OS automation", { totalSteps: steps.length });
   for (const [index, step] of steps.entries()) {
     safeLog("[AUTO_REAL_MOUSE] executing real cursor step", {
@@ -343,17 +343,17 @@ async function executeRealMouseSteps(steps) {
     }
     switch (step.action) {
       case "click":
-        await clickRealMouse(step.x, step.y);
+        await clickRealMouse(step.x, step.y, moveDurationMs);
         break;
       case "type":
-        await moveRealMouse(step.x, step.y);
+        await moveRealMouse(step.x, step.y, moveDurationMs);
         if (step.typeText) {
           await nutJs.mouse.click(nutJs.Button.LEFT);
           await nutJs.keyboard.type(step.typeText);
         }
         break;
       case "scroll":
-        await moveRealMouse(step.x, step.y);
+        await moveRealMouse(step.x, step.y, moveDurationMs);
         await nutJs.mouse.scrollDown(3);
         break;
       case "wait":
@@ -593,7 +593,7 @@ function fallbackScreenState(error) {
     fallbackAvailable: true
   };
 }
-function percent(value, fallback = 50) {
+function percent$1(value, fallback = 50) {
   return typeof value === "number" && Number.isFinite(value) ? Math.min(100, Math.max(0, value)) : fallback;
 }
 function confidence(value, fallback = 0.5) {
@@ -616,8 +616,8 @@ function normalizeScreenState(value) {
   }
   const coordinates = Array.isArray(value.coordinates) ? value.coordinates.filter((item) => item && typeof item === "object").map((item) => ({
     label: typeof item.label === "string" && item.label.trim() ? item.label : "Untitled target",
-    x: percent(item.x ?? item.targetX),
-    y: percent(item.y ?? item.targetY),
+    x: percent$1(item.x ?? item.targetX),
+    y: percent$1(item.y ?? item.targetY),
     confidence: confidence(item.confidence, 0.5)
   })) : [];
   return {
@@ -643,8 +643,8 @@ function normalizeScreenTargets(value, prompt) {
       id: typeof item.id === "string" && item.id.trim() ? item.id : `target-${index + 1}`,
       label: typeof item.label === "string" && item.label.trim() ? item.label.trim() : typeof item.name === "string" && item.name.trim() ? item.name.trim() : `Target ${index + 1}`,
       description: typeof item.description === "string" && item.description.trim() ? item.description.trim() : void 0,
-      x: percent(item.x ?? item.targetX),
-      y: percent(item.y ?? item.targetY),
+      x: percent$1(item.x ?? item.targetX),
+      y: percent$1(item.y ?? item.targetY),
       confidence: confidence(item.confidence, 0.45),
       action: action(item.action),
       source: "vision"
@@ -835,6 +835,292 @@ async function analyzeScreen(base64PNG) {
     safeError("[AI_BACKEND] Anthropic unavailable; using fallback", summary);
     return fallbackScreenState("AI_BACKEND_UNAVAILABLE");
   }
+}
+const MOODS = ["idle", "thinking", "stuck", "flow", "celebrating", "mirroring", "judging"];
+const ACTIONS = [
+  "scan",
+  "click",
+  "repeat-click",
+  "type",
+  "pause",
+  "backtrack",
+  "app-switch",
+  "replay-retry",
+  "replay-failure",
+  "accept",
+  "override",
+  "hesitation",
+  "correction",
+  "unknown"
+];
+const METRIC_KEYS = [
+  "cognitiveLoad",
+  "impulsivity",
+  "flowScore",
+  "revisionRate",
+  "backtrackRate",
+  "decisionConfidence"
+];
+function isRecord$1(value) {
+  return Boolean(value && typeof value === "object" && !Array.isArray(value));
+}
+function isMood(value) {
+  return typeof value === "string" && MOODS.includes(value);
+}
+function isoString(value, fallback = (/* @__PURE__ */ new Date()).toISOString()) {
+  if (typeof value !== "string") return fallback;
+  const time = Date.parse(value);
+  return Number.isFinite(time) ? new Date(time).toISOString() : fallback;
+}
+function safeLabel$1(value, fallback) {
+  return typeof value === "string" && value.trim() ? value.trim() : fallback;
+}
+function percent(value) {
+  const rounded = Math.round(value * 100);
+  return `${rounded >= 0 ? "+" : ""}${rounded}%`;
+}
+function metricLabel(key) {
+  return key.replace(/([A-Z])/g, " $1").toLowerCase();
+}
+function clamp01(value, fallback = 0) {
+  return typeof value === "number" && Number.isFinite(value) ? Math.min(1, Math.max(0, value)) : fallback;
+}
+function createDefaultBehavioralState() {
+  return {
+    cognitiveLoad: 0.24,
+    impulsivity: 0.22,
+    flowScore: 0.36,
+    revisionRate: 0.08,
+    backtrackRate: 0.04,
+    decisionConfidence: 0.48,
+    moodLabel: "idle",
+    sampledAt: (/* @__PURE__ */ new Date()).toISOString()
+  };
+}
+function deriveSpecMood(state) {
+  if (isMood(state.moodLabel) && state.moodLabel === "celebrating") return "celebrating";
+  if (isMood(state.moodLabel) && state.moodLabel === "mirroring") return "mirroring";
+  const cognitiveLoad = clamp01(state.cognitiveLoad, 0.24);
+  const impulsivity = clamp01(state.impulsivity, 0.22);
+  const flowScore = clamp01(state.flowScore, 0.36);
+  const revisionRate = clamp01(state.revisionRate, 0.08);
+  const backtrackRate = clamp01(state.backtrackRate, 0.04);
+  const decisionConfidence = clamp01(state.decisionConfidence, 0.48);
+  if (flowScore >= 0.72 && decisionConfidence >= 0.58 && backtrackRate < 0.25) return "flow";
+  if (cognitiveLoad >= 0.78 || backtrackRate >= 0.55) return "stuck";
+  if (revisionRate >= 0.48 || impulsivity >= 0.74 && decisionConfidence < 0.48) return "judging";
+  if (cognitiveLoad >= 0.5 || decisionConfidence < 0.38) return "thinking";
+  return "idle";
+}
+function normalizeBehavioralState(value) {
+  const fallback = createDefaultBehavioralState();
+  const raw = isRecord$1(value) ? value : {};
+  const partial = {
+    cognitiveLoad: clamp01(raw.cognitiveLoad, fallback.cognitiveLoad),
+    impulsivity: clamp01(raw.impulsivity, fallback.impulsivity),
+    flowScore: clamp01(raw.flowScore, fallback.flowScore),
+    revisionRate: clamp01(raw.revisionRate, fallback.revisionRate),
+    backtrackRate: clamp01(raw.backtrackRate, fallback.backtrackRate),
+    decisionConfidence: clamp01(raw.decisionConfidence, fallback.decisionConfidence)
+  };
+  return {
+    ...partial,
+    moodLabel: isMood(raw.moodLabel) ? raw.moodLabel : deriveSpecMood(partial),
+    sampledAt: isoString(raw.sampledAt, fallback.sampledAt)
+  };
+}
+function normalizeBehavioralFrame(value) {
+  const raw = isRecord$1(value) ? value : {};
+  const actionType = typeof raw.actionType === "string" && ACTIONS.includes(raw.actionType) ? raw.actionType : "unknown";
+  const cursorDelta = isRecord$1(raw.cursorDelta) ? {
+    dx: typeof raw.cursorDelta.dx === "number" && Number.isFinite(raw.cursorDelta.dx) ? raw.cursorDelta.dx : 0,
+    dy: typeof raw.cursorDelta.dy === "number" && Number.isFinite(raw.cursorDelta.dy) ? raw.cursorDelta.dy : 0
+  } : void 0;
+  return {
+    t: typeof raw.t === "number" && Number.isFinite(raw.t) ? Math.max(0, raw.t) : Date.now(),
+    cursorX: typeof raw.cursorX === "number" && Number.isFinite(raw.cursorX) ? Math.min(100, Math.max(0, raw.cursorX)) : void 0,
+    cursorY: typeof raw.cursorY === "number" && Number.isFinite(raw.cursorY) ? Math.min(100, Math.max(0, raw.cursorY)) : void 0,
+    cursorDelta,
+    dwellMs: typeof raw.dwellMs === "number" && Number.isFinite(raw.dwellMs) ? Math.max(0, raw.dwellMs) : 0,
+    actionType,
+    revisionSignal: clamp01(raw.revisionSignal, 0),
+    app: typeof raw.app === "string" && raw.app.trim() ? raw.app.trim() : void 0,
+    targetLabel: typeof raw.targetLabel === "string" && raw.targetLabel.trim() ? raw.targetLabel.trim() : void 0,
+    synthetic: raw.synthetic === true
+  };
+}
+function aggregateBehavioralSignature(frames2, fallback = createDefaultBehavioralState()) {
+  const normalized = Array.isArray(frames2) ? frames2.map(normalizeBehavioralFrame).slice(-160) : [];
+  if (normalized.length === 0) return normalizeBehavioralState(fallback);
+  const totals = normalized.reduce(
+    (acc, frame, index) => {
+      const previous = normalized[index - 1];
+      const dwellNorm = clamp01(frame.dwellMs / 2200, 0);
+      const deltaDistance = frame.cursorDelta ? Math.hypot(frame.cursorDelta.dx, frame.cursorDelta.dy) : previous && typeof frame.cursorX === "number" && typeof frame.cursorY === "number" ? Math.hypot(frame.cursorX - (previous.cursorX ?? frame.cursorX), frame.cursorY - (previous.cursorY ?? frame.cursorY)) : 0;
+      const directness = clamp01(deltaDistance / (deltaDistance + frame.dwellMs / 140 + 1), 0.45);
+      const actionWeight = frame.actionType === "click" || frame.actionType === "type" || frame.actionType === "accept" ? 1 : frame.actionType === "repeat-click" || frame.actionType === "override" || frame.actionType === "correction" ? 0.78 : frame.actionType === "scan" ? 0.24 : 0.12;
+      const pauseWeight = frame.actionType === "pause" ? 1 : 0;
+      const backtrackWeight = frame.actionType === "backtrack" || frame.actionType === "replay-retry" || frame.actionType === "replay-failure" || frame.actionType === "override" || frame.actionType === "correction" ? 1 : 0;
+      const hesitationWeight = frame.actionType === "hesitation" ? 1 : 0;
+      const revision = clamp01(frame.revisionSignal, 0);
+      const confidence2 = clamp01(
+        directness * 0.72 + (1 - dwellNorm) * 0.28 - revision * 0.25 - backtrackWeight * 0.3 - hesitationWeight * 0.18,
+        0.3
+      );
+      const cognitiveLoad2 = clamp01(
+        dwellNorm * 0.45 + revision * 0.32 + pauseWeight * 0.18 + backtrackWeight * 0.24 + hesitationWeight * 0.2,
+        0
+      );
+      const impulsivity2 = clamp01(actionWeight * (1 - dwellNorm) * (0.55 + directness * 0.45), 0);
+      acc.cognitiveLoad += cognitiveLoad2;
+      acc.impulsivity += impulsivity2;
+      acc.revisionRate += revision;
+      acc.backtrackRate += backtrackWeight;
+      acc.decisionConfidence += confidence2;
+      acc.pauseRate += pauseWeight;
+      return acc;
+    },
+    {
+      cognitiveLoad: 0,
+      impulsivity: 0,
+      revisionRate: 0,
+      backtrackRate: 0,
+      decisionConfidence: 0,
+      pauseRate: 0
+    }
+  );
+  const count = normalized.length;
+  const decisionConfidence = clamp01(totals.decisionConfidence / count, fallback.decisionConfidence);
+  const backtrackRate = clamp01(totals.backtrackRate / count, fallback.backtrackRate);
+  const revisionRate = clamp01(totals.revisionRate / count, fallback.revisionRate);
+  const pauseRate = clamp01(totals.pauseRate / count, 0);
+  const impulsivity = clamp01(totals.impulsivity / count, fallback.impulsivity);
+  const cognitiveLoad = clamp01(totals.cognitiveLoad / count, fallback.cognitiveLoad);
+  const flowScore = clamp01(decisionConfidence * 0.58 + (1 - backtrackRate) * 0.2 + (1 - revisionRate) * 0.12 + (1 - pauseRate) * 0.1, fallback.flowScore);
+  const state = {
+    cognitiveLoad,
+    impulsivity,
+    flowScore,
+    revisionRate,
+    backtrackRate,
+    decisionConfidence
+  };
+  return {
+    ...state,
+    moodLabel: deriveSpecMood(state),
+    sampledAt: (/* @__PURE__ */ new Date()).toISOString()
+  };
+}
+function personalityForState(state) {
+  const normalized = normalizeBehavioralState(state);
+  const mood = deriveSpecMood(normalized);
+  const eyeShape = mood === "mirroring" ? "glow" : mood === "judging" ? "judging" : mood === "stuck" ? "sleepy" : mood === "flow" || mood === "celebrating" ? "wide" : "focused";
+  return {
+    defaultMood: mood,
+    eyeShape,
+    bounce: clamp01(0.24 + normalized.flowScore * 0.48 + normalized.impulsivity * 0.22 - normalized.cognitiveLoad * 0.14, 0.35),
+    sass: clamp01(0.16 + normalized.impulsivity * 0.34 + normalized.revisionRate * 0.28 + normalized.backtrackRate * 0.16, 0.24)
+  };
+}
+function humanCommitMessage(previous, next) {
+  const normalizedNext = normalizeBehavioralState(next);
+  if (!previous) {
+    return `commit: initialized behavioral checkpoint at ${Math.round(normalizedNext.decisionConfidence * 100)}% confidence`;
+  }
+  const normalizedPrevious = normalizeBehavioralState(previous);
+  const deltas = METRIC_KEYS.map((key) => ({
+    key,
+    delta: normalizedNext[key] - normalizedPrevious[key]
+  })).sort((a, b) => Math.abs(b.delta) - Math.abs(a.delta));
+  const [primary, secondary] = deltas;
+  const secondaryText = secondary ? `, ${metricLabel(secondary.key)} ${percent(secondary.delta)}` : "";
+  return `commit: ${metricLabel(primary.key)} ${percent(primary.delta)}${secondaryText}`;
+}
+function createBehavioralCheckpoint(args) {
+  const timestamp = isoString(args.timestamp);
+  const sessionN = Math.max(1, Math.round(args.sessionN || 1));
+  const signature = normalizeBehavioralState(args.signature);
+  const previousSignature = args.previous && "signature" in args.previous ? args.previous.signature : args.previous;
+  const id = safeLabel$1(args.id, `behavior-${sessionN}-${timestamp.replace(/[^0-9]/g, "").slice(0, 14)}`);
+  return {
+    id,
+    timestamp,
+    sessionN,
+    signature,
+    specPersonality: personalityForState(signature),
+    parentId: typeof args.parentId === "string" ? args.parentId : null,
+    label: safeLabel$1(args.label, `Session ${sessionN}: ${signature.moodLabel} you`),
+    commitMessage: safeLabel$1(args.commitMessage, humanCommitMessage(previousSignature, signature)),
+    synthetic: args.synthetic === true
+  };
+}
+function normalizeBehavioralCheckpoint(value, fallbackId) {
+  const raw = isRecord$1(value) ? value : {};
+  const signature = normalizeBehavioralState(raw.signature);
+  const timestamp = isoString(raw.timestamp, signature.sampledAt);
+  const sessionN = typeof raw.sessionN === "number" && Number.isFinite(raw.sessionN) ? Math.max(1, Math.round(raw.sessionN)) : 1;
+  const checkpoint = createBehavioralCheckpoint({
+    id: safeLabel$1(raw.id, fallbackId || `behavior-${sessionN}`),
+    timestamp,
+    sessionN,
+    signature,
+    parentId: typeof raw.parentId === "string" ? raw.parentId : null,
+    label: safeLabel$1(raw.label, `Session ${sessionN}: ${signature.moodLabel} you`),
+    commitMessage: safeLabel$1(raw.commitMessage, humanCommitMessage(null, signature)),
+    synthetic: raw.synthetic === true
+  });
+  return {
+    ...checkpoint,
+    synthetic: raw.synthetic === true,
+    specPersonality: isRecord$1(raw.specPersonality) ? {
+      defaultMood: isMood(raw.specPersonality.defaultMood) ? raw.specPersonality.defaultMood : checkpoint.specPersonality.defaultMood,
+      eyeShape: ["wide", "focused", "sleepy", "judging", "glow"].includes(raw.specPersonality.eyeShape) ? raw.specPersonality.eyeShape : checkpoint.specPersonality.eyeShape,
+      bounce: clamp01(raw.specPersonality.bounce, checkpoint.specPersonality.bounce),
+      sass: clamp01(raw.specPersonality.sass, checkpoint.specPersonality.sass)
+    } : checkpoint.specPersonality
+  };
+}
+function diffBehavioralCheckpoints(from, to) {
+  const normalizedFrom = normalizeBehavioralCheckpoint(from);
+  const normalizedTo = normalizeBehavioralCheckpoint(to);
+  const deltas = {
+    cognitiveLoad: normalizedTo.signature.cognitiveLoad - normalizedFrom.signature.cognitiveLoad,
+    impulsivity: normalizedTo.signature.impulsivity - normalizedFrom.signature.impulsivity,
+    flowScore: normalizedTo.signature.flowScore - normalizedFrom.signature.flowScore,
+    revisionRate: normalizedTo.signature.revisionRate - normalizedFrom.signature.revisionRate,
+    backtrackRate: normalizedTo.signature.backtrackRate - normalizedFrom.signature.backtrackRate,
+    decisionConfidence: normalizedTo.signature.decisionConfidence - normalizedFrom.signature.decisionConfidence
+  };
+  const summary = METRIC_KEYS.map((key) => ({ key, delta: deltas[key] })).filter((entry) => Math.abs(entry.delta) >= 0.03).sort((a, b) => Math.abs(b.delta) - Math.abs(a.delta)).slice(0, 4).map((entry) => `${metricLabel(entry.key)} ${percent(entry.delta)}`);
+  if (summary.length === 0) {
+    summary.push("behavioral signature stayed stable");
+  }
+  return {
+    fromId: normalizedFrom.id,
+    toId: normalizedTo.id,
+    deltas,
+    summary
+  };
+}
+function blendBehavioralStates(a, b, t) {
+  const from = normalizeBehavioralState(a);
+  const to = normalizeBehavioralState(b);
+  const amount = clamp01(t, 0);
+  if (amount <= 0) return from;
+  if (amount >= 1) return to;
+  const blended = {
+    cognitiveLoad: from.cognitiveLoad + (to.cognitiveLoad - from.cognitiveLoad) * amount,
+    impulsivity: from.impulsivity + (to.impulsivity - from.impulsivity) * amount,
+    flowScore: from.flowScore + (to.flowScore - from.flowScore) * amount,
+    revisionRate: from.revisionRate + (to.revisionRate - from.revisionRate) * amount,
+    backtrackRate: from.backtrackRate + (to.backtrackRate - from.backtrackRate) * amount,
+    decisionConfidence: from.decisionConfidence + (to.decisionConfidence - from.decisionConfidence) * amount
+  };
+  return {
+    ...blended,
+    moodLabel: deriveSpecMood(blended),
+    sampledAt: (/* @__PURE__ */ new Date()).toISOString()
+  };
 }
 const CLAUDE_MODEL = getAnthropicModel();
 const STEP_ACTIONS$1 = ["click", "type", "scroll", "wait"];
@@ -1170,8 +1456,8 @@ async function ultraConverse(payload) {
   }
 }
 const ELEVENLABS_API_URL = "https://api.elevenlabs.io/v1/text-to-speech";
-const RACHEL_VOICE_ID = "21m00Tcm4TlvDq8ikWAM";
-const DEFAULT_MODEL_ID = "eleven_turbo_v2";
+const RACHEL_VOICE_ID$1 = "21m00Tcm4TlvDq8ikWAM";
+const DEFAULT_MODEL_ID$1 = "eleven_turbo_v2";
 let activePlayback = null;
 let activeRequest = null;
 let speechRunId = 0;
@@ -1208,9 +1494,10 @@ async function stopSpeaking() {
     activePlayback = null;
   }
 }
-async function speakFallback(text) {
+async function speakFallback(text, reason) {
   await stopSpeaking();
   if (!text.trim()) return;
+  safeLog(`[TTS] using macOS fallback ${`(${reason})`}`);
   activePlayback = child_process.spawn("say", ["-v", "Samantha", text], { stdio: "ignore" });
   const child = activePlayback;
   try {
@@ -1221,70 +1508,88 @@ async function speakFallback(text) {
     }
   }
 }
+async function speakOpenAI(text, apiKey) {
+  const model = process.env.OPENAI_TTS_MODEL || "gpt-4o-mini-tts";
+  const voice = process.env.OPENAI_TTS_VOICE || "nova";
+  safeLog("[TTS] Trying OpenAI TTS...", { model, voice });
+  try {
+    const openai = new OpenAI({ apiKey });
+    const response = await openai.audio.speech.create({
+      model,
+      voice,
+      input: text
+    });
+    const buffer = Buffer.from(await response.arrayBuffer());
+    const outputDir = path.join(os.tmpdir(), "specter-tts");
+    const outputPath = path.join(outputDir, `openai-speech-${Date.now()}.mp3`);
+    await promises.mkdir(outputDir, { recursive: true });
+    await promises.writeFile(outputPath, buffer);
+    safeLog("[TTS] OpenAI TTS success, playing...");
+    await playAudioFile(outputPath);
+    return true;
+  } catch (error) {
+    safeError("[TTS] OpenAI TTS failed", error);
+    return false;
+  }
+}
 async function speak(text) {
   safeLog("[TTS] speak called", { preview: text?.slice(0, 50) });
   await stopSpeaking();
-  if (!text.trim()) return;
+  if (!text.trim()) return { success: true, providerUsed: "macos" };
   const runId = speechRunId;
-  const apiKey = process.env.ELEVENLABS_API_KEY;
-  if (!apiKey) {
-    safeWarn("[TTS] ELEVENLABS_API_KEY missing; using macOS say fallback.");
-    await speakFallback(text);
-    return;
-  }
-  let request = null;
-  try {
-    safeLog("[TTS] Calling ElevenLabs...");
-    request = new AbortController();
-    activeRequest = request;
-    const response = await fetch(`${ELEVENLABS_API_URL}/${RACHEL_VOICE_ID}`, {
-      method: "POST",
-      signal: request.signal,
-      headers: {
-        "xi-api-key": apiKey,
-        "Content-Type": "application/json",
-        Accept: "audio/mpeg"
-      },
-      body: JSON.stringify({
-        text,
-        model_id: DEFAULT_MODEL_ID,
-        voice_settings: {
-          stability: 0.45,
-          similarity_boost: 0.8,
-          style: 0.15,
-          use_speaker_boost: true
+  const elevenlabsKey = process.env.ELEVENLABS_API_KEY;
+  const openaiKey = process.env.OPENAI_API_KEY;
+  const voiceId = process.env.ELEVENLABS_VOICE_ID || RACHEL_VOICE_ID$1;
+  const modelId = process.env.ELEVENLABS_MODEL_ID || DEFAULT_MODEL_ID$1;
+  if (elevenlabsKey) {
+    let request = null;
+    try {
+      safeLog("[TTS] Calling ElevenLabs...", { voiceId, modelId });
+      request = new AbortController();
+      activeRequest = request;
+      const response = await fetch(`${ELEVENLABS_API_URL}/${voiceId}`, {
+        method: "POST",
+        signal: request.signal,
+        headers: {
+          "xi-api-key": elevenlabsKey,
+          "Content-Type": "application/json",
+          Accept: "audio/mpeg"
+        },
+        body: JSON.stringify({
+          text,
+          model_id: modelId,
+          voice_settings: { stability: 0.45, similarity_boost: 0.8, style: 0.15, use_speaker_boost: true }
+        })
+      });
+      if (activeRequest === request) activeRequest = null;
+      if (runId !== speechRunId) return { success: false, providerUsed: "elevenlabs", fallbackReason: "stale run" };
+      if (response.ok) {
+        const audio = Buffer.from(await response.arrayBuffer());
+        const outputDir = path.join(os.tmpdir(), "specter-tts");
+        const outputPath = path.join(outputDir, `eleven-speech-${Date.now()}.mp3`);
+        await promises.mkdir(outputDir, { recursive: true });
+        await promises.writeFile(outputPath, audio);
+        if (runId === speechRunId) {
+          safeLog("[TTS] ElevenLabs success, playing...");
+          await playAudioFile(outputPath);
+          return { success: true, providerUsed: "elevenlabs" };
         }
-      })
-    });
-    if (activeRequest === request) {
-      activeRequest = null;
+      } else {
+        const errorText = await response.text();
+        safeWarn("[TTS] ElevenLabs returned error", { status: response.status, errorText });
+      }
+    } catch (error) {
+      safeError("[TTS] ElevenLabs exception", error);
     }
-    if (runId !== speechRunId) return;
-    if (!response.ok) {
-      const errorText = await response.text();
-      throw new Error(`ElevenLabs returned ${response.status}: ${errorText}`);
-    }
-    const arrayBuffer = await response.arrayBuffer();
-    if (runId !== speechRunId) return;
-    const audio = Buffer.from(arrayBuffer);
-    const outputDir = path.join(os.tmpdir(), "specter-tts");
-    const outputPath = path.join(outputDir, `speech-${Date.now()}.mp3`);
-    await promises.mkdir(outputDir, { recursive: true });
-    await promises.writeFile(outputPath, audio);
-    if (runId !== speechRunId) {
-      promises.unlink(outputPath).catch(() => void 0);
-      return;
-    }
-    safeLog("[TTS] Audio received, playing...");
-    await playAudioFile(outputPath);
-  } catch (error) {
-    if (activeRequest === request) {
-      activeRequest = null;
-    }
-    if (runId !== speechRunId) return;
-    safeError("[TTS] error fallback", error);
-    await speakFallback(text);
   }
+  if (openaiKey) {
+    safeLog("[TTS] ElevenLabs failed or skipped; trying OpenAI TTS fallback");
+    const ok = await speakOpenAI(text, openaiKey);
+    if (ok) return { success: true, providerUsed: "openai" };
+  }
+  safeLog("[TTS] ElevenLabs and OpenAI failed; using macOS fallback");
+  await speakFallback(text, "OpenAI fallback failed");
+  return { success: true, providerUsed: "macos" };
 }
 const WHISPER_TIMEOUT_MS = 2e4;
 if (typeof globalThis.File === "undefined") {
@@ -1303,39 +1608,65 @@ function timeoutPromise(ms) {
     }
   });
 }
+function classifyWhisperError(error) {
+  if (error?.code === "WHISPER_TIMEOUT") {
+    return { error: "openai_timeout", message: "Whisper transcription timed out. Try again." };
+  }
+  const status = error?.status;
+  const code = error?.code;
+  const message = error?.message || String(error);
+  if (status === 401) {
+    return { error: "openai_auth_error", message: "OpenAI authentication failed. Check OPENAI_API_KEY." };
+  }
+  if (status === 429) {
+    return { error: "openai_rate_limit", message: "OpenAI rate limit reached." };
+  }
+  if (code === "ENOTFOUND" || code === "ECONNREFUSED") {
+    return { error: "openai_network_error", message: "OpenAI could not be reached. Check your network." };
+  }
+  return { error: "openai_unknown", message: `Whisper failed: ${message}` };
+}
 async function transcribe(audioBuffer) {
   const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
+  const primaryModel = process.env.OPENAI_TRANSCRIBE_MODEL || "gpt-4o-mini-transcribe";
   safeLog("[WHISPER] received buffer", { bufferSize: audioBuffer?.length || 0 });
   if (!audioBuffer || audioBuffer.length === 0) {
     safeWarn("[WHISPER] empty audio buffer, skipping OpenAI");
-    return "";
+    return { ok: false, error: "empty_audio", message: "No audio captured. Speak a little longer." };
   }
   if (!OPENAI_API_KEY) {
     safeWarn("[WHISPER] OPENAI_API_KEY missing; transcription unavailable");
-    return "";
+    return { ok: false, error: "openai_key_missing", message: "Whisper is not configured. Check OPENAI_API_KEY." };
   }
-  try {
-    const openai = new OpenAI({ apiKey: OPENAI_API_KEY });
-    const file = await uploads.toFile(audioBuffer, "audio.webm", {
-      type: "audio/webm"
-    });
-    safeLog("[WHISPER] created upload file", { name: "audio.webm", type: "audio/webm" });
-    safeLog("[WHISPER] OpenAI request started");
-    const response = await Promise.race([
-      openai.audio.transcriptions.create({ file, model: "whisper-1" }),
+  const openai = new OpenAI({ apiKey: OPENAI_API_KEY });
+  const file = await uploads.toFile(audioBuffer, "audio.webm", {
+    type: "audio/webm"
+  });
+  const tryTranscribe = async (model) => {
+    safeLog(`[WHISPER] OpenAI request started with model: ${model}`);
+    return await Promise.race([
+      openai.audio.transcriptions.create({ file, model }),
       timeoutPromise(WHISPER_TIMEOUT_MS)
     ]);
-    safeLog("[WHISPER] transcription success", { textLength: response.text?.length || 0 });
-    return response.text || "";
+  };
+  try {
+    const response = await tryTranscribe(primaryModel);
+    safeLog("[WHISPER] transcription success", { model: primaryModel, textLength: response.text?.length || 0 });
+    return { ok: true, text: response.text || "" };
   } catch (error) {
-    if (error?.code === "WHISPER_TIMEOUT") {
-      safeWarn("[WHISPER] OpenAI request timed out", { timeoutMs: WHISPER_TIMEOUT_MS });
-    } else {
-      const category = error?.name || "Error";
-      const message = error?.message || String(error);
-      safeError("[WHISPER] transcription failed", { category, message });
+    safeWarn(`[WHISPER] primary model (${primaryModel}) failed, trying fallback whisper-1`, { error: error?.message });
+    try {
+      const response = await tryTranscribe("whisper-1");
+      safeLog("[WHISPER] transcription success with fallback", { model: "whisper-1", textLength: response.text?.length || 0 });
+      return { ok: true, text: response.text || "" };
+    } catch (fallbackError) {
+      const classified = classifyWhisperError(fallbackError);
+      safeError("[WHISPER] transcription failed completely", {
+        code: classified.error,
+        message: classified.message
+      });
+      return { ok: false, ...classified };
     }
-    throw error;
   }
 }
 function keyHealth(value) {
@@ -1360,16 +1691,20 @@ function friendlyAnthropicReason(category, status) {
   if (category === "api_key_missing") return "ANTHROPIC_API_KEY is missing.";
   return status ? `Anthropic request failed with status ${status}.` : "Anthropic request failed.";
 }
+const RACHEL_VOICE_ID = "21m00Tcm4TlvDq8ikWAM";
+const DEFAULT_MODEL_ID = "eleven_turbo_v2";
 async function checkAIHealth() {
   const anthropicKey = keyHealth(getAnthropicApiKey());
   const openaiKey = keyHealth(process.env.OPENAI_API_KEY);
+  const elevenlabsKey = keyHealth(process.env.ELEVENLABS_API_KEY);
   const useLocalModel = getUseLocalModel();
   const baseURL = getAnthropicBaseUrlForMode();
   const result = {
     ok: false,
     overall: {
       readyForRealAppAI: false,
-      readyForVoice: false
+      readyForVoiceInput: false,
+      readyForNaturalVoiceOutput: false
     },
     anthropic: {
       key: anthropicKey,
@@ -1387,6 +1722,18 @@ async function checkAIHealth() {
     openai: {
       key: openaiKey,
       whisperConfigured: openaiKey.present && !openaiKey.placeholderDetected
+    },
+    openaiTTS: {
+      key: openaiKey,
+      configured: openaiKey.present && !openaiKey.placeholderDetected,
+      model: process.env.OPENAI_TTS_MODEL || "gpt-4o-mini-tts",
+      voice: process.env.OPENAI_TTS_VOICE || "nova"
+    },
+    elevenlabs: {
+      key: elevenlabsKey,
+      configured: elevenlabsKey.present && !elevenlabsKey.placeholderDetected,
+      voiceId: process.env.ELEVENLABS_VOICE_ID || RACHEL_VOICE_ID,
+      modelId: process.env.ELEVENLABS_MODEL_ID || DEFAULT_MODEL_ID
     }
   };
   if (!result.anthropic.configured) {
@@ -1434,30 +1781,9 @@ async function checkAIHealth() {
     }
   }
   result.overall.readyForRealAppAI = result.anthropic.configured && result.anthropic.testRequest.pass;
-  result.overall.readyForVoice = result.openai.whisperConfigured;
-  result.ok = result.overall.readyForRealAppAI && result.overall.readyForVoice;
-  safeLog("[AI_BACKEND] health check result", {
-    ok: result.ok,
-    overall: result.overall,
-    anthropic: {
-      keyPresent: result.anthropic.key.present,
-      keyLength: result.anthropic.key.keyLength,
-      placeholderDetected: result.anthropic.key.placeholderDetected,
-      configured: result.anthropic.configured,
-      useLocalModel: result.anthropic.useLocalModel,
-      baseURLKind: result.anthropic.baseURLKind,
-      baseURLOfficial: result.anthropic.baseURLOfficial,
-      plannerModel: result.anthropic.plannerModel,
-      visionModel: result.anthropic.visionModel,
-      testRequest: result.anthropic.testRequest
-    },
-    openai: {
-      keyPresent: result.openai.key.present,
-      keyLength: result.openai.key.keyLength,
-      placeholderDetected: result.openai.key.placeholderDetected,
-      whisperConfigured: result.openai.whisperConfigured
-    }
-  });
+  result.overall.readyForVoiceInput = result.openai.whisperConfigured;
+  result.overall.readyForNaturalVoiceOutput = result.elevenlabs.configured || result.openaiTTS.configured;
+  result.ok = result.overall.readyForRealAppAI && result.overall.readyForVoiceInput && result.overall.readyForNaturalVoiceOutput;
   return result;
 }
 const ARM_A = "show_once";
@@ -1562,7 +1888,10 @@ function createDefaultGraph(appName = DEFAULT_APP_NAME$1) {
     edges: [],
     branches: {},
     sessions: [],
-    bandtState: createDefaultBandtState()
+    bandtState: createDefaultBandtState(),
+    behavioralCheckpoints: {},
+    currentBehavioralCheckpointId: null,
+    behavioralFrames: []
   };
 }
 function graphPath(appName) {
@@ -1651,20 +1980,32 @@ function normalizeSession(sessionId, value) {
 }
 function normalizeGraph(graph, appName) {
   const fallback = createDefaultGraph(appName);
-  const nodes = isRecord(graph.nodes) ? Object.fromEntries(Object.entries(graph.nodes).map(([id, node]) => [id, normalizeNode(id, node)])) : fallback.nodes;
-  const branches = isRecord(graph.branches) ? Object.fromEntries(Object.entries(graph.branches).map(([id, branch]) => [id, normalizeBranch(id, branch)])) : fallback.branches;
-  const edges = Array.isArray(graph.edges) ? graph.edges.map(normalizeEdge).filter((edge) => Boolean(edge)) : fallback.edges;
-  const sessions = Array.isArray(graph.sessions) ? graph.sessions.map((session, index) => normalizeSession(`session-${index + 1}`, session)) : fallback.sessions;
+  const source = isRecord(graph) ? graph : {};
+  const nodes = isRecord(source.nodes) ? Object.fromEntries(Object.entries(source.nodes).map(([id, node]) => [id, normalizeNode(id, node)])) : fallback.nodes;
+  const branches = isRecord(source.branches) ? Object.fromEntries(Object.entries(source.branches).map(([id, branch]) => [id, normalizeBranch(id, branch)])) : fallback.branches;
+  const edges = Array.isArray(source.edges) ? source.edges.map(normalizeEdge).filter((edge) => Boolean(edge)) : fallback.edges;
+  const sessions = Array.isArray(source.sessions) ? source.sessions.map((session, index) => normalizeSession(`session-${index + 1}`, session)) : fallback.sessions;
+  const behavioralCheckpoints = isRecord(source.behavioralCheckpoints) ? Object.fromEntries(
+    Object.entries(source.behavioralCheckpoints).map(([id, checkpoint]) => [
+      id,
+      normalizeBehavioralCheckpoint(checkpoint, id)
+    ])
+  ) : fallback.behavioralCheckpoints;
+  const currentBehavioralCheckpointId = typeof source.currentBehavioralCheckpointId === "string" && behavioralCheckpoints && source.currentBehavioralCheckpointId in behavioralCheckpoints ? source.currentBehavioralCheckpointId : null;
+  const behavioralFrames = Array.isArray(source.behavioralFrames) ? source.behavioralFrames.map(normalizeBehavioralFrame).slice(-500) : fallback.behavioralFrames;
   return {
     ...fallback,
-    ...graph,
-    userId: typeof graph.userId === "string" && graph.userId.trim() ? graph.userId : fallback.userId,
-    app: typeof graph.app === "string" && graph.app.trim() ? graph.app : appName,
+    ...source,
+    userId: typeof source.userId === "string" && source.userId.trim() ? source.userId : fallback.userId,
+    app: typeof source.app === "string" && source.app.trim() ? source.app : appName,
     nodes,
     edges,
     branches,
     sessions,
-    bandtState: normalizeBandtState(graph.bandtState)
+    bandtState: normalizeBandtState(source.bandtState),
+    behavioralCheckpoints,
+    currentBehavioralCheckpointId,
+    behavioralFrames
   };
 }
 function loadGraph(appName = DEFAULT_APP_NAME$1) {
@@ -1978,10 +2319,10 @@ function stopReplay() {
   }
 }
 const DEFAULT_WAIT_STEP_MS$1 = 800;
-function stepWaitMs$1(step) {
+function stepWaitMs$2(step) {
   return step.waitForMs || step.delayMs || DEFAULT_WAIT_STEP_MS$1;
 }
-function stepTitle$1(step) {
+function stepTitle$2(step) {
   return step.instruction || step.targetLabel || step.id || "Untitled step";
 }
 async function replayAutoExecute(steps) {
@@ -1996,7 +2337,7 @@ async function replayAutoExecute(steps) {
         index,
         displayIndex: index + 1,
         total: steps.length,
-        title: stepTitle$1(step),
+        title: stepTitle$2(step),
         action: step.action,
         x: step.x,
         y: step.y
@@ -2006,7 +2347,7 @@ async function replayAutoExecute(steps) {
         safeLog("[AUTO_REAL_MOUSE] REAL OS move/click", { index, x: step.x, y: step.y });
         await clickRealMouse(step.x, step.y);
       } else if (step.action === "wait") {
-        const waitMs = stepWaitMs$1(step);
+        const waitMs = stepWaitMs$2(step);
         safeLog("[AUTO_REAL_MOUSE] wait before next real OS action", { index, waitMs });
         if (!await sleep(waitMs, controller)) break;
       } else {
@@ -2031,6 +2372,321 @@ async function replayAutoExecute(steps) {
     restoreOverlayAfterReplay(controller);
     safeLog("[AUTO_REAL_MOUSE] REAL OS AUTOMATION FINISHED", { cancelled: controller.cancelled });
   }
+}
+const PAUSE_FRAME_INTERVAL_MS = 1e3;
+const HESITATION_THRESHOLD_MS = 1200;
+const REPEATED_CLICK_WINDOW_MS = 1200;
+const REPEATED_CLICK_RADIUS_PERCENT = 1.5;
+let frames = [];
+let currentState = createDefaultBehavioralState();
+let isTracking = false;
+let lastCursor = null;
+let lastActionAt = Date.now();
+let lastMouseFrameAt = 0;
+let pauseTimer = null;
+let lastClick = null;
+let cleanupListeners = [];
+let stateEmitter = null;
+function pushFrame(frame) {
+  const normalized = normalizeBehavioralFrame(frame);
+  frames = [...frames, normalized].slice(-260);
+  currentState = aggregateBehavioralSignature(frames, currentState);
+  if (normalized.actionType !== "pause") {
+    lastActionAt = normalized.t;
+  }
+  if (typeof normalized.cursorX === "number" && typeof normalized.cursorY === "number") {
+    lastCursor = { x: normalized.cursorX, y: normalized.cursorY, t: normalized.t };
+  }
+  stateEmitter?.(currentState, normalized);
+  return normalized;
+}
+function safeHook(eventName, handler) {
+  try {
+    const hook = uiohookNapi.uIOhook;
+    if (typeof hook.on !== "function") return;
+    hook.on(eventName, handler);
+    cleanupListeners.push(() => {
+      try {
+        if (typeof hook.off === "function") hook.off(eventName, handler);
+        else if (typeof hook.removeListener === "function") hook.removeListener(eventName, handler);
+      } catch (error) {
+        safeWarn("[BEHAVIOR] failed to remove uiohook listener", { eventName, error });
+      }
+    });
+  } catch (error) {
+    safeWarn("[BEHAVIOR] uiohook listener unavailable; real behavior source disabled", { eventName, error });
+  }
+}
+function cursorPercentFromEvent(event) {
+  const x = typeof event?.x === "number" && Number.isFinite(event.x) ? Math.min(100, Math.max(0, event.x)) : void 0;
+  const y = typeof event?.y === "number" && Number.isFinite(event.y) ? Math.min(100, Math.max(0, event.y)) : void 0;
+  const delta = typeof x === "number" && typeof y === "number" && lastCursor ? { dx: x - lastCursor.x, dy: y - lastCursor.y } : void 0;
+  return { x, y, delta };
+}
+async function cursorPercentSafe(event) {
+  try {
+    const position = await getMousePercent();
+    return cursorPercentFromEvent(position);
+  } catch {
+    return cursorPercentFromEvent(event);
+  }
+}
+function isBackspaceOrDelete(event) {
+  return event?.keycode === uiohookNapi.UiohookKey.Backspace || event?.keycode === uiohookNapi.UiohookKey.Delete;
+}
+function isRepeatedClick(cursor) {
+  const now = Date.now();
+  if (!lastClick) {
+    lastClick = { x: cursor.x, y: cursor.y, t: now, count: 1 };
+    return false;
+  }
+  const distance = typeof cursor.x === "number" && typeof cursor.y === "number" && typeof lastClick.x === "number" && typeof lastClick.y === "number" ? Math.hypot(cursor.x - lastClick.x, cursor.y - lastClick.y) : Number.POSITIVE_INFINITY;
+  const repeated = now - lastClick.t <= REPEATED_CLICK_WINDOW_MS && distance <= REPEATED_CLICK_RADIUS_PERCENT;
+  lastClick = {
+    x: cursor.x,
+    y: cursor.y,
+    t: now,
+    count: repeated ? lastClick.count + 1 : 1
+  };
+  return repeated;
+}
+function startPauseFrames() {
+  if (pauseTimer) return;
+  pauseTimer = setInterval(() => {
+    if (!isTracking) return;
+    const now = Date.now();
+    const dwellMs = now - lastActionAt;
+    if (dwellMs < HESITATION_THRESHOLD_MS) return;
+    pushFrame({
+      t: now,
+      cursorX: lastCursor?.x,
+      cursorY: lastCursor?.y,
+      dwellMs,
+      actionType: "pause",
+      revisionSignal: 0,
+      targetLabel: "hesitation before action"
+    });
+  }, PAUSE_FRAME_INTERVAL_MS);
+}
+function stopPauseFrames() {
+  if (!pauseTimer) return;
+  clearInterval(pauseTimer);
+  pauseTimer = null;
+}
+function realFramesFrom(graph) {
+  return (Array.isArray(graph.behavioralFrames) ? graph.behavioralFrames : []).filter((frame) => frame.synthetic !== true);
+}
+function setBehavioralStateEmitter(emitter) {
+  stateEmitter = emitter;
+}
+function getBufferedBehavioralFrameCount() {
+  return frames.filter((frame) => frame.synthetic !== true).length;
+}
+function startBehavioralTracking() {
+  if (isTracking) return;
+  isTracking = true;
+  safeLog("[BEHAVIOR] tracking start");
+  safeHook("click", (event) => {
+    void cursorPercentSafe(event).then((cursor) => {
+      pushFrame({
+        t: Date.now(),
+        cursorX: cursor.x,
+        cursorY: cursor.y,
+        cursorDelta: cursor.delta,
+        dwellMs: Math.max(0, Date.now() - lastActionAt),
+        actionType: isRepeatedClick(cursor) ? "repeat-click" : "click",
+        revisionSignal: 0
+      });
+    });
+  });
+  safeHook("keydown", (event) => {
+    const revision = isBackspaceOrDelete(event) ? 1 : 0;
+    pushFrame({
+      t: Date.now(),
+      dwellMs: Math.max(0, Date.now() - lastActionAt),
+      actionType: revision ? "backtrack" : "type",
+      revisionSignal: revision
+    });
+  });
+  safeHook("mousemove", (event) => {
+    const now = Date.now();
+    if (now - lastMouseFrameAt < 180) return;
+    lastMouseFrameAt = now;
+    void cursorPercentSafe(event).then((cursor) => {
+      pushFrame({
+        t: Date.now(),
+        cursorX: cursor.x,
+        cursorY: cursor.y,
+        cursorDelta: cursor.delta,
+        dwellMs: Math.max(0, Date.now() - lastActionAt),
+        actionType: "scan",
+        revisionSignal: 0
+      });
+    });
+  });
+  startPauseFrames();
+}
+function stopBehavioralTracking() {
+  if (!isTracking) return;
+  isTracking = false;
+  stopPauseFrames();
+  for (const cleanup of cleanupListeners) cleanup();
+  cleanupListeners = [];
+  safeLog("[BEHAVIOR] tracking stop");
+}
+function getCurrentBehavioralState() {
+  currentState = aggregateBehavioralSignature(frames, currentState);
+  return currentState;
+}
+function recordBehavioralFrame(frame) {
+  return pushFrame(normalizeBehavioralFrame(frame));
+}
+function rewardFromFeedback(input) {
+  const kind = typeof input?.kind === "string" ? input.kind : "hesitation";
+  const correctionCount = typeof input?.correctionCount === "number" && Number.isFinite(input.correctionCount) ? Math.max(0, Math.round(input.correctionCount)) : 0;
+  if (kind === "accept") return 1;
+  if (kind === "override") return 0;
+  if (kind === "correction") return Math.max(0, 0.2 - correctionCount * 0.08);
+  return 0.35;
+}
+function recordBehavioralFeedback(input) {
+  const reward = rewardFromFeedback(input);
+  const kind = typeof input?.kind === "string" ? input.kind : "hesitation";
+  const actionType = kind === "accept" ? "accept" : kind === "override" ? "override" : kind === "correction" ? "correction" : "hesitation";
+  const frame = pushFrame({
+    t: Date.now(),
+    dwellMs: typeof input?.hesitationMs === "number" && Number.isFinite(input.hesitationMs) ? Math.max(0, Math.round(input.hesitationMs)) : 350,
+    actionType,
+    revisionSignal: actionType === "accept" ? 0 : actionType === "hesitation" ? 0.3 : 1,
+    targetLabel: typeof input?.targetLabel === "string" && input.targetLabel.trim() ? input.targetLabel.trim() : `Mirror Mode ${actionType} feedback`
+  });
+  return { frame, reward };
+}
+function recordAppSwitchFrame(label) {
+  return pushFrame({
+    t: Date.now(),
+    dwellMs: Math.max(0, Date.now() - lastActionAt),
+    actionType: "app-switch",
+    revisionSignal: 0,
+    app: label,
+    targetLabel: "window/app switching"
+  });
+}
+function recordReplayBehavioralEvent(kind, targetLabel) {
+  return pushFrame({
+    t: Date.now(),
+    dwellMs: Math.max(0, Date.now() - lastActionAt),
+    actionType: kind === "retry" ? "replay-retry" : "replay-failure",
+    revisionSignal: kind === "retry" ? 0.45 : 0.85,
+    targetLabel: targetLabel || `replay ${kind}`
+  });
+}
+function createCheckpointFromCurrentGraph(graph) {
+  const storedFrames = realFramesFrom(graph);
+  const realFrames = [...storedFrames, ...frames.filter((frame) => frame.synthetic !== true)];
+  if (realFrames.length === 0) {
+    throw new Error("Create Checkpoint needs measured behavioral frames first. Use the computer normally for a bit, then try again.");
+  }
+  const signature = aggregateBehavioralSignature(realFrames, getCurrentBehavioralState());
+  const checkpoints = graph.behavioralCheckpoints || {};
+  const parentId = typeof graph.currentBehavioralCheckpointId === "string" && checkpoints[graph.currentBehavioralCheckpointId] && checkpoints[graph.currentBehavioralCheckpointId].synthetic !== true ? graph.currentBehavioralCheckpointId : null;
+  const parent = parentId ? checkpoints[parentId] : null;
+  const checkpoint = createBehavioralCheckpoint({
+    sessionN: Math.max(1, graph.sessions.length + 1),
+    signature,
+    previous: parent,
+    parentId,
+    label: `Session ${Math.max(1, graph.sessions.length + 1)}: ${signature.moodLabel} you`
+  });
+  const nextGraph = {
+    ...graph,
+    behavioralCheckpoints: {
+      ...checkpoints,
+      [checkpoint.id]: checkpoint
+    },
+    currentBehavioralCheckpointId: checkpoint.id,
+    behavioralFrames: realFrames.slice(-500)
+  };
+  currentState = signature;
+  safeLog("[BEHAVIOR] checkpoint created", { id: checkpoint.id, label: checkpoint.label });
+  return { graph: nextGraph, checkpoint };
+}
+function seedDemoCheckpoints(graph) {
+  const existing = graph.behavioralCheckpoints || {};
+  const baseTimestamp = Date.now();
+  const demoStates = [
+    {
+      label: "DEV FALLBACK: synthetic cautious signature",
+      commitMessage: "synthetic demo data: cautious interaction signature",
+      signature: normalizeBehavioralState({
+        cognitiveLoad: 0.82,
+        impulsivity: 0.18,
+        flowScore: 0.32,
+        revisionRate: 0.62,
+        backtrackRate: 0.38,
+        decisionConfidence: 0.36,
+        moodLabel: "thinking",
+        sampledAt: new Date(baseTimestamp - 18e4).toISOString()
+      })
+    },
+    {
+      label: "DEV FALLBACK: synthetic flow signature",
+      commitMessage: "synthetic demo data: reduced hesitation, increased cursor confidence",
+      signature: normalizeBehavioralState({
+        cognitiveLoad: 0.28,
+        impulsivity: 0.58,
+        flowScore: 0.88,
+        revisionRate: 0.16,
+        backtrackRate: 0.08,
+        decisionConfidence: 0.86,
+        moodLabel: "flow",
+        sampledAt: new Date(baseTimestamp - 9e4).toISOString()
+      })
+    },
+    {
+      label: "DEV FALLBACK: synthetic mirror signature",
+      commitMessage: "synthetic demo data: persona-conditioned mirror preview",
+      signature: normalizeBehavioralState({
+        cognitiveLoad: 0.56,
+        impulsivity: 0.86,
+        flowScore: 0.72,
+        revisionRate: 0.24,
+        backtrackRate: 0.12,
+        decisionConfidence: 0.74,
+        moodLabel: "mirroring",
+        sampledAt: new Date(baseTimestamp).toISOString()
+      })
+    }
+  ];
+  let parentId = graph.currentBehavioralCheckpointId || null;
+  const checkpoints = demoStates.map((entry, index) => {
+    const checkpoint = createBehavioralCheckpoint({
+      id: `demo-behavior-${index + 1}`,
+      timestamp: entry.signature.sampledAt,
+      sessionN: index + 1,
+      signature: entry.signature,
+      previous: parentId ? existing[parentId] : null,
+      parentId,
+      label: entry.label,
+      commitMessage: entry.commitMessage,
+      synthetic: true
+    });
+    parentId = checkpoint.id;
+    return checkpoint;
+  });
+  const nextCheckpoints = {
+    ...existing,
+    ...Object.fromEntries(checkpoints.map((checkpoint) => [checkpoint.id, checkpoint]))
+  };
+  const nextGraph = {
+    ...graph,
+    behavioralCheckpoints: nextCheckpoints,
+    currentBehavioralCheckpointId: checkpoints[checkpoints.length - 1]?.id || graph.currentBehavioralCheckpointId || null,
+    behavioralFrames: graph.behavioralFrames || []
+  };
+  currentState = checkpoints[checkpoints.length - 1]?.signature || currentState;
+  safeLog("[BEHAVIOR] demo checkpoints seeded", { count: checkpoints.length, current: nextGraph.currentBehavioralCheckpointId });
+  return { graph: nextGraph, checkpoints };
 }
 let walkthroughSafetyChecked = false;
 function functionSource(source, name) {
@@ -2071,10 +2727,10 @@ const TARGET_APPROACH_TOLERANCE_PX = 50;
 const TARGET_CLICK_TOLERANCE_PX = 60;
 const MANUAL_CONFIRM_TIMEOUT_MS = 3e4;
 let pendingManualConfirm = null;
-function stepTitle(step) {
+function stepTitle$1(step) {
   return step.instruction || step.targetLabel || step.title || step.id || "Untitled step";
 }
-function stepWaitMs(step) {
+function stepWaitMs$1(step) {
   return step.waitForMs || step.delayMs || DEFAULT_WAIT_STEP_MS;
 }
 function fallbackGhostStart(step, previousTarget) {
@@ -2198,7 +2854,7 @@ function logWalkthroughStep(step, index, total, attempt) {
     displayIndex: index + 1,
     total,
     attempt,
-    title: stepTitle(step),
+    title: stepTitle$1(step),
     action: step.action,
     x: step.x,
     y: step.y
@@ -2261,7 +2917,7 @@ async function replayWalkthrough(steps, onStep) {
         emitGhostStep(step, index, steps.length, attempts, result, ghostStart);
         if (attempts === 0) onStep(step, index);
         if (step.action === "wait") {
-          const waitMs = stepWaitMs(step);
+          const waitMs = stepWaitMs$1(step);
           safeLog("[WALKTHROUGH] wait step sleeping", { index, waitMs });
           result = await sleep(waitMs, controller) ? "correct" : "cancelled";
         } else if (step.action === "click") {
@@ -2309,22 +2965,24 @@ async function replayWalkthrough(steps, onStep) {
           }
         }
         if (result === "correct") {
-          safeLog("[WALKTHROUGH] step complete", { index, action: step.action, title: stepTitle(step) });
+          safeLog("[WALKTHROUGH] step complete", { index, action: step.action, title: stepTitle$1(step) });
         } else if (result === "timeout") {
           attempts++;
+          recordReplayBehavioralEvent("retry", stepTitle$1(step));
           safeWarn("[WALKTHROUGH] step timed out", {
             index,
             action: step.action,
-            title: stepTitle(step),
+            title: stepTitle$1(step),
             attempt: attempts,
             maxAttempts: MAX_WALKTHROUGH_ATTEMPTS
           });
           if (attempts >= MAX_WALKTHROUGH_ATTEMPTS) {
-            safeWarn("[WALKTHROUGH] step skipped after timeout", { index, action: step.action, title: stepTitle(step) });
+            recordReplayBehavioralEvent("failure", stepTitle$1(step));
+            safeWarn("[WALKTHROUGH] step skipped after timeout", { index, action: step.action, title: stepTitle$1(step) });
             break;
           }
         } else if (result === "cancelled") {
-          safeWarn("[WALKTHROUGH] step cancelled", { index, action: step.action, title: stepTitle(step) });
+          safeWarn("[WALKTHROUGH] step cancelled", { index, action: step.action, title: stepTitle$1(step) });
           break;
         }
       }
@@ -2354,6 +3012,81 @@ function registerReplayIpc(ipcMain, windowProvider, appName = "Specter") {
     stopReplay();
   });
   ipcMain.handle("replay:confirmStep", async () => confirmReplayStep());
+}
+const DEFAULT_MIRROR_MOVE_MS = 650;
+const DEFAULT_MIRROR_WAIT_MS = 620;
+function stepWaitMs(step, signature) {
+  const base = step.waitForMs || step.delayMs || DEFAULT_MIRROR_WAIT_MS;
+  return durationForPersona(base, signature);
+}
+function stepTitle(step) {
+  return step.instruction || step.targetLabel || step.title || step.id || "Untitled step";
+}
+function durationForPersona(baseMs, signature) {
+  const state = normalizeBehavioralState(signature);
+  const base = typeof baseMs === "number" && Number.isFinite(baseMs) ? Math.max(120, baseMs) : DEFAULT_MIRROR_MOVE_MS;
+  const impulsivityFactor = 1.52 - state.impulsivity * 0.98;
+  const loadFactor = 1 + state.cognitiveLoad * 0.52;
+  const confidenceFactor = 1 - state.decisionConfidence * 0.32;
+  const flowFactor = 1 - state.flowScore * 0.12;
+  return Math.round(Math.min(1800, Math.max(240, base * impulsivityFactor * loadFactor * confidenceFactor * flowFactor)));
+}
+async function mirrorReplayExecute(steps, signature) {
+  const controller = createReplayController();
+  const state = normalizeBehavioralState(signature);
+  setOverlayForReplay();
+  sendOverlay("mirror:started", { total: steps.length, signature: state });
+  sendOverlay("spec:mood", "mirroring");
+  safeLog("[MIRROR_MODE] STARTING persona-conditioned real OS automation", {
+    totalSteps: steps.length,
+    impulsivity: state.impulsivity,
+    cognitiveLoad: state.cognitiveLoad,
+    decisionConfidence: state.decisionConfidence
+  });
+  try {
+    for (let index = 0; index < steps.length; index++) {
+      if (!isActive(controller)) break;
+      const step = steps[index];
+      const moveDurationMs = durationForPersona(DEFAULT_MIRROR_MOVE_MS, state);
+      const preDelayMs = durationForPersona(step.delayMs || 120, state);
+      sendOverlay("mirror:progress", { index, total: steps.length, step, signature: state });
+      safeLog("[MIRROR_MODE] real mouse step", {
+        index,
+        displayIndex: index + 1,
+        total: steps.length,
+        title: stepTitle(step),
+        action: step.action,
+        x: step.x,
+        y: step.y,
+        moveDurationMs,
+        preDelayMs
+      });
+      if (step.action === "wait") {
+        if (!await sleep(stepWaitMs(step, state), controller)) break;
+      } else if (step.action === "click") {
+        if (!await sleep(preDelayMs, controller)) break;
+        await clickRealMouse(step.x, step.y, moveDurationMs);
+      } else {
+        if (!await sleep(preDelayMs, controller)) break;
+        await executeRealMouseSteps([{ ...step, delayMs: 0 }], moveDurationMs);
+      }
+      sendOverlay("replay:progress", { index, total: steps.length });
+      safeLog("[MIRROR_MODE] real mouse step complete", { index, action: step.action });
+    }
+    if (!controller.cancelled) {
+      sendOverlay("mirror:complete", { total: steps.length });
+      sendOverlay("spec:mood", "celebrating");
+    }
+  } catch (error) {
+    recordReplayBehavioralEvent("failure", "Mirror Mode execution failed");
+    sendOverlay("mirror:error", { message: error instanceof Error ? error.message : String(error) });
+    sendOverlay("spec:mood", "stuck");
+    throw error;
+  } finally {
+    releaseReplayController(controller);
+    restoreOverlayAfterReplay(controller);
+    safeLog("[MIRROR_MODE] automation finished", { cancelled: controller.cancelled });
+  }
 }
 const CONTROLLED_DEMO_NODE_ID = "Specter Controlled Demo";
 const CONTROLLED_DEMO_INTENT = "Controlled Specter demo";
@@ -2562,6 +3295,47 @@ function isLearningGraph(value) {
     value && typeof value === "object" && "userId" in value && "app" in value && "nodes" in value && "sessions" in value && "bandtState" in value
   );
 }
+function sendOverlayEvent(channel, payload) {
+  if (!overlayWindow || overlayWindow.isDestroyed()) return;
+  overlayWindow.webContents.send(channel, payload);
+}
+function sortedBehavioralCheckpoints(graph, includeSynthetic = true) {
+  return Object.values(graph.behavioralCheckpoints || {}).filter((checkpoint) => includeSynthetic || checkpoint.synthetic !== true).sort((a, b) => Date.parse(a.timestamp) - Date.parse(b.timestamp));
+}
+function behavioralCheckpointForId(graph, checkpointId) {
+  const checkpoints = graph.behavioralCheckpoints || {};
+  return typeof checkpointId === "string" && checkpoints[checkpointId] ? checkpoints[checkpointId] : null;
+}
+function newestBehavioralCheckpoint(graph) {
+  const checkpoints = sortedBehavioralCheckpoints(graph, false);
+  return checkpoints[checkpoints.length - 1] || null;
+}
+function realBehavioralFrameCount(graph) {
+  const persisted = (graph.behavioralFrames || []).filter((frame) => frame.synthetic !== true).length;
+  return persisted + getBufferedBehavioralFrameCount();
+}
+function hasRealBehavioralSignature(graph) {
+  return realBehavioralFrameCount(graph) > 0 || sortedBehavioralCheckpoints(graph, false).length > 0;
+}
+function realCheckpointOrNull(checkpoint) {
+  return checkpoint && checkpoint.synthetic !== true ? checkpoint : null;
+}
+function safeFeedbackArm(value) {
+  return value === "A" || value === "B" || value === "C" ? value : "C";
+}
+function latestStepsForNode(graph, nodeId) {
+  const sessions = nodeId ? graph.sessions.filter((session) => session.nodesVisited.includes(nodeId)) : graph.sessions.filter((session) => session.steps.length > 0);
+  const latest = sessions.length > 0 ? sessions[sessions.length - 1] : null;
+  return latest?.steps || [];
+}
+function selectMirrorSignature(graph, input) {
+  if (input?.blendedSignature) return normalizeBehavioralState(input.blendedSignature);
+  const requested = realCheckpointOrNull(behavioralCheckpointForId(graph, input?.checkpointId));
+  if (requested) return requested.signature;
+  const current = realCheckpointOrNull(behavioralCheckpointForId(graph, graph.currentBehavioralCheckpointId));
+  if (current) return current.signature;
+  return newestBehavioralCheckpoint(graph)?.signature || getCurrentBehavioralState() || createDefaultBehavioralState();
+}
 function toggleOverlay() {
   safeLog("[TOGGLE] toggleOverlay called, isVisible:", overlayWindow?.isVisible());
   if (!overlayWindow) return;
@@ -2715,6 +3489,21 @@ electron.app.whenReady().then(async () => {
     });
   }
   uiohookNapi.uIOhook.start();
+  setBehavioralStateEmitter((state) => {
+    sendOverlayEvent("spec:state", state);
+    sendOverlayEvent("spec:mood", state.moodLabel);
+  });
+  startBehavioralTracking();
+  electron.app.on("browser-window-blur", (_event, window) => {
+    recordAppSwitchFrame(window === overlayWindow ? "overlay blur" : "window blur");
+  });
+  electron.app.on("browser-window-focus", (_event, window) => {
+    recordAppSwitchFrame(window === overlayWindow ? "overlay focus" : "window focus");
+  });
+  electron.app.on("before-quit", () => {
+    stopBehavioralTracking();
+    setBehavioralStateEmitter(null);
+  });
   electron.ipcMain.on("overlay:hide", () => {
     if (!overlayWindow) return;
     overlayWindow.setIgnoreMouseEvents(true, { forward: true });
@@ -2773,7 +3562,16 @@ electron.app.whenReady().then(async () => {
       safeLog(`${logPrefix} starting screenshot capture`);
       const screenshot = base64PNG || await captureScreenBase64();
       safeLog(`${logPrefix} screenshot captured`, { bytesBase64: screenshot.length });
-      return analyzeScreen(screenshot);
+      const result = await analyzeScreen(screenshot);
+      recordBehavioralFrame({
+        t: Date.now(),
+        dwellMs: 0,
+        actionType: "scan",
+        revisionSignal: 0,
+        app: typeof result?.app === "string" ? result.app : "screen",
+        targetLabel: "real screenshot/VLM state"
+      });
+      return result;
     } catch (err) {
       if (isPermissionError(err) || err.code === "SCREEN_PERMISSION_DENIED") {
         event.sender.send("permissions:screen-denied");
@@ -2811,6 +3609,14 @@ electron.app.whenReady().then(async () => {
         overlayWindow.setIgnoreMouseEvents(true, { forward: true });
       }
       const result = await detectScreenTargets(screenshot, prompt);
+      recordBehavioralFrame({
+        t: Date.now(),
+        dwellMs: 0,
+        actionType: "scan",
+        revisionSignal: result.targets.length > 0 ? 0 : 0.35,
+        app: typeof result.app === "string" ? result.app : "screen",
+        targetLabel: `VLM targets: ${result.targets.length}`
+      });
       safeLog("[SCREEN_TARGETS] targets returned", {
         prompt,
         app: result.app,
@@ -2901,6 +3707,76 @@ electron.app.whenReady().then(async () => {
     return loadGraph(DEFAULT_APP_NAME);
   });
   electron.ipcMain.handle("session:load", async (_event, appName = DEFAULT_APP_NAME) => loadGraph(appName));
+  electron.ipcMain.handle("behavior:getState", async () => getCurrentBehavioralState());
+  electron.ipcMain.handle("behavior:recordFrame", async (_event, frame, appName = DEFAULT_APP_NAME) => {
+    const recorded = recordBehavioralFrame(frame);
+    const graph = loadGraph(appName);
+    graph.behavioralFrames = [...graph.behavioralFrames || [], recorded].slice(-500);
+    saveGraph(graph);
+    const state = getCurrentBehavioralState();
+    sendOverlayEvent("spec:state", state);
+    sendOverlayEvent("spec:mood", state.moodLabel);
+    return { frame: recorded, state };
+  });
+  electron.ipcMain.handle("behavior:createCheckpoint", async (_event, appName = DEFAULT_APP_NAME) => {
+    const result = createCheckpointFromCurrentGraph(loadGraph(appName));
+    saveGraph(result.graph);
+    sendOverlayEvent("behavior:checkpoint-created", result.checkpoint);
+    sendOverlayEvent("spec:state", result.checkpoint.signature);
+    sendOverlayEvent("spec:mood", result.checkpoint.signature.moodLabel);
+    return result.checkpoint;
+  });
+  electron.ipcMain.handle(
+    "behavior:listCheckpoints",
+    async (_event, appName = DEFAULT_APP_NAME) => sortedBehavioralCheckpoints(loadGraph(appName))
+  );
+  electron.ipcMain.handle("behavior:diffCheckpoints", async (_event, fromId, toId, appName = DEFAULT_APP_NAME) => {
+    const graph = loadGraph(appName);
+    const from = realCheckpointOrNull(behavioralCheckpointForId(graph, fromId));
+    const to = realCheckpointOrNull(behavioralCheckpointForId(graph, toId));
+    if (!from || !to) return null;
+    return diffBehavioralCheckpoints(from, to);
+  });
+  electron.ipcMain.handle("behavior:blendCheckpoints", async (_event, fromId, toId, t, appName = DEFAULT_APP_NAME) => {
+    const graph = loadGraph(appName);
+    const from = realCheckpointOrNull(behavioralCheckpointForId(graph, fromId));
+    const to = realCheckpointOrNull(behavioralCheckpointForId(graph, toId));
+    if (!from || !to) return null;
+    const state = blendBehavioralStates(from.signature, to.signature, t);
+    sendOverlayEvent("spec:state", state);
+    sendOverlayEvent("spec:mood", state.moodLabel);
+    return state;
+  });
+  electron.ipcMain.handle("behavior:seedDemo", async (_event, appName = DEFAULT_APP_NAME) => {
+    if (electron.app.isPackaged && process.env.SPECTER_ENABLE_DEV_FALLBACK !== "true") {
+      throw new Error("Synthetic demo checkpoints are a dev-only fallback and cannot be used as learned behavior.");
+    }
+    const result = seedDemoCheckpoints(loadGraph(appName));
+    saveGraph(result.graph);
+    const current = result.checkpoints[result.checkpoints.length - 1];
+    sendOverlayEvent("behavior:checkpoint-created", current);
+    sendOverlayEvent("spec:state", current?.signature || getCurrentBehavioralState());
+    sendOverlayEvent("spec:mood", current?.signature.moodLabel || "idle");
+    return sortedBehavioralCheckpoints(result.graph);
+  });
+  electron.ipcMain.handle("behavior:feedback", async (_event, input = {}, appName = DEFAULT_APP_NAME) => {
+    const graph = loadGraph(appName);
+    const result = recordBehavioralFeedback(input);
+    const arm = safeFeedbackArm(input?.arm);
+    graph.behavioralFrames = [...graph.behavioralFrames || [], result.frame].slice(-500);
+    graph.bandtState = recordReward(graph.bandtState, arm, result.reward);
+    saveGraph(graph);
+    const state = getCurrentBehavioralState();
+    sendOverlayEvent("spec:state", state);
+    sendOverlayEvent("spec:mood", state.moodLabel);
+    safeLog("[BEHAVIOR] feedback recorded", {
+      kind: input?.kind || "hesitation",
+      reward: result.reward,
+      arm,
+      actionType: result.frame.actionType
+    });
+    return { frame: result.frame, state, reward: result.reward, bandtState: graph.bandtState };
+  });
   electron.ipcMain.handle(
     "session:resume-prompt",
     async (_event, appName = DEFAULT_APP_NAME) => getResumePrompt(loadGraph(appName))
@@ -2997,11 +3873,55 @@ electron.app.whenReady().then(async () => {
     await replayWalkthrough(steps, () => {
     });
   });
+  electron.ipcMain.handle("mirror:run", async (_event, input = {}, appName = DEFAULT_APP_NAME) => {
+    if (input?.confirmed !== true) {
+      const message = "Mirror Mode requires visible renderer confirmation before real mouse automation.";
+      sendOverlayEvent("mirror:error", { message });
+      sendOverlayEvent("spec:mood", "stuck");
+      throw new Error(message);
+    }
+    const graph = loadGraph(appName);
+    if (!hasRealBehavioralSignature(graph)) {
+      const message = "Mirror Mode needs measured behavioral frames or a real behavioral checkpoint before it can run.";
+      sendOverlayEvent("mirror:error", { message });
+      sendOverlayEvent("spec:mood", "stuck");
+      throw new Error(message);
+    }
+    const signature = selectMirrorSignature(graph, input);
+    sendOverlayEvent("mirror:started", { signature });
+    sendOverlayEvent("spec:mood", "mirroring");
+    try {
+      let steps = latestStepsForNode(graph, input?.nodeId);
+      if (steps.length === 0) {
+        steps = latestStepsForNode(graph);
+      }
+      if (steps.length === 0) {
+        const message = "Mirror Mode needs a real recorded or saved workflow. Start a real-app walkthrough or record a session first.";
+        sendOverlayEvent("mirror:error", { message });
+        sendOverlayEvent("spec:mood", "stuck");
+        throw new Error(message);
+      }
+      await mirrorReplayExecute(steps, signature);
+      sendOverlayEvent("mirror:complete", { total: steps.length });
+      sendOverlayEvent("spec:mood", "celebrating");
+      return { ok: true, totalSteps: steps.length, signature };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      safeError("[MIRROR_MODE] failed", error);
+      sendOverlayEvent("mirror:error", { message });
+      sendOverlayEvent("spec:mood", "stuck");
+      throw error;
+    }
+  });
   electron.ipcMain.handle("tts:speak", async (_event, text) => {
     safeLog("[IPC] tts:speak", { text: text?.slice(0, 50) });
     return speak(text);
   });
   electron.ipcMain.handle("tts:stop", async () => stopSpeaking());
+  electron.ipcMain.handle("ai:testVoiceOutput", async () => {
+    safeLog("[IPC] ai:testVoiceOutput");
+    return speak("Specter voice test. This is a check of the natural speech system.");
+  });
   electron.ipcMain.handle("whisper:transcribe", async (_event, audioData) => {
     const buffer = bufferFromAudioData(audioData);
     safeLog("[IPC] whisper:transcribe", {

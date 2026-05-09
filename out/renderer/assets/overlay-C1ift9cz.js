@@ -456,27 +456,29 @@ const InputBar = ({
         return;
       }
       console.log("[MIC] transcription started", { size: buffer.byteLength });
-      const text = await Promise.race([
+      onTranscriptionStart?.();
+      const result = await Promise.race([
         window.api.transcribe(buffer),
         new Promise(
           (_, reject) => setTimeout(() => reject(Object.assign(new Error("Transcription timed out"), { code: "WHISPER_TIMEOUT" })), 25e3)
         )
       ]);
-      console.log("[MIC] transcription success", {
-        length: typeof text === "string" ? text.length : 0
-      });
-      if (typeof text === "string" && text.trim()) {
+      if (result.ok && typeof result.text === "string" && result.text.trim()) {
+        const text = result.text.trim();
+        console.log("[MIC] transcription success", { length: text.length });
         if (mode === "ultra" && onUltraSpokenInput) {
           console.log("[MIC] ultra mode auto-sending transcription");
-          onUltraSpokenInput(text.trim());
+          onUltraSpokenInput(text);
           setMicState("idle");
         } else {
-          setValue(text.trim());
+          setValue(text);
           setMicMessage("");
           window.setTimeout(() => inputRef.current?.focus(), 0);
         }
       } else {
-        setMicMessage("No transcription returned. Try speaking again.");
+        const msg = result.message || "No transcription returned. Try speaking again.";
+        setMicMessage(msg);
+        console.warn("[MIC] transcription failed/empty", { error: result.error, message: msg });
       }
     } catch (error) {
       console.error("[MIC] transcription failed", error);
@@ -487,6 +489,7 @@ const InputBar = ({
       }
       setMicState("idle");
     } finally {
+      onTranscriptionEnd?.();
       recordingStartRef.current = null;
       setMicState("idle");
       console.log("[MIC] overlay reset to idle");
@@ -525,7 +528,7 @@ const InputBar = ({
           autoFocus: true,
           className: "input-bar-field",
           type: "text",
-          placeholder: "What can I help you with today?",
+          placeholder: "Ask Specter about the app in front of you",
           value,
           disabled,
           onChange: (e) => setValue(e.target.value),
@@ -580,15 +583,15 @@ const InputBar = ({
   ] });
 };
 const DEMO_LOOP_MS = 1700;
-function clampPercent(value) {
+function clampPercent$1(value) {
   return Math.min(100, Math.max(0, value));
 }
 function fallbackStart(step) {
   const offsetX = step.x > 58 ? -18 : 18;
   const offsetY = step.y > 58 ? -12 : 12;
   return {
-    x: clampPercent(step.x + offsetX),
-    y: clampPercent(step.y + offsetY)
+    x: clampPercent$1(step.x + offsetX),
+    y: clampPercent$1(step.y + offsetY)
   };
 }
 const GhostCursor = ({ step }) => {
@@ -602,8 +605,8 @@ const GhostCursor = ({ step }) => {
   const fallback = !isIdle ? fallbackStart(step) : { x: idleX, y: idleY };
   const startX = !isIdle && typeof step.ghostStartX === "number" ? step.ghostStartX : fallback.x;
   const startY = !isIdle && typeof step.ghostStartY === "number" ? step.ghostStartY : fallback.y;
-  const fromX = clampPercent(startX) - clampPercent(displayX);
-  const fromY = clampPercent(startY) - clampPercent(displayY);
+  const fromX = clampPercent$1(startX) - clampPercent$1(displayX);
+  const fromY = clampPercent$1(startY) - clampPercent$1(displayY);
   const shouldLoop = !isIdle && step.ghostLoop !== false && step.action !== "wait" && !step.ghostLocked;
   const hasHint = !isIdle && Boolean(step.instruction || step.targetLabel);
   const isLocked = !isIdle && step.ghostLocked;
@@ -723,6 +726,129 @@ const GhostCursor = ({ step }) => {
         }
       ` })
   ] });
+};
+function clampPercent(value, fallback) {
+  return typeof value === "number" && Number.isFinite(value) ? Math.min(100, Math.max(0, value)) : fallback;
+}
+function labelForMood(mood, state) {
+  if (mood === "flow") return `flow ${Math.round((state?.flowScore ?? 0.82) * 100)}%`;
+  if (mood === "thinking") return "thinking...";
+  if (mood === "stuck") return "stuck on this";
+  if (mood === "celebrating") return "checkpoint glow";
+  if (mood === "mirroring") return "mirror mode";
+  if (mood === "judging") return "judging your click";
+  return state ? `confidence ${Math.round(state.decisionConfidence * 100)}%` : "measuring";
+}
+function renderEyes(mood) {
+  if (mood === "thinking") {
+    return /* @__PURE__ */ jsxRuntimeExports.jsxs(jsxRuntimeExports.Fragment, { children: [
+      /* @__PURE__ */ jsxRuntimeExports.jsx("path", { className: "spec-buddy__brow", d: "M28 31c5-4 10-4 15-1" }),
+      /* @__PURE__ */ jsxRuntimeExports.jsx("circle", { className: "spec-buddy__eye", cx: "34", cy: "40", r: "4.2" }),
+      /* @__PURE__ */ jsxRuntimeExports.jsx("circle", { className: "spec-buddy__eye", cx: "57", cy: "38", r: "4.2" }),
+      /* @__PURE__ */ jsxRuntimeExports.jsx("circle", { className: "spec-buddy__pupil", cx: "32.5", cy: "40.5", r: "1.7" }),
+      /* @__PURE__ */ jsxRuntimeExports.jsx("circle", { className: "spec-buddy__pupil", cx: "55.5", cy: "38.5", r: "1.7" })
+    ] });
+  }
+  if (mood === "stuck") {
+    return /* @__PURE__ */ jsxRuntimeExports.jsxs(jsxRuntimeExports.Fragment, { children: [
+      /* @__PURE__ */ jsxRuntimeExports.jsx("path", { className: "spec-buddy__eye-line", d: "M29 39c4-3 9-3 13 0" }),
+      /* @__PURE__ */ jsxRuntimeExports.jsx("path", { className: "spec-buddy__eye-line", d: "M51 39c4-3 9-3 13 0" }),
+      /* @__PURE__ */ jsxRuntimeExports.jsx("path", { className: "spec-buddy__mouth worried", d: "M41 53c5-4 10-4 15 0" })
+    ] });
+  }
+  if (mood === "flow") {
+    return /* @__PURE__ */ jsxRuntimeExports.jsxs(jsxRuntimeExports.Fragment, { children: [
+      /* @__PURE__ */ jsxRuntimeExports.jsx("circle", { className: "spec-buddy__eye wide", cx: "34", cy: "39", r: "5.2" }),
+      /* @__PURE__ */ jsxRuntimeExports.jsx("circle", { className: "spec-buddy__eye wide", cx: "57", cy: "39", r: "5.2" }),
+      /* @__PURE__ */ jsxRuntimeExports.jsx("path", { className: "spec-buddy__mouth happy", d: "M39 52c4 5 14 5 18 0" })
+    ] });
+  }
+  if (mood === "celebrating") {
+    return /* @__PURE__ */ jsxRuntimeExports.jsxs(jsxRuntimeExports.Fragment, { children: [
+      /* @__PURE__ */ jsxRuntimeExports.jsx("path", { className: "spec-buddy__star-eye", d: "M34 31l2.1 5 5.4.4-4.1 3.6 1.3 5.2-4.7-2.7-4.7 2.7 1.3-5.2-4.1-3.6 5.4-.4z" }),
+      /* @__PURE__ */ jsxRuntimeExports.jsx("path", { className: "spec-buddy__star-eye", d: "M58 31l2.1 5 5.4.4-4.1 3.6 1.3 5.2-4.7-2.7-4.7 2.7 1.3-5.2-4.1-3.6 5.4-.4z" }),
+      /* @__PURE__ */ jsxRuntimeExports.jsx("path", { className: "spec-buddy__mouth happy", d: "M39 54c4 5 14 5 18 0" })
+    ] });
+  }
+  if (mood === "mirroring") {
+    return /* @__PURE__ */ jsxRuntimeExports.jsxs(jsxRuntimeExports.Fragment, { children: [
+      /* @__PURE__ */ jsxRuntimeExports.jsx("ellipse", { className: "spec-buddy__eye glow", cx: "34", cy: "39", rx: "5.8", ry: "4.6" }),
+      /* @__PURE__ */ jsxRuntimeExports.jsx("ellipse", { className: "spec-buddy__eye glow", cx: "57", cy: "39", rx: "5.8", ry: "4.6" }),
+      /* @__PURE__ */ jsxRuntimeExports.jsx("path", { className: "spec-buddy__mouth calm", d: "M42 54c4 2 9 2 13 0" })
+    ] });
+  }
+  if (mood === "judging") {
+    return /* @__PURE__ */ jsxRuntimeExports.jsxs(jsxRuntimeExports.Fragment, { children: [
+      /* @__PURE__ */ jsxRuntimeExports.jsx("path", { className: "spec-buddy__eye-line judging", d: "M27 38c7-2 13-1 18 2" }),
+      /* @__PURE__ */ jsxRuntimeExports.jsx("path", { className: "spec-buddy__eye-line judging", d: "M51 39c6-3 12-3 18-1" }),
+      /* @__PURE__ */ jsxRuntimeExports.jsx("circle", { className: "spec-buddy__pupil judging", cx: "36", cy: "39", r: "1.9" }),
+      /* @__PURE__ */ jsxRuntimeExports.jsx("circle", { className: "spec-buddy__pupil judging", cx: "59", cy: "38", r: "1.9" }),
+      /* @__PURE__ */ jsxRuntimeExports.jsx("path", { className: "spec-buddy__mouth flat", d: "M41 54h15" })
+    ] });
+  }
+  return /* @__PURE__ */ jsxRuntimeExports.jsxs(jsxRuntimeExports.Fragment, { children: [
+    /* @__PURE__ */ jsxRuntimeExports.jsx("circle", { className: "spec-buddy__eye", cx: "34", cy: "39", r: "4.8" }),
+    /* @__PURE__ */ jsxRuntimeExports.jsx("circle", { className: "spec-buddy__eye", cx: "57", cy: "39", r: "4.8" }),
+    /* @__PURE__ */ jsxRuntimeExports.jsx("path", { className: "spec-buddy__mouth calm", d: "M41 53c4 3 11 3 15 0" })
+  ] });
+}
+const SpecBuddy = ({ mood, state, cursor, checkpointLabel, compact = false, pitchMode = false }) => {
+  const x = clampPercent(cursor?.x ?? 78, 78);
+  const y = clampPercent(cursor?.y ?? 74, 74);
+  const style = cursor ? {
+    left: `clamp(48px, ${x}vw, calc(100vw - 48px))`,
+    top: `clamp(74px, calc(${y}vh - 80px), calc(100vh - 56px))`
+  } : {
+    right: compact ? "18px" : "26px",
+    bottom: compact ? "86px" : "118px"
+  };
+  return /* @__PURE__ */ jsxRuntimeExports.jsxs(
+    "div",
+    {
+      className: `spec-buddy spec-buddy--${mood} ${compact ? "spec-buddy--compact" : ""} ${pitchMode ? "spec-buddy--pitch" : ""}`,
+      style,
+      children: [
+        pitchMode && /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "spec-buddy__pitch-tags", "aria-hidden": "true", children: [
+          /* @__PURE__ */ jsxRuntimeExports.jsx("span", { children: "measured behavior" }),
+          /* @__PURE__ */ jsxRuntimeExports.jsx("span", { children: "real-time mood signal" }),
+          /* @__PURE__ */ jsxRuntimeExports.jsx("span", { children: "versioned checkpoint" }),
+          /* @__PURE__ */ jsxRuntimeExports.jsx("span", { children: "feedback reward" })
+        ] }),
+        /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "spec-buddy__trail" }),
+        /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "spec-buddy__stars", "aria-hidden": "true", children: [
+          /* @__PURE__ */ jsxRuntimeExports.jsx("span", {}),
+          /* @__PURE__ */ jsxRuntimeExports.jsx("span", {}),
+          /* @__PURE__ */ jsxRuntimeExports.jsx("span", {})
+        ] }),
+        /* @__PURE__ */ jsxRuntimeExports.jsxs("svg", { className: "spec-buddy__svg", width: "92", height: "98", viewBox: "0 0 92 98", "aria-hidden": "true", children: [
+          /* @__PURE__ */ jsxRuntimeExports.jsx("defs", { children: /* @__PURE__ */ jsxRuntimeExports.jsxs("filter", { id: "spec-soft-glow", x: "-40%", y: "-40%", width: "180%", height: "180%", children: [
+            /* @__PURE__ */ jsxRuntimeExports.jsx("feGaussianBlur", { stdDeviation: "3", result: "blur" }),
+            /* @__PURE__ */ jsxRuntimeExports.jsxs("feMerge", { children: [
+              /* @__PURE__ */ jsxRuntimeExports.jsx("feMergeNode", { in: "blur" }),
+              /* @__PURE__ */ jsxRuntimeExports.jsx("feMergeNode", { in: "SourceGraphic" })
+            ] })
+          ] }) }),
+          /* @__PURE__ */ jsxRuntimeExports.jsx(
+            "path",
+            {
+              className: "spec-buddy__body",
+              d: "M17 45c0-20 12-35 29-35s29 15 29 35v32c0 4-4 6-7 3l-6-5-6 8c-2 3-6 3-8 0l-4-6-5 6c-2 3-6 3-8 0l-5-7-6 5c-3 3-7 1-7-3V45Z"
+            }
+          ),
+          /* @__PURE__ */ jsxRuntimeExports.jsx("path", { className: "spec-buddy__shine", d: "M28 25c4-7 10-11 18-12" }),
+          /* @__PURE__ */ jsxRuntimeExports.jsx("path", { className: "spec-buddy__arm left", d: "M20 55c-8 4-11 9-9 15" }),
+          /* @__PURE__ */ jsxRuntimeExports.jsx("path", { className: "spec-buddy__arm right", d: "M72 55c8 4 11 9 9 15" }),
+          mood === "judging" && /* @__PURE__ */ jsxRuntimeExports.jsxs(jsxRuntimeExports.Fragment, { children: [
+            /* @__PURE__ */ jsxRuntimeExports.jsx("path", { className: "spec-buddy__arm-cross", d: "M27 61c10 6 25 7 39 1" }),
+            /* @__PURE__ */ jsxRuntimeExports.jsx("path", { className: "spec-buddy__arm-cross", d: "M64 59c-11 9-24 11-38 6" })
+          ] }),
+          renderEyes(mood)
+        ] }),
+        !compact && /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "spec-buddy__checkpoint", children: checkpointLabel }),
+        /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "spec-buddy__label", children: labelForMood(mood, state) })
+      ]
+    }
+  );
 };
 const ModeToggle = ({ mode, onChange }) => {
   return /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "mode-toggle", style: {
@@ -873,7 +999,7 @@ const SessionPanel = ({
     ] })
   ] });
 };
-const UltraReplyBubble = ({ reply, state }) => {
+const UltraReplyBubble = ({ reply, state, voiceFallback }) => {
   if (state === "idle" && !reply) return null;
   const getStateText = () => {
     switch (state) {
@@ -884,7 +1010,7 @@ const UltraReplyBubble = ({ reply, state }) => {
       case "thinking":
         return "Thinking...";
       case "speaking":
-        return "Speaking...";
+        return voiceFallback ? "Speaking (fallback)..." : "Speaking...";
       case "guiding":
         return "Guiding...";
       case "error":
@@ -946,7 +1072,24 @@ const UltraReplyBubble = ({ reply, state }) => {
           fontWeight: 500,
           lineHeight: 1.4,
           color: "rgba(255, 255, 255, 0.95)"
-        }, children: reply })
+        }, children: reply }),
+        voiceFallback && /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { style: {
+          marginTop: "6px",
+          padding: "4px 8px",
+          background: "rgba(255, 159, 10, 0.12)",
+          border: "1px solid rgba(255, 159, 10, 0.25)",
+          borderRadius: "8px",
+          fontSize: "10px",
+          fontWeight: 600,
+          color: "rgba(255, 159, 10, 0.85)",
+          letterSpacing: "0.2px",
+          display: "flex",
+          alignItems: "center",
+          gap: "5px"
+        }, children: [
+          /* @__PURE__ */ jsxRuntimeExports.jsx("span", { children: "🔇" }),
+          /* @__PURE__ */ jsxRuntimeExports.jsx("span", { children: "Voice fallback active · Text tutoring still works" })
+        ] })
       ]
     }
   );
@@ -1017,28 +1160,54 @@ function confidencePercent(value) {
   if (typeof value !== "number" || !Number.isFinite(value)) return "n/a";
   return `${Math.round(Math.min(1, Math.max(0, value)) * 100)}%`;
 }
+function behaviorPercent(value) {
+  return typeof value === "number" && Number.isFinite(value) ? `${Math.round(Math.min(1, Math.max(0, value)) * 100)}%` : "n/a";
+}
+function signedBehaviorPercent(value) {
+  if (typeof value !== "number" || !Number.isFinite(value)) return "0%";
+  const rounded = Math.round(value * 100);
+  return `${rounded >= 0 ? "+" : ""}${rounded}%`;
+}
+function latestCheckpoint(checkpoints) {
+  return checkpoints.length > 0 ? checkpoints[checkpoints.length - 1] : null;
+}
+function firstCheckpoint(checkpoints) {
+  return checkpoints.length > 0 ? checkpoints[0] : null;
+}
 function formatAIHealthStatus(health) {
   const anthropic = health?.anthropic || {};
   const anthropicKey = anthropic.key || {};
   const testRequest = anthropic.testRequest || {};
   const openai = health?.openai || {};
   const openaiKey = openai.key || {};
+  const elevenlabs = health?.elevenlabs || {};
+  const elevenlabsKey = elevenlabs.key || {};
+  const openaiTTS = health?.openaiTTS || {};
+  openaiTTS.key || {};
   const overall = health?.overall || {};
   const claudeTextStatus = testRequest.pass ? "Claude text test: pass" : `Claude text test: failed (${testRequest.category || "unknown"})`;
   const claudeVisionStatus = `Claude vision/config: ${anthropic.configured ? "ready" : "not configured"}`;
   const whisperStatus = `Whisper voice: ${openai.whisperConfigured ? "ready" : "missing key"}`;
+  const elevenlabsStatus = `ElevenLabs TTS: ${elevenlabs.configured ? "ready" : "fallback mode"}`;
+  const openaiTTSStatus = `OpenAI TTS: ${openaiTTS.configured ? "ready" : "not configured"}`;
   const overallAppAI = overall.readyForRealAppAI ? "ready" : "not ready";
-  const overallVoice = overall.readyForVoice ? "ready" : "not ready";
+  const overallVoiceInput = overall.readyForVoiceInput ? "ready" : "not ready";
+  const overallVoiceOutput = overall.readyForNaturalVoiceOutput ? "Natural" : "macOS say";
   const reason = testRequest.reason ? `
 Reason: ${testRequest.reason}` : "";
   return [
-    `Real-app AI: ${overallAppAI} | Voice: ${overallVoice}`,
+    `Real-app AI: ${overallAppAI}`,
+    `Voice Input: ${overallVoiceInput} | Voice Output: ${overallVoiceOutput}`,
     claudeTextStatus,
     claudeVisionStatus,
     `Planner: ${anthropic.plannerModel || "unknown"}, Vision: ${anthropic.visionModel || "unknown"}`,
     whisperStatus,
-    `ANTHROPIC_API_KEY present: ${anthropicKey.present ? "true" : "false"}, length: ${anthropicKey.keyLength || 0}, placeholder: ${anthropicKey.placeholderDetected ? "true" : "false"}`,
-    `OPENAI_API_KEY present: ${openaiKey.present ? "true" : "false"}, length: ${openaiKey.keyLength || 0}, placeholder: ${openaiKey.placeholderDetected ? "true" : "false"}`,
+    elevenlabsStatus,
+    openaiTTSStatus,
+    `Voice: ${elevenlabs.voiceId || "default"}, Model: ${elevenlabs.modelId || "default"}`,
+    `ANTHROPIC_API_KEY: ${anthropicKey.present ? "present" : "missing"}, len: ${anthropicKey.keyLength || 0}, placeholder: ${anthropicKey.placeholderDetected ? "true" : "false"}`,
+    `OPENAI_API_KEY: ${openaiKey.present ? "present" : "missing"}, len: ${openaiKey.keyLength || 0}, placeholder: ${openaiKey.placeholderDetected ? "true" : "false"}`,
+    `ELEVENLABS_API_KEY: ${elevenlabsKey.present ? "present" : "missing"}, len: ${elevenlabsKey.keyLength || 0}, placeholder: ${elevenlabsKey.placeholderDetected ? "true" : "false"}`,
     `Local model: ${anthropic.useLocalModel ? "enabled" : "disabled"}, base: ${anthropic.baseURLKind || "unknown"}${reason}`
   ].join("\n");
 }
@@ -1100,6 +1269,21 @@ const OverlayApp = () => {
   const [realAppNotice, setRealAppNotice] = reactExports.useState("");
   const [showDebugTools, setShowDebugTools] = reactExports.useState(false);
   const [aiHealthMessage, setAiHealthMessage] = reactExports.useState("");
+  const [aiHealthPills, setAiHealthPills] = reactExports.useState(null);
+  const [specMood, setSpecMood] = reactExports.useState("idle");
+  const [behavioralState, setBehavioralState] = reactExports.useState(null);
+  const [behaviorCheckpoints, setBehaviorCheckpoints] = reactExports.useState([]);
+  const [activeCheckpoint, setActiveCheckpoint] = reactExports.useState(null);
+  const [blendedPreview, setBlendedPreview] = reactExports.useState(null);
+  const [behaviorDiff, setBehaviorDiff] = reactExports.useState(null);
+  const [blendT, setBlendT] = reactExports.useState(1);
+  const [mirrorStatus, setMirrorStatus] = reactExports.useState("idle");
+  const [mirrorFeedbackStatus, setMirrorFeedbackStatus] = reactExports.useState("");
+  const [mirrorFeedbackArm, setMirrorFeedbackArm] = reactExports.useState(null);
+  const [mirrorCorrectionCount, setMirrorCorrectionCount] = reactExports.useState(0);
+  const [pitchMode, setPitchMode] = reactExports.useState(false);
+  const [cursorPercentForSpec, setCursorPercentForSpec] = reactExports.useState(null);
+  const [lastTTSProvider, setLastTTSProvider] = reactExports.useState(null);
   const [screenState, setScreenState] = reactExports.useState(null);
   const [isInputFocused, setIsInputFocused] = reactExports.useState(false);
   const [isClickThrough, setIsClickThrough] = reactExports.useState(true);
@@ -1112,7 +1296,7 @@ const OverlayApp = () => {
   const isHudDraggingRef = reactExports.useRef(false);
   const isInputFocusedRef = reactExports.useRef(false);
   const modeRef = reactExports.useRef(mode);
-  const lastSpeechAtRef = reactExports.useRef(0);
+  reactExports.useRef(0);
   reactExports.useEffect(() => {
     modeRef.current = mode;
   }, [mode]);
@@ -1127,24 +1311,42 @@ const OverlayApp = () => {
     const currentMode = modeRef.current;
     console.log("[MODE] current mode", { mode: currentMode, moment });
     if (currentMode === "ultra") {
-      const now = Date.now();
-      if (now - lastSpeechAtRef.current < 1200) return;
-      lastSpeechAtRef.current = now;
-      console.log("[ULTRA] speaking...", { moment });
-      void api.speak(text).catch((error) => {
+      setUltraState("speaking");
+      const timeout = setTimeout(() => {
+        console.warn("[TTS] speak timeout");
+        setUltraState("waitingForUser");
+      }, 2e4);
+      void api.speak(text).then((result) => {
+        clearTimeout(timeout);
+        if (result?.providerUsed) {
+          setLastTTSProvider(result.providerUsed);
+        }
+        if (result?.providerUsed === "macos" && result?.fallbackReason) {
+          console.warn("[TTS] used macOS fallback", result.fallbackReason);
+        } else if (result?.providerUsed === "openai") {
+          console.log("[TTS] used OpenAI fallback");
+        }
+        setUltraState("waitingForUser");
+      }).catch((error) => {
+        clearTimeout(timeout);
         console.error("[TTS] error fallback", error);
+        setLastTTSProvider("macos");
+        setUltraState("waitingForUser");
       });
       return;
     }
-    console.log("[ULTRA] skipped because silent mode", { moment });
-    if (api.stopSpeaking) {
-      void api.stopSpeaking().catch(() => void 0);
-    }
+    console.log("[ULTRA] skipped because silent mode");
+    api.stopSpeaking().catch(() => void 0);
   };
   const handleUltraSpokenInput = async (text) => {
     if (mode !== "ultra") return;
     setUltraState("thinking");
     console.log("[ULTRA] user said", { text });
+    const timeout = setTimeout(() => {
+      console.warn("[ULTRA] converse timeout");
+      setUltraState("waitingForUser");
+      setErrorMessage("Tutor is taking too long to respond. Try again.");
+    }, 2e4);
     try {
       const result = await api.ultraConverse({
         message: text,
@@ -1154,6 +1356,7 @@ const OverlayApp = () => {
         screenState,
         sessionHistory: ultraSessionHistory
       });
+      clearTimeout(timeout);
       console.log("[ULTRA] tutor reply", result);
       setUltraReply(result.reply);
       setUltraSessionHistory((prev) => [
@@ -1162,18 +1365,19 @@ const OverlayApp = () => {
         { role: "assistant", content: result.reply }
       ]);
       if (result.shouldSpeak) {
-        setUltraState("speaking");
         console.log("[TTS] speak called");
         speakIfUltra(result.reply, "tutor reply");
+      } else {
+        setUltraState("waitingForUser");
       }
       if (result.shouldStartWalkthrough && !currentStep && replayState === "idle" && lastNodeId) {
         void replaySavedWorkflow("walkthrough");
       }
-      setUltraState("waitingForUser");
-      console.log("[ULTRA] waiting for user");
     } catch (error) {
+      clearTimeout(timeout);
       console.error("[ULTRA] error", error);
       setUltraState("error");
+      setTimeout(() => setUltraState("waitingForUser"), 3e3);
     }
   };
   reactExports.useEffect(() => {
@@ -1201,7 +1405,7 @@ const OverlayApp = () => {
     return () => window.removeEventListener("resize", clampToViewport);
   }, []);
   reactExports.useEffect(() => {
-    const shouldTrackCursor = isVisible || replayState !== "idle" || isLoading;
+    const shouldTrackCursor = isVisible || replayState !== "idle" || isLoading || mirrorStatus === "running";
     if (!shouldTrackCursor) return;
     let isDisposed = false;
     let timer = null;
@@ -1217,6 +1421,7 @@ const OverlayApp = () => {
         const cursorY = finitePercent(position?.y);
         const overlay = overlayRef.current;
         if (overlay && cursorX !== null && cursorY !== null) {
+          setCursorPercentForSpec({ x: cursorX, y: cursorY });
           const distancePx = targetX !== null && targetY !== null ? cursorTargetDistancePx(cursorX, cursorY, targetX, targetY) : null;
           const reveal = cursorRevealTuning(isWalkthroughActive, distancePx);
           const centerAlpha = Math.max(0.18, 1 - reveal.strength);
@@ -1262,7 +1467,8 @@ const OverlayApp = () => {
     currentStep?.x,
     currentStep?.y,
     selectedRealAppTarget?.x,
-    selectedRealAppTarget?.y
+    selectedRealAppTarget?.y,
+    mirrorStatus
   ]);
   reactExports.useEffect(() => {
     const offToggle = api.onOverlayToggle(() => {
@@ -1273,6 +1479,7 @@ const OverlayApp = () => {
       setReplayState("idle");
       setReplayMode(null);
       setManualConfirmMessage("");
+      setSpecMood("celebrating");
       if (modeRef.current === "ultra") {
         setUltraState("idle");
       }
@@ -1282,6 +1489,7 @@ const OverlayApp = () => {
       setReplayState("idle");
       setReplayMode(null);
       setManualConfirmMessage("");
+      setSpecMood("idle");
       if (modeRef.current === "ultra") {
         setUltraState("idle");
       }
@@ -1290,6 +1498,7 @@ const OverlayApp = () => {
       setManualConfirmMessage(
         data?.message || "Click not detected. Press Space to confirm this step."
       );
+      setSpecMood("judging");
       setIsLoading(false);
     });
     const offConfirmCleared = api.onReplayConfirmCleared(() => {
@@ -1299,6 +1508,7 @@ const OverlayApp = () => {
       setErrorMessage(
         "Screen Recording permission is missing. Grant it in macOS Privacy settings, then retry."
       );
+      setSpecMood("stuck");
       setIsLoading(false);
     });
     return () => {
@@ -1311,12 +1521,97 @@ const OverlayApp = () => {
     };
   }, []);
   reactExports.useEffect(() => {
+    void api.behaviorGetState?.().then((state) => {
+      if (!state) return;
+      setBehavioralState(state);
+      setSpecMood(state.moodLabel || "idle");
+    }).catch((error) => {
+      console.warn("[BEHAVIOR] state unavailable:", error);
+    });
+    void api.behaviorListCheckpoints?.().then((checkpoints) => {
+      const list = Array.isArray(checkpoints) ? checkpoints : [];
+      setBehaviorCheckpoints(list);
+      const current = latestCheckpoint(list);
+      setActiveCheckpoint(current);
+      if (current) {
+        setBehavioralState(current.signature);
+        setSpecMood(current.signature.moodLabel);
+      }
+    }).catch((error) => {
+      console.warn("[BEHAVIOR] checkpoints unavailable:", error);
+    });
+    const offSpecState = api.onSpecState((state) => {
+      setBehavioralState(state);
+      if (state?.moodLabel) setSpecMood(state.moodLabel);
+    });
+    const offSpecMood = api.onSpecMood((mood) => {
+      setSpecMood(mood || "idle");
+    });
+    const offCheckpoint = api.onBehaviorCheckpointCreated(
+      (checkpoint) => {
+        if (!checkpoint) return;
+        setActiveCheckpoint(checkpoint);
+        setBehavioralState(checkpoint.signature);
+        setSpecMood(checkpoint.signature.moodLabel || "celebrating");
+        setBehaviorCheckpoints((current) => {
+          const withoutDuplicate = current.filter(
+            (item) => item.id !== checkpoint.id
+          );
+          return [...withoutDuplicate, checkpoint].sort(
+            (a, b) => Date.parse(a.timestamp) - Date.parse(b.timestamp)
+          );
+        });
+      }
+    );
+    const offMirrorStarted = api.onMirrorStarted((data) => {
+      setMirrorStatus("running");
+      setSpecMood("mirroring");
+      if (data?.signature) setBehavioralState(data.signature);
+    });
+    const offMirrorComplete = api.onMirrorComplete(() => {
+      setMirrorStatus("complete");
+      setSpecMood("celebrating");
+      setReplayState("idle");
+      setReplayMode(null);
+      setMirrorFeedbackStatus("Compare the replay with what you would have done.");
+    });
+    const offMirrorError = api.onMirrorError((data) => {
+      setMirrorStatus("error");
+      setSpecMood("stuck");
+      setErrorMessage(data?.message || "Mirror Mode hit a snag.");
+      setReplayState("idle");
+      setReplayMode(null);
+      setMirrorFeedbackStatus("");
+    });
+    return () => {
+      offSpecState();
+      offSpecMood();
+      offCheckpoint();
+      offMirrorStarted();
+      offMirrorComplete();
+      offMirrorError();
+    };
+  }, []);
+  reactExports.useEffect(() => {
     if (isVisible) {
       setScreenState((prev) => prev || { app: "current app" });
     } else {
       setScreenState(null);
     }
   }, [isVisible]);
+  reactExports.useEffect(() => {
+    if (isLoading) {
+      setSpecMood("thinking");
+    }
+  }, [isLoading]);
+  reactExports.useEffect(() => {
+    if (behaviorCheckpoints.length >= 2) {
+      void refreshBehaviorDiff(
+        firstCheckpoint(behaviorCheckpoints),
+        latestCheckpoint(behaviorCheckpoints)
+      );
+    }
+  }, [behaviorCheckpoints.length]);
   reactExports.useEffect(() => {
     const onKeyDown = (e) => {
       if (e.altKey && e.key.toLowerCase() === "d") {
@@ -1327,6 +1622,9 @@ const OverlayApp = () => {
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
   }, []);
+  reactExports.useEffect(() => {
+    return;
+  }, [showDebugTools, pitchMode]);
   reactExports.useEffect(() => {
     if (!isInputFocused) {
       setInteractivity(false);
@@ -1372,6 +1670,7 @@ const OverlayApp = () => {
       setReplayMode("walkthrough");
       setReplayState("running");
       setIsLoading(false);
+      setSpecMood("thinking");
       if (modeRef.current === "ultra") {
         speakIfUltra("Follow the ghost cursor.", "step start");
         setUltraState("guiding");
@@ -1382,6 +1681,7 @@ const OverlayApp = () => {
       setReplayMode("walkthrough");
       setReplayState("running");
       setIsLoading(false);
+      setSpecMood("judging");
     });
     const offTargetReached = api.onReplayTargetReached((data) => {
       setCurrentStep((current) => {
@@ -1392,6 +1692,7 @@ const OverlayApp = () => {
           ghostLocked: true
         };
       });
+      setSpecMood("flow");
       if (modeRef.current === "ultra") {
         speakIfUltra("Nice, you're close. Click when ready.", "target reached");
       }
@@ -1407,11 +1708,12 @@ const OverlayApp = () => {
       setReplayState("running");
       setReplayMode("auto");
       setCurrentStep({ index: data.index, total: data.total });
+      setSpecMood(mirrorStatus === "running" ? "mirroring" : "thinking");
     });
     return () => {
       offProgress();
     };
-  }, []);
+  }, [mirrorStatus]);
   const runLegacyPlannerFlow = async (text) => {
     const trimmed = text.trim();
     if (!trimmed) return;
@@ -1431,7 +1733,7 @@ const OverlayApp = () => {
       });
       if (res?.error === "AI_BACKEND_UNAVAILABLE") {
         setErrorMessage(
-          "AI vision unavailable. Use controlled demo, pick target manually, or check backend."
+          "AI vision unavailable. Use Fallback Practice, pick target manually, or check backend."
         );
         setIsLoading(false);
         return;
@@ -1514,7 +1816,7 @@ const OverlayApp = () => {
     setIsManualTargetPicking(false);
     setRealAppNotice("");
     setIsLoading(true);
-    setLoadingMessage("Preparing controlled demo...");
+    setLoadingMessage("Preparing fallback practice...");
     try {
       const workflow = await api.prepareControlledDemo();
       setIntent(workflow.intent || "Controlled Specter demo");
@@ -1556,7 +1858,7 @@ const OverlayApp = () => {
     try {
       const result = await api.detectRealAppTargets(testIntent);
       if (result?.error === "AI_BACKEND_UNAVAILABLE") {
-        const msg = "AI vision unavailable. Use controlled demo, pick target manually, or check backend.";
+        const msg = "I couldn't confidently detect the target. Pick it manually or use Fallback Practice.";
         setRealAppTargets({
           error: "AI_BACKEND_UNAVAILABLE",
           fallbackAvailable: true,
@@ -1568,9 +1870,9 @@ const OverlayApp = () => {
         setSelectedRealAppTarget(null);
         setIsLoading(false);
         if (mode === "ultra") {
-          setUltraReply("I can't inspect the screen right now, but I can still guide you through the controlled demo or let you pick a target manually.");
+          setUltraReply("I couldn't inspect the screen right now. Click something you want to learn, and the ghost cursor will guide you to it.");
           setUltraState("waitingForUser");
-          speakIfUltra("I can't inspect the screen right now, but I can still guide you through the controlled demo or let you pick a target manually.", "fallback");
+          speakIfUltra("I couldn't inspect the screen right now. Click something you want to learn, and the ghost cursor will guide you to it.", "fallback");
         }
         return;
       }
@@ -1587,16 +1889,16 @@ const OverlayApp = () => {
       setRealAppTargets(nextTargets);
       setSelectedRealAppTarget(bestTarget);
       if (!bestTarget) {
-        setRealAppNotice("No clear target found. Pick a target manually.");
+        setRealAppNotice("I couldn't confidently see the target. Click the thing you want Specter to teach.");
         setIsManualTargetPicking(true);
       } else if ((bestTarget.confidence ?? 0) < threshold) {
         speakIfUltra(`I found a possible target: ${bestTarget.label}. Confirm it before we start.`, "target found");
         setRealAppNotice(
-          "Low confidence. Confirm one target or pick manually."
+          "Low confidence — confirm or pick a different target manually."
         );
       } else {
         speakIfUltra(`Target found: ${bestTarget.label}. Confirm it before we start.`, "target found");
-        setRealAppNotice("Confirm the target before the ghost starts.");
+        setRealAppNotice("Target found — confirm it and the ghost will start.");
       }
     } catch (error) {
       setErrorMessage(messageFromError(error));
@@ -1621,7 +1923,7 @@ const OverlayApp = () => {
     console.log("[MANUAL_TARGET] manual target picking armed");
     setIsManualTargetPicking(true);
     setRealAppNotice(
-      "Click the real-app target location. Press Escape to cancel."
+      "Click the thing you want Specter to teach. Press Escape to cancel."
     );
   };
   const handleManualTargetPick = (event) => {
@@ -1726,23 +2028,6 @@ const OverlayApp = () => {
       setErrorMessage(messageFromError(error));
     }
   };
-  const checkAIBackend = async () => {
-    setErrorMessage("");
-    setAiHealthMessage("Checking AI backend...");
-    try {
-      const health = await api.checkAIBackend();
-      console.log("[AI_BACKEND] health check", health);
-      setAiHealthMessage(formatAIHealthStatus(health));
-      if (!health?.anthropic?.testRequest?.pass) {
-        setRealAppNotice(
-          "AI vision unavailable. Use controlled demo, pick target manually, or check backend."
-        );
-      }
-    } catch (error) {
-      console.error("[AI_BACKEND] health check failed:", error);
-      setAiHealthMessage(`AI backend check failed: ${messageFromError(error)}`);
-    }
-  };
   const moveCursorToScreenCenter = async () => {
     if (!window.confirm("Move your real mouse to the screen center?")) return;
     setErrorMessage("");
@@ -1754,6 +2039,131 @@ const OverlayApp = () => {
     } catch (error) {
       console.error("[Overlay] Center move failed:", error);
       setErrorMessage(messageFromError(error));
+    }
+  };
+  const refreshBehaviorDiff = async (from, to) => {
+    if (!from || !to || from.id === to.id) {
+      setBehaviorDiff(null);
+      return;
+    }
+    try {
+      const diff = await api.behaviorDiffCheckpoints(from.id, to.id);
+      setBehaviorDiff(diff || null);
+    } catch (error) {
+      console.warn("[BEHAVIOR] diff failed:", error);
+      setBehaviorDiff(null);
+    }
+  };
+  const seedSpecDemo = async () => {
+    setErrorMessage("");
+    try {
+      const checkpoints = await api.behaviorSeedDemo();
+      const list = Array.isArray(checkpoints) ? checkpoints : [];
+      setBehaviorCheckpoints(list);
+      const current = latestCheckpoint(list);
+      setActiveCheckpoint(current);
+      setBehavioralState(current?.signature || null);
+      setSpecMood(current?.signature?.moodLabel || "celebrating");
+      setBlendT(1);
+      setBlendedPreview(null);
+      setMirrorFeedbackStatus("DEV FALLBACK: synthetic demo data loaded. Not learned behavior.");
+      await refreshBehaviorDiff(firstCheckpoint(list), latestCheckpoint(list));
+    } catch (error) {
+      console.error("[BEHAVIOR] seed demo failed:", error);
+      setErrorMessage(messageFromError(error));
+      setSpecMood("stuck");
+    }
+  };
+  const createBehaviorCheckpoint = async () => {
+    setErrorMessage("");
+    try {
+      const checkpoint = await api.behaviorCreateCheckpoint();
+      if (!checkpoint) return;
+      setActiveCheckpoint(checkpoint);
+      setBehavioralState(checkpoint.signature);
+      setSpecMood(checkpoint.signature?.moodLabel || "idle");
+      setBehaviorCheckpoints((current) => {
+        const list = [
+          ...current.filter((item) => item.id !== checkpoint.id),
+          checkpoint
+        ].sort((a, b) => Date.parse(a.timestamp) - Date.parse(b.timestamp));
+        void refreshBehaviorDiff(firstCheckpoint(list), latestCheckpoint(list));
+        return list;
+      });
+    } catch (error) {
+      console.error("[BEHAVIOR] checkpoint failed:", error);
+      setErrorMessage(messageFromError(error));
+      setSpecMood("stuck");
+    }
+  };
+  const updateBlendPreview = async (value) => {
+    setBlendT(value);
+    const from = firstCheckpoint(behaviorCheckpoints);
+    const to = latestCheckpoint(behaviorCheckpoints);
+    if (!from || !to || from.id === to.id) return;
+    try {
+      const blended = await api.behaviorBlendCheckpoints(from.id, to.id, value);
+      if (blended) {
+        setBlendedPreview(blended);
+        setBehavioralState(blended);
+        setSpecMood(blended.moodLabel);
+      }
+      await refreshBehaviorDiff(from, to);
+    } catch (error) {
+      console.warn("[BEHAVIOR] blend failed:", error);
+    }
+  };
+  const runMirrorMode = async () => {
+    if (mirrorStatus === "running") return;
+    if (!window.confirm("Spec will control your real mouse in Mirror Mode. Continue?")) {
+      return;
+    }
+    setErrorMessage("");
+    setMirrorStatus("running");
+    setReplayMode("auto");
+    setReplayState("running");
+    setSpecMood("mirroring");
+    setMirrorFeedbackStatus("");
+    setMirrorCorrectionCount(0);
+    try {
+      const arm = api.selectStyle ? await api.selectStyle().catch(() => null) : null;
+      setMirrorFeedbackArm(typeof arm === "string" ? arm : "C");
+      await api.runMirrorMode({
+        nodeId: lastNodeId || void 0,
+        task: intent || void 0,
+        blendedSignature: blendedPreview || behavioralState || void 0,
+        confirmed: true
+      });
+    } catch (error) {
+      console.error("[MIRROR_MODE] failed:", error);
+      setErrorMessage(messageFromError(error));
+      setMirrorStatus("error");
+      setSpecMood("stuck");
+      setReplayState("idle");
+      setReplayMode(null);
+    }
+  };
+  const submitMirrorFeedback = async (kind) => {
+    const nextCorrectionCount = kind === "correction" ? mirrorCorrectionCount + 1 : mirrorCorrectionCount;
+    setMirrorCorrectionCount(nextCorrectionCount);
+    setMirrorFeedbackStatus("Updating reward from measured feedback...");
+    try {
+      const result = await api.behaviorRecordFeedback?.({
+        kind,
+        arm: mirrorFeedbackArm || "C",
+        correctionCount: nextCorrectionCount,
+        targetLabel: "Mirror Mode user comparison"
+      });
+      if (result?.state) {
+        setBehavioralState(result.state);
+        setSpecMood(result.state.moodLabel || "idle");
+      }
+      setMirrorFeedbackStatus(
+        kind === "accept" ? "Accepted: reward + confidence updated." : kind === "override" ? "Override recorded: reward penalty + behavior delta saved." : kind === "correction" ? "Correction recorded: stronger penalty applied." : "Hesitation recorded: confidence softened."
+      );
+    } catch (error) {
+      console.error("[BEHAVIOR] feedback failed:", error);
+      setMirrorFeedbackStatus(messageFromError(error));
     }
   };
   const startHudDrag = (event) => {
@@ -1807,6 +2217,8 @@ const OverlayApp = () => {
     setCurrentStep(null);
     setReplayState("idle");
     setReplayMode(null);
+    setMirrorStatus("idle");
+    setSpecMood(behavioralState?.moodLabel || "idle");
     setErrorMessage("");
     setManualConfirmMessage("");
     setCalibrationMessage("");
@@ -1819,10 +2231,15 @@ const OverlayApp = () => {
       void api.stopSpeaking().catch(() => void 0);
     }
   };
-  if (!isVisible && replayState === "idle" && !isLoading) return null;
-  const isReplayRunning = replayState === "running";
+  if (!isVisible && replayState === "idle" && !isLoading && mirrorStatus !== "running") return null;
+  const isMirrorRunning = mirrorStatus === "running";
+  const isReplayRunning = replayState === "running" || isMirrorRunning;
   const showWalkthroughDebug = SHOW_WALKTHROUGH_DEBUG;
-  const statusText = currentStep ? `Step ${(currentStep.index ?? 0) + 1}/${currentStep.total ?? "?"}: ${currentStep.instruction || currentStep.targetLabel || (replayMode === "auto" ? "Executing action" : "Follow the ghost cursor")}` : replayMode === "auto" ? "Executing workflow..." : "Walkthrough running...";
+  const statusText = currentStep ? `Step ${(currentStep.index ?? 0) + 1}/${currentStep.total ?? "?"}: ${currentStep.instruction || currentStep.targetLabel || (replayMode === "auto" ? "Executing action" : "Follow the ghost cursor")}` : isMirrorRunning ? "Mirror Mode controlling cursor..." : replayMode === "auto" ? "Executing workflow..." : "Walkthrough running...";
+  const displayedBehavior = blendedPreview || behavioralState;
+  const blendFrom = firstCheckpoint(behaviorCheckpoints);
+  const blendTo = latestCheckpoint(behaviorCheckpoints);
+  const canBlend = Boolean(blendFrom && blendTo && blendFrom.id !== blendTo.id);
   const realAppConfidenceThreshold = realAppTargets?.confidenceThreshold || DEFAULT_CONFIDENCE_THRESHOLD;
   const realAppMarkerTargets = realAppTargets?.targets || [];
   const showRealAppVerification = Boolean(
@@ -1889,6 +2306,17 @@ const OverlayApp = () => {
           GhostCursor,
           {
             step: currentStep || (isVisible ? { type: "idle" } : null)
+          }
+        ),
+        (isVisible || isReplayRunning || isLoading) && /* @__PURE__ */ jsxRuntimeExports.jsx(
+          SpecBuddy,
+          {
+            mood: specMood,
+            state: displayedBehavior || void 0,
+            cursor: cursorPercentForSpec,
+            checkpointLabel: activeCheckpoint?.label,
+            compact: !showDebugTools,
+            pitchMode
           }
         ),
         isManualTargetPicking && !isReplayRunning && /* @__PURE__ */ jsxRuntimeExports.jsx(
@@ -2088,10 +2516,10 @@ const OverlayApp = () => {
                   children: [
                     /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "specter-workflow-header", children: [
                       /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { children: [
-                        /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "specter-kicker", children: showFallbackWorkflow ? "Fallback" : "Guided Workspace" }),
-                        /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "specter-workflow-title", children: showFallbackWorkflow ? "AI vision unavailable. Use controlled demo, pick target manually, or check backend." : realAppTargets?.microTask || "First, I will teach one visible action." })
+                        /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "specter-kicker", children: showFallbackWorkflow ? "Vision unavailable" : "Guided Workspace" }),
+                        /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "specter-workflow-title", children: showFallbackWorkflow ? "I couldn't confidently detect the target. Pick it manually or use Fallback Practice." : realAppTargets?.microTask || "First, I will teach one visible action." })
                       ] }),
-                      /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "specter-workflow-meta", children: showFallbackWorkflow ? "Local demo safe" : realAppTargets?.app || "Real app" })
+                      /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "specter-workflow-meta", children: showFallbackWorkflow ? "Real app still works" : realAppTargets?.app || "Real app" })
                     ] }),
                     !showFallbackWorkflow && realAppNotice && /* @__PURE__ */ jsxRuntimeExports.jsx(
                       "div",
@@ -2123,17 +2551,8 @@ const OverlayApp = () => {
                           className: `specter-target-dot ${selectedTargetIsLowConfidence ? "is-warning" : ""}`
                         }
                       )
-                    ] }) : /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "specter-workflow-note", children: "Pick a numbered marker, or set the target manually." })),
+                    ] }) : /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "specter-workflow-note", children: "Pick a numbered marker, or click anywhere to set manually." })),
                     /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "specter-action-row", children: showFallbackWorkflow ? /* @__PURE__ */ jsxRuntimeExports.jsxs(jsxRuntimeExports.Fragment, { children: [
-                      /* @__PURE__ */ jsxRuntimeExports.jsx(
-                        "button",
-                        {
-                          className: "specter-action-button primary",
-                          disabled: isLoading,
-                          onClick: prepareControlledDemo,
-                          children: "Controlled Demo"
-                        }
-                      ),
                       /* @__PURE__ */ jsxRuntimeExports.jsx(
                         "button",
                         {
@@ -2156,6 +2575,15 @@ const OverlayApp = () => {
                           },
                           children: "Retry AI"
                         }
+                      ),
+                      /* @__PURE__ */ jsxRuntimeExports.jsx(
+                        "button",
+                        {
+                          className: "specter-action-button",
+                          disabled: isLoading,
+                          onClick: prepareControlledDemo,
+                          children: "Fallback Practice"
+                        }
                       )
                     ] }) : /* @__PURE__ */ jsxRuntimeExports.jsxs(jsxRuntimeExports.Fragment, { children: [
                       /* @__PURE__ */ jsxRuntimeExports.jsx(
@@ -2174,15 +2602,6 @@ const OverlayApp = () => {
                           disabled: isLoading,
                           onClick: startManualTargetPicking,
                           children: "Pick manually"
-                        }
-                      ),
-                      /* @__PURE__ */ jsxRuntimeExports.jsx(
-                        "button",
-                        {
-                          className: "specter-action-button",
-                          disabled: isLoading,
-                          onClick: prepareControlledDemo,
-                          children: "Controlled Demo"
                         }
                       )
                     ] }) })
@@ -2232,7 +2651,14 @@ const OverlayApp = () => {
                   onMouseLeave: () => setInteractivity(false),
                   style: { width: "100%", position: "relative" },
                   children: [
-                    mode === "ultra" && /* @__PURE__ */ jsxRuntimeExports.jsx(UltraReplyBubble, { reply: ultraReply, state: ultraState }),
+                    mode === "ultra" && /* @__PURE__ */ jsxRuntimeExports.jsx(
+                      UltraReplyBubble,
+                      {
+                        reply: ultraReply,
+                        state: ultraState,
+                        voiceFallback: lastTTSProvider === "macos"
+                      }
+                    ),
                     /* @__PURE__ */ jsxRuntimeExports.jsx(
                       InputBar,
                       {
@@ -2241,6 +2667,12 @@ const OverlayApp = () => {
                         disabled: isLoading,
                         mode,
                         onUltraSpokenInput: handleUltraSpokenInput,
+                        onTranscriptionStart: () => {
+                          if (mode === "ultra") setUltraState("transcribing");
+                        },
+                        onTranscriptionEnd: () => {
+                          if (mode === "ultra" && ultraState === "transcribing") setUltraState("waitingForUser");
+                        },
                         onFocus: () => {
                           setIsInputFocused(true);
                         },
@@ -2261,11 +2693,23 @@ const OverlayApp = () => {
                           fontSize: "11px",
                           fontWeight: 600,
                           color: "rgba(255,255,255,0.42)",
-                          letterSpacing: "0.2px"
+                          letterSpacing: "0.2px",
+                          display: "flex",
+                          alignItems: "center",
+                          gap: "8px"
                         },
                         children: [
-                          "Looking at ",
-                          screenState.app
+                          /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { children: [
+                            "Looking at ",
+                            screenState.app
+                          ] }),
+                          mode === "ultra" && /* @__PURE__ */ jsxRuntimeExports.jsx("span", { style: {
+                            color: ultraState === "thinking" || ultraState === "speaking" || ultraState === "transcribing" ? "#30d158" : "rgba(255,255,255,0.25)",
+                            fontSize: "9px",
+                            textTransform: "uppercase",
+                            letterSpacing: "1px",
+                            fontWeight: 800
+                          }, children: ultraState === "waitingForUser" ? "Ready" : ultraState })
                         ]
                       }
                     )
@@ -2296,9 +2740,377 @@ const OverlayApp = () => {
                           color: "rgba(255,255,255,0.3)",
                           textTransform: "uppercase"
                         },
-                        children: "Debug / Demo Tools"
+                        children: "Debug / Dev Fallback Tools"
                       }
                     ),
+                    /* @__PURE__ */ jsxRuntimeExports.jsxs(
+                      "div",
+                      {
+                        className: "mirror-mode-panel",
+                        style: {
+                          display: "flex",
+                          flexDirection: "column",
+                          gap: "8px",
+                          padding: "10px",
+                          borderRadius: "12px",
+                          background: "rgba(255,255,255,0.06)",
+                          border: "1px solid rgba(255,255,255,0.08)"
+                        },
+                        children: [
+                          /* @__PURE__ */ jsxRuntimeExports.jsxs(
+                            "div",
+                            {
+                              style: {
+                                display: "flex",
+                                gap: "8px",
+                                flexWrap: "wrap"
+                              },
+                              children: [
+                                /* @__PURE__ */ jsxRuntimeExports.jsx(
+                                  "button",
+                                  {
+                                    disabled: isLoading,
+                                    onClick: seedSpecDemo,
+                                    style: {
+                                      flex: 1,
+                                      border: "1px solid rgba(255,255,255,0.12)",
+                                      borderRadius: "10px",
+                                      padding: "8px",
+                                      color: "white",
+                                      background: "rgba(100,210,255,0.16)",
+                                      fontSize: "11px",
+                                      fontWeight: 800,
+                                      cursor: "pointer"
+                                    },
+                                    children: "DEV Synthetic Data"
+                                  }
+                                ),
+                                /* @__PURE__ */ jsxRuntimeExports.jsx(
+                                  "button",
+                                  {
+                                    disabled: isLoading,
+                                    onClick: createBehaviorCheckpoint,
+                                    style: {
+                                      flex: 1,
+                                      border: "1px solid rgba(255,255,255,0.12)",
+                                      borderRadius: "10px",
+                                      padding: "8px",
+                                      color: "white",
+                                      background: "rgba(48,209,88,0.16)",
+                                      fontSize: "11px",
+                                      fontWeight: 800,
+                                      cursor: "pointer"
+                                    },
+                                    children: "Create Checkpoint"
+                                  }
+                                ),
+                                /* @__PURE__ */ jsxRuntimeExports.jsx(
+                                  "button",
+                                  {
+                                    disabled: isLoading || mirrorStatus === "running",
+                                    onClick: runMirrorMode,
+                                    style: {
+                                      flex: 1,
+                                      border: "1px solid rgba(255,255,255,0.12)",
+                                      borderRadius: "10px",
+                                      padding: "8px",
+                                      color: "white",
+                                      background: mirrorStatus === "running" ? "rgba(27,240,255,0.26)" : "rgba(191,90,242,0.18)",
+                                      fontSize: "11px",
+                                      fontWeight: 800,
+                                      cursor: mirrorStatus === "running" ? "default" : "pointer"
+                                    },
+                                    children: mirrorStatus === "running" ? "Mirroring..." : "Mirror Mode"
+                                  }
+                                ),
+                                /* @__PURE__ */ jsxRuntimeExports.jsxs(
+                                  "button",
+                                  {
+                                    onClick: () => setPitchMode((current) => !current),
+                                    style: {
+                                      flex: 1,
+                                      minWidth: "120px",
+                                      border: "1px solid rgba(255,255,255,0.12)",
+                                      borderRadius: "10px",
+                                      padding: "8px",
+                                      color: "white",
+                                      background: pitchMode ? "rgba(255,214,10,0.22)" : "rgba(255,255,255,0.08)",
+                                      fontSize: "11px",
+                                      fontWeight: 800,
+                                      cursor: "pointer"
+                                    },
+                                    children: [
+                                      "Pitch Mode ",
+                                      pitchMode ? "ON" : "OFF"
+                                    ]
+                                  }
+                                )
+                              ]
+                            }
+                          ),
+                          pitchMode && /* @__PURE__ */ jsxRuntimeExports.jsx(
+                            "div",
+                            {
+                              className: "mirror-pitch-timeline",
+                              style: {
+                                display: "grid",
+                                gridTemplateColumns: "repeat(5, minmax(0, 1fr))",
+                                gap: "5px",
+                                color: "rgba(255,255,255,0.78)",
+                                fontSize: "9px",
+                                fontWeight: 850
+                              },
+                              children: ["Measured", "Signature", "Checkpoint", "Mirror", "Feedback"].map(
+                                (label, index) => /* @__PURE__ */ jsxRuntimeExports.jsxs(
+                                  "div",
+                                  {
+                                    style: {
+                                      minHeight: "34px",
+                                      borderRadius: "9px",
+                                      padding: "6px",
+                                      background: "rgba(255,255,255,0.07)",
+                                      border: "1px solid rgba(255,255,255,0.08)",
+                                      display: "grid",
+                                      alignContent: "center",
+                                      gap: "2px"
+                                    },
+                                    children: [
+                                      /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { style: { color: "rgba(100,210,255,0.82)" }, children: [
+                                        "Step ",
+                                        index + 1
+                                      ] }),
+                                      /* @__PURE__ */ jsxRuntimeExports.jsx("span", { children: label })
+                                    ]
+                                  },
+                                  label
+                                )
+                              )
+                            }
+                          ),
+                          (mirrorFeedbackStatus || mirrorStatus === "complete") && /* @__PURE__ */ jsxRuntimeExports.jsxs(
+                            "div",
+                            {
+                              style: {
+                                display: "grid",
+                                gap: "7px",
+                                padding: "8px",
+                                borderRadius: "10px",
+                                background: "rgba(255,255,255,0.06)",
+                                border: "1px solid rgba(255,255,255,0.08)",
+                                color: "rgba(255,255,255,0.72)",
+                                fontSize: "10px",
+                                fontWeight: 800
+                              },
+                              children: [
+                                /* @__PURE__ */ jsxRuntimeExports.jsx("div", { children: mirrorFeedbackStatus || "Compare Mirror Mode against your real override." }),
+                                /* @__PURE__ */ jsxRuntimeExports.jsx(
+                                  "div",
+                                  {
+                                    style: {
+                                      display: "grid",
+                                      gridTemplateColumns: "repeat(4, minmax(0, 1fr))",
+                                      gap: "6px"
+                                    },
+                                    children: [
+                                      ["accept", "Accept"],
+                                      ["override", "Override"],
+                                      ["hesitation", "Hesitated"],
+                                      ["correction", "Corrected"]
+                                    ].map(([kind, label]) => /* @__PURE__ */ jsxRuntimeExports.jsx(
+                                      "button",
+                                      {
+                                        onClick: () => void submitMirrorFeedback(kind),
+                                        style: {
+                                          border: "1px solid rgba(255,255,255,0.12)",
+                                          borderRadius: "9px",
+                                          padding: "7px 5px",
+                                          color: "white",
+                                          background: "rgba(255,255,255,0.08)",
+                                          fontSize: "10px",
+                                          fontWeight: 850,
+                                          cursor: "pointer"
+                                        },
+                                        children: label
+                                      },
+                                      kind
+                                    ))
+                                  }
+                                )
+                              ]
+                            }
+                          ),
+                          canBlend && blendFrom && blendTo && /* @__PURE__ */ jsxRuntimeExports.jsxs(
+                            "div",
+                            {
+                              style: {
+                                display: "grid",
+                                gap: "6px",
+                                color: "rgba(255,255,255,0.68)",
+                                fontSize: "10px",
+                                fontWeight: 700
+                              },
+                              children: [
+                                /* @__PURE__ */ jsxRuntimeExports.jsxs(
+                                  "div",
+                                  {
+                                    style: {
+                                      display: "flex",
+                                      justifyContent: "space-between",
+                                      gap: "8px"
+                                    },
+                                    children: [
+                                      /* @__PURE__ */ jsxRuntimeExports.jsx("span", { children: blendFrom.label }),
+                                      /* @__PURE__ */ jsxRuntimeExports.jsx("span", { children: blendTo.label })
+                                    ]
+                                  }
+                                ),
+                                /* @__PURE__ */ jsxRuntimeExports.jsx(
+                                  "input",
+                                  {
+                                    "aria-label": "Blend behavioral checkpoints",
+                                    type: "range",
+                                    min: "0",
+                                    max: "1",
+                                    step: "0.01",
+                                    value: blendT,
+                                    onChange: (event) => void updateBlendPreview(Number(event.target.value))
+                                  }
+                                ),
+                                /* @__PURE__ */ jsxRuntimeExports.jsx("div", { children: (behaviorDiff?.summary || []).join(" | ") || "Move the slider to blend past-you and present-you." })
+                              ]
+                            }
+                          ),
+                          displayedBehavior && /* @__PURE__ */ jsxRuntimeExports.jsxs(
+                            "div",
+                            {
+                              style: {
+                                display: "grid",
+                                gridTemplateColumns: "repeat(2, minmax(0, 1fr))",
+                                gap: "4px 10px",
+                                color: "rgba(255,255,255,0.58)",
+                                fontSize: "10px",
+                                fontWeight: 700
+                              },
+                              children: [
+                                /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { children: [
+                                  "load ",
+                                  behaviorPercent(displayedBehavior.cognitiveLoad)
+                                ] }),
+                                /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { children: [
+                                  "impulse ",
+                                  behaviorPercent(displayedBehavior.impulsivity)
+                                ] }),
+                                /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { children: [
+                                  "flow ",
+                                  behaviorPercent(displayedBehavior.flowScore)
+                                ] }),
+                                /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { children: [
+                                  "revision ",
+                                  behaviorPercent(displayedBehavior.revisionRate)
+                                ] }),
+                                /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { children: [
+                                  "confidence ",
+                                  behaviorPercent(displayedBehavior.decisionConfidence)
+                                ] }),
+                                /* @__PURE__ */ jsxRuntimeExports.jsx("span", { children: activeCheckpoint?.commitMessage || "behavior model live" })
+                              ]
+                            }
+                          ),
+                          behaviorDiff && /* @__PURE__ */ jsxRuntimeExports.jsxs(
+                            "div",
+                            {
+                              className: "mirror-diff-card",
+                              style: {
+                                display: "grid",
+                                gap: "5px",
+                                padding: "8px",
+                                borderRadius: "10px",
+                                background: "rgba(0,0,0,0.16)",
+                                border: "1px solid rgba(255,255,255,0.08)",
+                                color: "rgba(255,255,255,0.72)",
+                                fontSize: "10px",
+                                fontWeight: 800
+                              },
+                              children: [
+                                /* @__PURE__ */ jsxRuntimeExports.jsx("div", { style: { color: "rgba(255,255,255,0.9)" }, children: "What changed?" }),
+                                /* @__PURE__ */ jsxRuntimeExports.jsxs(
+                                  "div",
+                                  {
+                                    style: {
+                                      display: "flex",
+                                      gap: "8px",
+                                      flexWrap: "wrap"
+                                    },
+                                    children: [
+                                      /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { children: [
+                                        "Impulsivity ",
+                                        signedBehaviorPercent(behaviorDiff.deltas.impulsivity)
+                                      ] }),
+                                      /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { children: [
+                                        "Decision confidence ",
+                                        signedBehaviorPercent(behaviorDiff.deltas.decisionConfidence)
+                                      ] }),
+                                      /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { children: [
+                                        "Revision rate ",
+                                        signedBehaviorPercent(behaviorDiff.deltas.revisionRate)
+                                      ] })
+                                    ]
+                                  }
+                                ),
+                                /* @__PURE__ */ jsxRuntimeExports.jsx("div", { style: { color: "rgba(100,210,255,0.78)" }, children: blendTo?.commitMessage || activeCheckpoint?.commitMessage || "behavioral checkpoint ready" })
+                              ]
+                            }
+                          )
+                        ]
+                      }
+                    ),
+                    aiHealthPills && /* @__PURE__ */ jsxRuntimeExports.jsx("div", { style: {
+                      display: "flex",
+                      gap: "6px",
+                      flexWrap: "wrap",
+                      marginBottom: "2px"
+                    }, children: [
+                      {
+                        label: "Claude vision",
+                        ok: aiHealthPills?.anthropic?.testRequest?.pass,
+                        detail: aiHealthPills?.anthropic?.testRequest?.pass ? "ready" : aiHealthPills?.anthropic?.testRequest?.category || "failing"
+                      },
+                      {
+                        label: "Whisper",
+                        ok: aiHealthPills?.openai?.whisperConfigured,
+                        detail: aiHealthPills?.openai?.whisperConfigured ? "ready" : "missing key"
+                      },
+                      {
+                        label: "Voice",
+                        ok: aiHealthPills?.elevenlabs?.configured || aiHealthPills?.openaiTTS?.configured,
+                        detail: aiHealthPills?.elevenlabs?.configured ? "ElevenLabs" : aiHealthPills?.openaiTTS?.configured ? "OpenAI TTS" : lastTTSProvider === "macos" ? "macOS fallback" : "macOS fallback"
+                      }
+                    ].map((pill) => /* @__PURE__ */ jsxRuntimeExports.jsxs(
+                      "div",
+                      {
+                        style: {
+                          display: "flex",
+                          alignItems: "center",
+                          gap: "5px",
+                          padding: "3px 8px",
+                          borderRadius: "999px",
+                          background: pill.ok ? "rgba(48,209,88,0.12)" : "rgba(255,69,58,0.12)",
+                          border: `1px solid ${pill.ok ? "rgba(48,209,88,0.3)" : "rgba(255,69,58,0.3)"}`,
+                          fontSize: "10px",
+                          fontWeight: 600,
+                          color: pill.ok ? "rgba(48,209,88,0.9)" : "rgba(255,100,80,0.9)"
+                        },
+                        children: [
+                          /* @__PURE__ */ jsxRuntimeExports.jsx("span", { children: pill.ok ? "✓" : "✗" }),
+                          /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { children: [
+                            pill.label,
+                            ": ",
+                            pill.detail
+                          ] })
+                        ]
+                      },
+                      pill.label
+                    )) }),
                     /* @__PURE__ */ jsxRuntimeExports.jsxs(
                       "div",
                       {
@@ -2320,7 +3132,7 @@ const OverlayApp = () => {
                                 fontWeight: 700,
                                 cursor: "pointer"
                               },
-                              children: "Use controlled demo"
+                              children: "Dev fallback demo"
                             }
                           ),
                           /* @__PURE__ */ jsxRuntimeExports.jsx(
@@ -2346,7 +3158,10 @@ const OverlayApp = () => {
                             "button",
                             {
                               disabled: isLoading,
-                              onClick: checkAIBackend,
+                              onClick: async () => {
+                                const health = await api.healthCheck();
+                                setAiHealthMessage(formatAIHealthStatus(health));
+                              },
                               style: {
                                 flex: 1,
                                 minWidth: "130px",
@@ -2359,7 +3174,43 @@ const OverlayApp = () => {
                                 fontWeight: 700,
                                 cursor: "pointer"
                               },
-                              children: "Check AI Backend"
+                              children: "Check Voice Backend"
+                            }
+                          ),
+                          /* @__PURE__ */ jsxRuntimeExports.jsx(
+                            "button",
+                            {
+                              disabled: isLoading,
+                              onClick: async () => {
+                                try {
+                                  const res = await api.testVoiceOutput();
+                                  const providerNames = {
+                                    elevenlabs: "ElevenLabs",
+                                    openai: "OpenAI TTS",
+                                    macos: "macOS Fallback (Robotic)"
+                                  };
+                                  let msg = `Voice test successful using ${providerNames[res.providerUsed] || res.providerUsed}.`;
+                                  if (res.providerUsed !== "elevenlabs" && res.fallbackReason) {
+                                    msg += `
+ElevenLabs failed: ${res.fallbackReason}`;
+                                  }
+                                  setAiHealthMessage(msg);
+                                } catch (err) {
+                                  setAiHealthMessage(`Voice test failed: ${messageFromError(err)}`);
+                                }
+                              },
+                              style: {
+                                flex: 1,
+                                border: "1px solid rgba(255,255,255,0.12)",
+                                borderRadius: "10px",
+                                padding: "8px",
+                                color: "white",
+                                background: "rgba(255,105,180,0.14)",
+                                fontSize: "11px",
+                                fontWeight: 700,
+                                cursor: "pointer"
+                              },
+                              children: "Test Voice Output"
                             }
                           ),
                           /* @__PURE__ */ jsxRuntimeExports.jsx(

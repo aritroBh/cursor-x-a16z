@@ -4,6 +4,7 @@ import { getMousePercent, waitForMouseAtTarget, waitForUserClickAtTarget } from 
 import { loadGraph } from './storage'
 import { Step } from './types'
 import { replayAutoExecute } from './replayAuto'
+import { recordReplayBehavioralEvent } from '../behavioral/tracker'
 import {
   createReplayController,
   isActive,
@@ -334,6 +335,7 @@ export async function replayWalkthrough(steps: Step[], onStep: (step: Step, inde
           safeLog('[WALKTHROUGH] step complete', { index, action: step.action, title: stepTitle(step) })
         } else if (result === 'timeout') {
           attempts++
+          recordReplayBehavioralEvent('retry', stepTitle(step))
           safeWarn('[WALKTHROUGH] step timed out', {
             index,
             action: step.action,
@@ -342,6 +344,7 @@ export async function replayWalkthrough(steps: Step[], onStep: (step: Step, inde
             maxAttempts: MAX_WALKTHROUGH_ATTEMPTS
           })
           if (attempts >= MAX_WALKTHROUGH_ATTEMPTS) {
+            recordReplayBehavioralEvent('failure', stepTitle(step))
             safeWarn('[WALKTHROUGH] step skipped after timeout', { index, action: step.action, title: stepTitle(step) })
             break
           }

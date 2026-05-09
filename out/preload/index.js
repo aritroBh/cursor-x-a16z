@@ -35,6 +35,23 @@ const api = {
   converse: (userMessage, screenState, conversationHistory) => electron.ipcRenderer.invoke("planner:converse", userMessage, screenState, conversationHistory),
   ultraConverse: (payload) => electron.ipcRenderer.invoke("ultra:converse", payload),
   checkAIBackend: () => electron.ipcRenderer.invoke("ai:healthCheck"),
+  healthCheck: () => electron.ipcRenderer.invoke("ai:healthCheck"),
+  // Behavioral model / Spec
+  behaviorGetState: () => electron.ipcRenderer.invoke("behavior:getState"),
+  behaviorRecordFrame: (frame) => electron.ipcRenderer.invoke("behavior:recordFrame", frame),
+  behaviorCreateCheckpoint: () => electron.ipcRenderer.invoke("behavior:createCheckpoint"),
+  behaviorListCheckpoints: () => electron.ipcRenderer.invoke("behavior:listCheckpoints"),
+  behaviorDiffCheckpoints: (fromId, toId) => electron.ipcRenderer.invoke("behavior:diffCheckpoints", fromId, toId),
+  behaviorBlendCheckpoints: (fromId, toId, t) => electron.ipcRenderer.invoke("behavior:blendCheckpoints", fromId, toId, t),
+  behaviorSeedDemo: () => electron.ipcRenderer.invoke("behavior:seedDemo"),
+  behaviorRecordFeedback: (input) => electron.ipcRenderer.invoke("behavior:feedback", input),
+  runMirrorMode: (input) => electron.ipcRenderer.invoke("mirror:run", input),
+  onSpecState: (callback) => onIpc("spec:state", callback),
+  onSpecMood: (callback) => onIpc("spec:mood", callback),
+  onBehaviorCheckpointCreated: (callback) => onIpc("behavior:checkpoint-created", callback),
+  onMirrorStarted: (callback) => onIpc("mirror:started", callback),
+  onMirrorComplete: (callback) => onIpc("mirror:complete", callback),
+  onMirrorError: (callback) => onIpc("mirror:error", callback),
   // Session
   saveSession: (graph) => electron.ipcRenderer.invoke("session:save", graph),
   loadSession: (appName) => electron.ipcRenderer.invoke("session:load", appName),
@@ -54,6 +71,7 @@ const api = {
   // TTS & Whisper
   speak: (text) => electron.ipcRenderer.invoke("tts:speak", text),
   stopSpeaking: () => electron.ipcRenderer.invoke("tts:stop"),
+  testVoiceOutput: () => electron.ipcRenderer.invoke("ai:testVoiceOutput"),
   transcribe: (audioData) => electron.ipcRenderer.invoke("whisper:transcribe", audioData),
   // Replay System
   walkthrough: (nodeId) => electron.ipcRenderer.invoke("replay:walkthrough", nodeId),

@@ -2,15 +2,23 @@ import React, { useState, useEffect, useRef } from "react";
 import { api } from "./api";
 import { InputBar } from "../overlay/InputBar";
 import { GhostCursor } from "../overlay/GhostCursor";
+import { SpecBuddy } from "../overlay/SpecBuddy";
 import { ModeToggle } from "../overlay/ModeToggle";
 import { SessionPanel } from "../overlay/SessionPanel";
 import { UltraReplyBubble, UltraState } from "../overlay/UltraReplyBubble";
+import type {
+  BehavioralCheckpoint,
+  BehavioralDiff,
+  BehavioralState,
+  SpecMood,
+} from "../../main/session/types";
 
 type SpecterMode = "silent" | "ultra";
 type ReplayState = "idle" | "running" | "paused";
 type ReplayMode = "walkthrough" | "auto" | null;
 type RealAppAction = "click" | "type" | "scroll" | "wait";
 type EdgeLightState = "hidden" | "summon" | "idle" | "walkthrough";
+type MirrorFeedbackKind = "accept" | "override" | "hesitation" | "correction";
 
 interface HudPosition {
   left: number;
@@ -141,6 +149,26 @@ function confidencePercent(value: unknown): string {
   return `${Math.round(Math.min(1, Math.max(0, value)) * 100)}%`;
 }
 
+function behaviorPercent(value: unknown): string {
+  return typeof value === "number" && Number.isFinite(value)
+    ? `${Math.round(Math.min(1, Math.max(0, value)) * 100)}%`
+    : "n/a";
+}
+
+function signedBehaviorPercent(value: unknown): string {
+  if (typeof value !== "number" || !Number.isFinite(value)) return "0%";
+  const rounded = Math.round(value * 100);
+  return `${rounded >= 0 ? "+" : ""}${rounded}%`;
+}
+
+function latestCheckpoint(checkpoints: BehavioralCheckpoint[]): BehavioralCheckpoint | null {
+  return checkpoints.length > 0 ? checkpoints[checkpoints.length - 1] : null;
+}
+
+function firstCheckpoint(checkpoints: BehavioralCheckpoint[]): BehavioralCheckpoint | null {
+  return checkpoints.length > 0 ? checkpoints[0] : null;
+}
+
 function formatAIHealthStatus(health: any): string {
   const anthropic = health?.anthropic || {};
   const anthropicKey = anthropic.key || {};
@@ -263,6 +291,29 @@ const OverlayApp: React.FC = () => {
   const [showDebugTools, setShowDebugTools] = useState(false);
   const [aiHealthMessage, setAiHealthMessage] = useState("");
   const [aiHealthPills, setAiHealthPills] = useState<any>(null);
+  const [specMood, setSpecMood] = useState<SpecMood>("idle");
+  const [behavioralState, setBehavioralState] =
+    useState<BehavioralState | null>(null);
+  const [behaviorCheckpoints, setBehaviorCheckpoints] = useState<
+    BehavioralCheckpoint[]
+  >([]);
+  const [activeCheckpoint, setActiveCheckpoint] =
+    useState<BehavioralCheckpoint | null>(null);
+  const [blendedPreview, setBlendedPreview] =
+    useState<BehavioralState | null>(null);
+  const [behaviorDiff, setBehaviorDiff] = useState<BehavioralDiff | null>(null);
+  const [blendT, setBlendT] = useState(1);
+  const [mirrorStatus, setMirrorStatus] = useState<
+    "idle" | "running" | "complete" | "error"
+  >("idle");
+  const [mirrorFeedbackStatus, setMirrorFeedbackStatus] = useState("");
+  const [mirrorFeedbackArm, setMirrorFeedbackArm] = useState<string | null>(null);
+  const [mirrorCorrectionCount, setMirrorCorrectionCount] = useState(0);
+  const [pitchMode, setPitchMode] = useState(false);
+  const [cursorPercentForSpec, setCursorPercentForSpec] = useState<{
+    x: number;
+    y: number;
+  } | null>(null);
   const [lastTTSProvider, setLastTTSProvider] = useState<'elevenlabs' | 'openai' | 'macos' | null>(null);
   const [screenState, setScreenState] = useState<any>(null);
   const [isInputFocused, setIsInputFocused] = useState(false);
@@ -406,7 +457,8 @@ const OverlayApp: React.FC = () => {
   }, []);
 
   useEffect(() => {
-    const shouldTrackCursor = isVisible || replayState !== "idle" || isLoading;
+    const shouldTrackCursor =
+      isVisible || replayState !== "idle" || isLoading || mirrorStatus === "running";
     if (!shouldTrackCursor) return;
 
     let isDisposed = false;
@@ -430,6 +482,7 @@ const OverlayApp: React.FC = () => {
         const overlay = overlayRef.current;
 
         if (overlay && cursorX !== null && cursorY !== null) {
+          setCursorPercentForSpec({ x: cursorX, y: cursorY });
           const distancePx =
             targetX !== null && targetY !== null
               ? cursorTargetDistancePx(cursorX, cursorY, targetX, targetY)
@@ -487,6 +540,7 @@ const OverlayApp: React.FC = () => {
     currentStep?.y,
     selectedRealAppTarget?.x,
     selectedRealAppTarget?.y,
+    mirrorStatus,
   ]);
 
   // Overlay visibility + replay lifecycle events
@@ -500,6 +554,7 @@ const OverlayApp: React.FC = () => {
       setReplayState("idle");
       setReplayMode(null);
       setManualConfirmMessage("");
+      setSpecMood("celebrating");
       if (modeRef.current === "ultra") {
         setUltraState("idle");
       }
@@ -510,6 +565,7 @@ const OverlayApp: React.FC = () => {
       setReplayState("idle");
       setReplayMode(null);
       setManualConfirmMessage("");
+      setSpecMood("idle");
       if (modeRef.current === "ultra") {
         setUltraState("idle");
       }
@@ -520,6 +576,7 @@ const OverlayApp: React.FC = () => {
         data?.message ||
           "Click not detected. Press Space to confirm this step.",
       );
+      setSpecMood("judging");
       setIsLoading(false);
     });
 
@@ -531,6 +588,7 @@ const OverlayApp: React.FC = () => {
       setErrorMessage(
         "Screen Recording permission is missing. Grant it in macOS Privacy settings, then retry.",
       );
+      setSpecMood("stuck");
       setIsLoading(false);
     });
 
@@ -544,6 +602,88 @@ const OverlayApp: React.FC = () => {
     };
   }, []);
 
+  useEffect(() => {
+    void api
+      .behaviorGetState?.()
+      .then((state: BehavioralState) => {
+        if (!state) return;
+        setBehavioralState(state);
+        setSpecMood(state.moodLabel || "idle");
+      })
+      .catch((error: unknown) => {
+        console.warn("[BEHAVIOR] state unavailable:", error);
+      });
+
+    void api
+      .behaviorListCheckpoints?.()
+      .then((checkpoints: BehavioralCheckpoint[]) => {
+        const list = Array.isArray(checkpoints) ? checkpoints : [];
+        setBehaviorCheckpoints(list);
+        const current = latestCheckpoint(list);
+        setActiveCheckpoint(current);
+        if (current) {
+          setBehavioralState(current.signature);
+          setSpecMood(current.signature.moodLabel);
+        }
+      })
+      .catch((error: unknown) => {
+        console.warn("[BEHAVIOR] checkpoints unavailable:", error);
+      });
+
+    const offSpecState = api.onSpecState((state: BehavioralState) => {
+      setBehavioralState(state);
+      if (state?.moodLabel) setSpecMood(state.moodLabel);
+    });
+    const offSpecMood = api.onSpecMood((mood: SpecMood) => {
+      setSpecMood(mood || "idle");
+    });
+    const offCheckpoint = api.onBehaviorCheckpointCreated(
+      (checkpoint: BehavioralCheckpoint) => {
+        if (!checkpoint) return;
+        setActiveCheckpoint(checkpoint);
+        setBehavioralState(checkpoint.signature);
+        setSpecMood(checkpoint.signature.moodLabel || "celebrating");
+        setBehaviorCheckpoints((current) => {
+          const withoutDuplicate = current.filter(
+            (item) => item.id !== checkpoint.id,
+          );
+          return [...withoutDuplicate, checkpoint].sort(
+            (a, b) => Date.parse(a.timestamp) - Date.parse(b.timestamp),
+          );
+        });
+      },
+    );
+    const offMirrorStarted = api.onMirrorStarted((data: any) => {
+      setMirrorStatus("running");
+      setSpecMood("mirroring");
+      if (data?.signature) setBehavioralState(data.signature);
+    });
+    const offMirrorComplete = api.onMirrorComplete(() => {
+      setMirrorStatus("complete");
+      setSpecMood("celebrating");
+      setReplayState("idle");
+      setReplayMode(null);
+      setMirrorFeedbackStatus("Compare the replay with what you would have done.");
+    });
+    const offMirrorError = api.onMirrorError((data: any) => {
+      setMirrorStatus("error");
+      setSpecMood("stuck");
+      setErrorMessage(data?.message || "Mirror Mode hit a snag.");
+      setReplayState("idle");
+      setReplayMode(null);
+      setMirrorFeedbackStatus("");
+    });
+
+    return () => {
+      offSpecState();
+      offSpecMood();
+      offCheckpoint();
+      offMirrorStarted();
+      offMirrorComplete();
+      offMirrorError();
+    };
+  }, []);
+
   // Detect current app context when overlay becomes visible
   useEffect(() => {
     if (isVisible) {
@@ -553,6 +693,21 @@ const OverlayApp: React.FC = () => {
       setScreenState(null);
     }
   }, [isVisible]);
+
+  useEffect(() => {
+    if (isLoading) {
+      setSpecMood("thinking");
+    }
+  }, [isLoading]);
+
+  useEffect(() => {
+    if (behaviorCheckpoints.length >= 2) {
+      void refreshBehaviorDiff(
+        firstCheckpoint(behaviorCheckpoints),
+        latestCheckpoint(behaviorCheckpoints),
+      );
+    }
+  }, [behaviorCheckpoints.length]);
 
   // Option + D to toggle debug tools
   useEffect(() => {
@@ -565,6 +720,30 @@ const OverlayApp: React.FC = () => {
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
   }, []);
+
+  useEffect(() => {
+    if (!import.meta.env.DEV || (!showDebugTools && !pitchMode)) return;
+
+    const onKeyDown = (event: KeyboardEvent) => {
+      const target = event.target as HTMLElement | null;
+      const tag = target?.tagName?.toLowerCase();
+      if (tag === "input" || tag === "textarea" || target?.isContentEditable) return;
+
+      const key = event.key.toLowerCase();
+      if (!["c", "b"].includes(key)) return;
+      event.preventDefault();
+
+      if (key === "c") void createBehaviorCheckpoint();
+      if (key === "b") {
+        void seedSpecDemo().then(() => {
+          setBlendT(0.5);
+        });
+      }
+    };
+
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [showDebugTools, pitchMode]);
 
   // Return to click-through if input is blurred and mouse is not over UI
   useEffect(() => {
@@ -626,6 +805,7 @@ const OverlayApp: React.FC = () => {
       setReplayMode("walkthrough");
       setReplayState("running");
       setIsLoading(false);
+      setSpecMood("thinking");
       
       if (modeRef.current === "ultra") {
         speakIfUltra("Follow the ghost cursor.", "step start");
@@ -638,6 +818,7 @@ const OverlayApp: React.FC = () => {
       setReplayMode("walkthrough");
       setReplayState("running");
       setIsLoading(false);
+      setSpecMood("judging");
     });
 
     const offTargetReached = api.onReplayTargetReached((data: any) => {
@@ -649,6 +830,7 @@ const OverlayApp: React.FC = () => {
           ghostLocked: true,
         };
       });
+      setSpecMood("flow");
       
       if (modeRef.current === "ultra") {
         speakIfUltra("Nice, you're close. Click when ready.", "target reached");
@@ -668,12 +850,13 @@ const OverlayApp: React.FC = () => {
       setReplayState("running");
       setReplayMode("auto");
       setCurrentStep({ index: data.index, total: data.total });
+      setSpecMood(mirrorStatus === "running" ? "mirroring" : "thinking");
     });
 
     return () => {
       offProgress();
     };
-  }, []);
+  }, [mirrorStatus]);
 
   const runLegacyPlannerFlow = async (text: string) => {
     const trimmed = text.trim();
@@ -696,7 +879,7 @@ const OverlayApp: React.FC = () => {
       });
       if (res?.error === "AI_BACKEND_UNAVAILABLE") {
         setErrorMessage(
-          "AI vision unavailable. Use controlled demo, pick target manually, or check backend.",
+          "AI vision unavailable. Use Fallback Practice, pick target manually, or check backend.",
         );
         setIsLoading(false);
         return;
@@ -795,7 +978,7 @@ const OverlayApp: React.FC = () => {
     setIsManualTargetPicking(false);
     setRealAppNotice("");
     setIsLoading(true);
-    setLoadingMessage("Preparing controlled demo...");
+    setLoadingMessage("Preparing fallback practice...");
 
     try {
       const workflow = await api.prepareControlledDemo();
@@ -842,7 +1025,7 @@ const OverlayApp: React.FC = () => {
     try {
       const result = await api.detectRealAppTargets(testIntent);
       if (result?.error === "AI_BACKEND_UNAVAILABLE") {
-        const msg = "I couldn't confidently detect the target. Pick it manually or use Practice Mode.";
+        const msg = "I couldn't confidently detect the target. Pick it manually or use Fallback Practice.";
         setRealAppTargets({
           error: "AI_BACKEND_UNAVAILABLE",
           fallbackAvailable: true,
@@ -1048,7 +1231,7 @@ const OverlayApp: React.FC = () => {
       setAiHealthPills(health);
       if (!health?.anthropic?.testRequest?.pass) {
         setRealAppNotice(
-          "I couldn't confidently detect the target. Pick it manually or use Practice Mode.",
+          "I couldn't confidently detect the target. Pick it manually or use Fallback Practice.",
         );
       }
     } catch (error) {
@@ -1070,6 +1253,152 @@ const OverlayApp: React.FC = () => {
     } catch (error) {
       console.error("[Overlay] Center move failed:", error);
       setErrorMessage(messageFromError(error));
+    }
+  };
+
+  const refreshBehaviorDiff = async (
+    from: BehavioralCheckpoint | null,
+    to: BehavioralCheckpoint | null,
+  ) => {
+    if (!from || !to || from.id === to.id) {
+      setBehaviorDiff(null);
+      return;
+    }
+
+    try {
+      const diff = await api.behaviorDiffCheckpoints(from.id, to.id);
+      setBehaviorDiff(diff || null);
+    } catch (error) {
+      console.warn("[BEHAVIOR] diff failed:", error);
+      setBehaviorDiff(null);
+    }
+  };
+
+  const seedSpecDemo = async () => {
+    setErrorMessage("");
+    try {
+      const checkpoints = await api.behaviorSeedDemo();
+      const list = Array.isArray(checkpoints) ? checkpoints : [];
+      setBehaviorCheckpoints(list);
+      const current = latestCheckpoint(list);
+      setActiveCheckpoint(current);
+      setBehavioralState(current?.signature || null);
+      setSpecMood(current?.signature?.moodLabel || "celebrating");
+      setBlendT(1);
+      setBlendedPreview(null);
+      setMirrorFeedbackStatus("DEV FALLBACK: synthetic demo data loaded. Not learned behavior.");
+      await refreshBehaviorDiff(firstCheckpoint(list), latestCheckpoint(list));
+    } catch (error) {
+      console.error("[BEHAVIOR] seed demo failed:", error);
+      setErrorMessage(messageFromError(error));
+      setSpecMood("stuck");
+    }
+  };
+
+  const createBehaviorCheckpoint = async () => {
+    setErrorMessage("");
+    try {
+      const checkpoint = await api.behaviorCreateCheckpoint();
+      if (!checkpoint) return;
+      setActiveCheckpoint(checkpoint);
+      setBehavioralState(checkpoint.signature);
+      setSpecMood(checkpoint.signature?.moodLabel || "idle");
+      setBehaviorCheckpoints((current) => {
+        const list = [
+          ...current.filter((item) => item.id !== checkpoint.id),
+          checkpoint,
+        ].sort((a, b) => Date.parse(a.timestamp) - Date.parse(b.timestamp));
+        void refreshBehaviorDiff(firstCheckpoint(list), latestCheckpoint(list));
+        return list;
+      });
+    } catch (error) {
+      console.error("[BEHAVIOR] checkpoint failed:", error);
+      setErrorMessage(messageFromError(error));
+      setSpecMood("stuck");
+    }
+  };
+
+  const updateBlendPreview = async (value: number) => {
+    setBlendT(value);
+    const from = firstCheckpoint(behaviorCheckpoints);
+    const to = latestCheckpoint(behaviorCheckpoints);
+    if (!from || !to || from.id === to.id) return;
+
+    try {
+      const blended = await api.behaviorBlendCheckpoints(from.id, to.id, value);
+      if (blended) {
+        setBlendedPreview(blended);
+        setBehavioralState(blended);
+        setSpecMood(blended.moodLabel);
+      }
+      await refreshBehaviorDiff(from, to);
+    } catch (error) {
+      console.warn("[BEHAVIOR] blend failed:", error);
+    }
+  };
+
+  const runMirrorMode = async () => {
+    if (mirrorStatus === "running") return;
+    if (!window.confirm("Spec will control your real mouse in Mirror Mode. Continue?")) {
+      return;
+    }
+
+    setErrorMessage("");
+    setMirrorStatus("running");
+    setReplayMode("auto");
+    setReplayState("running");
+    setSpecMood("mirroring");
+    setMirrorFeedbackStatus("");
+    setMirrorCorrectionCount(0);
+
+    try {
+      const arm = api.selectStyle ? await api.selectStyle().catch(() => null) : null;
+      setMirrorFeedbackArm(typeof arm === "string" ? arm : "C");
+      await api.runMirrorMode({
+        nodeId: lastNodeId || undefined,
+        task: intent || undefined,
+        blendedSignature: blendedPreview || behavioralState || undefined,
+        confirmed: true,
+      });
+    } catch (error) {
+      console.error("[MIRROR_MODE] failed:", error);
+      setErrorMessage(messageFromError(error));
+      setMirrorStatus("error");
+      setSpecMood("stuck");
+      setReplayState("idle");
+      setReplayMode(null);
+    }
+  };
+
+  const submitMirrorFeedback = async (kind: MirrorFeedbackKind) => {
+    const nextCorrectionCount =
+      kind === "correction" ? mirrorCorrectionCount + 1 : mirrorCorrectionCount;
+    setMirrorCorrectionCount(nextCorrectionCount);
+    setMirrorFeedbackStatus("Updating reward from measured feedback...");
+
+    try {
+      const result = await api.behaviorRecordFeedback?.({
+        kind,
+        arm: mirrorFeedbackArm || "C",
+        correctionCount: nextCorrectionCount,
+        targetLabel: "Mirror Mode user comparison",
+      });
+      if (result?.state) {
+        setBehavioralState(result.state);
+        setSpecMood(result.state.moodLabel || "idle");
+      }
+      setMirrorFeedbackStatus(
+        kind === "accept"
+          ? "Accepted: reward + confidence updated."
+          : kind === "override"
+            ? "Override recorded: reward penalty + behavior delta saved."
+            : kind === "correction"
+              ? "Correction recorded: stronger penalty applied."
+              : "Hesitation recorded: confidence softened.",
+      );
+    } catch (error) {
+      console.error("[BEHAVIOR] feedback failed:", error);
+      setMirrorFeedbackStatus(messageFromError(error));
     }
   };
 
@@ -1134,6 +1463,8 @@ const OverlayApp: React.FC = () => {
     setCurrentStep(null);
     setReplayState("idle");
     setReplayMode(null);
+    setMirrorStatus("idle");
+    setSpecMood(behavioralState?.moodLabel || "idle");
     setErrorMessage("");
     setManualConfirmMessage("");
     setCalibrationMessage("");
@@ -1147,9 +1478,10 @@ const OverlayApp: React.FC = () => {
     }
   };
 
-  if (!isVisible && replayState === "idle" && !isLoading) return null;
+  if (!isVisible && replayState === "idle" && !isLoading && mirrorStatus !== "running") return null;
 
-  const isReplayRunning = replayState === "running";
+  const isMirrorRunning = mirrorStatus === "running";
+  const isReplayRunning = replayState === "running" || isMirrorRunning;
   const showWalkthroughDebug =
     SHOW_WALKTHROUGH_DEBUG && replayMode === "walkthrough" && currentStep;
   const statusText = currentStep
@@ -1158,9 +1490,15 @@ const OverlayApp: React.FC = () => {
         currentStep.targetLabel ||
         (replayMode === "auto" ? "Executing action" : "Follow the ghost cursor")
       }`
-    : replayMode === "auto"
+    : isMirrorRunning
+      ? "Mirror Mode controlling cursor..."
+      : replayMode === "auto"
       ? "Executing workflow..."
       : "Walkthrough running...";
+  const displayedBehavior = blendedPreview || behavioralState;
+  const blendFrom = firstCheckpoint(behaviorCheckpoints);
+  const blendTo = latestCheckpoint(behaviorCheckpoints);
+  const canBlend = Boolean(blendFrom && blendTo && blendFrom.id !== blendTo.id);
   const realAppConfidenceThreshold =
     realAppTargets?.confidenceThreshold || DEFAULT_CONFIDENCE_THRESHOLD;
   const realAppMarkerTargets = realAppTargets?.targets || [];
@@ -1239,6 +1577,16 @@ const OverlayApp: React.FC = () => {
         <GhostCursor
           step={currentStep || (isVisible ? { type: "idle" } : null)}
         />
+        {(isVisible || isReplayRunning || isLoading) && (
+          <SpecBuddy
+            mood={specMood}
+            state={displayedBehavior || undefined}
+            cursor={cursorPercentForSpec}
+            checkpointLabel={activeCheckpoint?.label}
+            compact={!showDebugTools}
+            pitchMode={pitchMode}
+          />
+        )}
 
         {isManualTargetPicking && !isReplayRunning && (
           <div
@@ -1506,7 +1854,7 @@ const OverlayApp: React.FC = () => {
                       </div>
                       <div className="specter-workflow-title">
                         {showFallbackWorkflow
-                          ? "I couldn't confidently detect the target. Pick it manually or use Practice Mode."
+                          ? "I couldn't confidently detect the target. Pick it manually or use Fallback Practice."
                           : realAppTargets?.microTask ||
                             "First, I will teach one visible action."}
                       </div>
@@ -1586,7 +1934,7 @@ const OverlayApp: React.FC = () => {
                           disabled={isLoading}
                           onClick={prepareControlledDemo}
                         >
-                          Practice Mode
+                          Fallback Practice
                         </button>
                       </>
                     ) : (
@@ -1732,7 +2080,282 @@ const OverlayApp: React.FC = () => {
                       textTransform: "uppercase",
                     }}
                   >
-                    Debug / Demo Tools
+                    Debug / Dev Fallback Tools
+                  </div>
+
+                  <div
+                    className="mirror-mode-panel"
+                    style={{
+                      display: "flex",
+                      flexDirection: "column",
+                      gap: "8px",
+                      padding: "10px",
+                      borderRadius: "12px",
+                      background: "rgba(255,255,255,0.06)",
+                      border: "1px solid rgba(255,255,255,0.08)",
+                    }}
+                  >
+                    <div
+                      style={{
+                        display: "flex",
+                        gap: "8px",
+                        flexWrap: "wrap",
+                      }}
+                    >
+                      <button
+                        disabled={isLoading}
+                        onClick={seedSpecDemo}
+                        style={{
+                          flex: 1,
+                          border: "1px solid rgba(255,255,255,0.12)",
+                          borderRadius: "10px",
+                          padding: "8px",
+                          color: "white",
+                          background: "rgba(100,210,255,0.16)",
+                          fontSize: "11px",
+                          fontWeight: 800,
+                          cursor: "pointer",
+                        }}
+                      >
+                        DEV Synthetic Data
+                      </button>
+                      <button
+                        disabled={isLoading}
+                        onClick={createBehaviorCheckpoint}
+                        style={{
+                          flex: 1,
+                          border: "1px solid rgba(255,255,255,0.12)",
+                          borderRadius: "10px",
+                          padding: "8px",
+                          color: "white",
+                          background: "rgba(48,209,88,0.16)",
+                          fontSize: "11px",
+                          fontWeight: 800,
+                          cursor: "pointer",
+                        }}
+                      >
+                        Create Checkpoint
+                      </button>
+                      <button
+                        disabled={isLoading || mirrorStatus === "running"}
+                        onClick={runMirrorMode}
+                        style={{
+                          flex: 1,
+                          border: "1px solid rgba(255,255,255,0.12)",
+                          borderRadius: "10px",
+                          padding: "8px",
+                          color: "white",
+                          background:
+                            mirrorStatus === "running"
+                              ? "rgba(27,240,255,0.26)"
+                              : "rgba(191,90,242,0.18)",
+                          fontSize: "11px",
+                          fontWeight: 800,
+                          cursor:
+                            mirrorStatus === "running" ? "default" : "pointer",
+                        }}
+                      >
+                        {mirrorStatus === "running" ? "Mirroring..." : "Mirror Mode"}
+                      </button>
+                      <button
+                        onClick={() => setPitchMode((current) => !current)}
+                        style={{
+                          flex: 1,
+                          minWidth: "120px",
+                          border: "1px solid rgba(255,255,255,0.12)",
+                          borderRadius: "10px",
+                          padding: "8px",
+                          color: "white",
+                          background: pitchMode
+                            ? "rgba(255,214,10,0.22)"
+                            : "rgba(255,255,255,0.08)",
+                          fontSize: "11px",
+                          fontWeight: 800,
+                          cursor: "pointer",
+                        }}
+                      >
+                        Pitch Mode {pitchMode ? "ON" : "OFF"}
+                      </button>
+                    </div>
+
+                    {pitchMode && (
+                      <div
+                        className="mirror-pitch-timeline"
+                        style={{
+                          display: "grid",
+                          gridTemplateColumns: "repeat(5, minmax(0, 1fr))",
+                          gap: "5px",
+                          color: "rgba(255,255,255,0.78)",
+                          fontSize: "9px",
+                          fontWeight: 850,
+                        }}
+                      >
+                        {["Measured", "Signature", "Checkpoint", "Mirror", "Feedback"].map(
+                          (label, index) => (
+                            <div
+                              key={label}
+                              style={{
+                                minHeight: "34px",
+                                borderRadius: "9px",
+                                padding: "6px",
+                                background: "rgba(255,255,255,0.07)",
+                                border: "1px solid rgba(255,255,255,0.08)",
+                                display: "grid",
+                                alignContent: "center",
+                                gap: "2px",
+                              }}
+                            >
+                              <span style={{ color: "rgba(100,210,255,0.82)" }}>
+                                Step {index + 1}
+                              </span>
+                              <span>{label}</span>
+                            </div>
+                          ),
+                        )}
+                      </div>
+                    )}
+
+                    {(mirrorFeedbackStatus || mirrorStatus === "complete") && (
+                      <div
+                        style={{
+                          display: "grid",
+                          gap: "7px",
+                          padding: "8px",
+                          borderRadius: "10px",
+                          background: "rgba(255,255,255,0.06)",
+                          border: "1px solid rgba(255,255,255,0.08)",
+                          color: "rgba(255,255,255,0.72)",
+                          fontSize: "10px",
+                          fontWeight: 800,
+                        }}
+                      >
+                        <div>{mirrorFeedbackStatus || "Compare Mirror Mode against your real override."}</div>
+                        <div
+                          style={{
+                            display: "grid",
+                            gridTemplateColumns: "repeat(4, minmax(0, 1fr))",
+                            gap: "6px",
+                          }}
+                        >
+                          {([
+                            ["accept", "Accept"],
+                            ["override", "Override"],
+                            ["hesitation", "Hesitated"],
+                            ["correction", "Corrected"],
+                          ] as Array<[MirrorFeedbackKind, string]>).map(([kind, label]) => (
+                            <button
+                              key={kind}
+                              onClick={() => void submitMirrorFeedback(kind)}
+                              style={{
+                                border: "1px solid rgba(255,255,255,0.12)",
+                                borderRadius: "9px",
+                                padding: "7px 5px",
+                                color: "white",
+                                background: "rgba(255,255,255,0.08)",
+                                fontSize: "10px",
+                                fontWeight: 850,
+                                cursor: "pointer",
+                              }}
+                            >
+                              {label}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {canBlend && blendFrom && blendTo && (
+                      <div
+                        style={{
+                          display: "grid",
+                          gap: "6px",
+                          color: "rgba(255,255,255,0.68)",
+                          fontSize: "10px",
+                          fontWeight: 700,
+                        }}
+                      >
+                        <div
+                          style={{
+                            display: "flex",
+                            justifyContent: "space-between",
+                            gap: "8px",
+                          }}
+                        >
+                          <span>{blendFrom.label}</span>
+                          <span>{blendTo.label}</span>
+                        </div>
+                        <input
+                          aria-label="Blend behavioral checkpoints"
+                          type="range"
+                          min="0"
+                          max="1"
+                          step="0.01"
+                          value={blendT}
+                          onChange={(event) =>
+                            void updateBlendPreview(Number(event.target.value))
+                          }
+                        />
+                        <div>
+                          {(behaviorDiff?.summary || []).join(" | ") ||
+                            "Move the slider to blend past-you and present-you."}
+                        </div>
+                      </div>
+                    )}
+
+                    {displayedBehavior && (
+                      <div
+                        style={{
+                          display: "grid",
+                          gridTemplateColumns: "repeat(2, minmax(0, 1fr))",
+                          gap: "4px 10px",
+                          color: "rgba(255,255,255,0.58)",
+                          fontSize: "10px",
+                          fontWeight: 700,
+                        }}
+                      >
+                        <span>load {behaviorPercent(displayedBehavior.cognitiveLoad)}</span>
+                        <span>impulse {behaviorPercent(displayedBehavior.impulsivity)}</span>
+                        <span>flow {behaviorPercent(displayedBehavior.flowScore)}</span>
+                        <span>revision {behaviorPercent(displayedBehavior.revisionRate)}</span>
+                        <span>confidence {behaviorPercent(displayedBehavior.decisionConfidence)}</span>
+                        <span>{activeCheckpoint?.commitMessage || "behavior model live"}</span>
+                      </div>
+                    )}
+
+                    {behaviorDiff && (
+                      <div
+                        className="mirror-diff-card"
+                        style={{
+                          display: "grid",
+                          gap: "5px",
+                          padding: "8px",
+                          borderRadius: "10px",
+                          background: "rgba(0,0,0,0.16)",
+                          border: "1px solid rgba(255,255,255,0.08)",
+                          color: "rgba(255,255,255,0.72)",
+                          fontSize: "10px",
+                          fontWeight: 800,
+                        }}
+                      >
+                        <div style={{ color: "rgba(255,255,255,0.9)" }}>
+                          What changed?
+                        </div>
+                        <div
+                          style={{
+                            display: "flex",
+                            gap: "8px",
+                            flexWrap: "wrap",
+                          }}
+                        >
+                          <span>Impulsivity {signedBehaviorPercent(behaviorDiff.deltas.impulsivity)}</span>
+                          <span>Decision confidence {signedBehaviorPercent(behaviorDiff.deltas.decisionConfidence)}</span>
+                          <span>Revision rate {signedBehaviorPercent(behaviorDiff.deltas.revisionRate)}</span>
+                        </div>
+                        <div style={{ color: "rgba(100,210,255,0.78)" }}>
+                          {blendTo?.commitMessage || activeCheckpoint?.commitMessage || "behavioral checkpoint ready"}
+                        </div>
+                      </div>
+                    )}
                   </div>
 
                   {/* Provider status pills */}
@@ -1805,7 +2428,7 @@ const OverlayApp: React.FC = () => {
                         cursor: "pointer",
                       }}
                     >
-                      Use controlled demo
+                      Dev fallback demo
                     </button>
                     <button
                       disabled={isLoading}

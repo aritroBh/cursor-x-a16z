@@ -44,6 +44,26 @@ const api = {
     ipcRenderer.invoke('planner:converse', userMessage, screenState, conversationHistory),
   ultraConverse: (payload: any) => ipcRenderer.invoke('ultra:converse', payload),
   checkAIBackend: () => ipcRenderer.invoke('ai:healthCheck'),
+  healthCheck: () => ipcRenderer.invoke('ai:healthCheck'),
+
+  // Behavioral model / Spec
+  behaviorGetState: () => ipcRenderer.invoke('behavior:getState'),
+  behaviorRecordFrame: (frame: any) => ipcRenderer.invoke('behavior:recordFrame', frame),
+  behaviorCreateCheckpoint: () => ipcRenderer.invoke('behavior:createCheckpoint'),
+  behaviorListCheckpoints: () => ipcRenderer.invoke('behavior:listCheckpoints'),
+  behaviorDiffCheckpoints: (fromId: string, toId: string) =>
+    ipcRenderer.invoke('behavior:diffCheckpoints', fromId, toId),
+  behaviorBlendCheckpoints: (fromId: string, toId: string, t: number) =>
+    ipcRenderer.invoke('behavior:blendCheckpoints', fromId, toId, t),
+  behaviorSeedDemo: () => ipcRenderer.invoke('behavior:seedDemo'),
+  behaviorRecordFeedback: (input: any) => ipcRenderer.invoke('behavior:feedback', input),
+  runMirrorMode: (input: any) => ipcRenderer.invoke('mirror:run', input),
+  onSpecState: (callback: (data: any) => void) => onIpc('spec:state', callback),
+  onSpecMood: (callback: (data: any) => void) => onIpc('spec:mood', callback),
+  onBehaviorCheckpointCreated: (callback: (data: any) => void) => onIpc('behavior:checkpoint-created', callback),
+  onMirrorStarted: (callback: (data: any) => void) => onIpc('mirror:started', callback),
+  onMirrorComplete: (callback: (data: any) => void) => onIpc('mirror:complete', callback),
+  onMirrorError: (callback: (data: any) => void) => onIpc('mirror:error', callback),
 
   // Session
   saveSession: (graph: any) => ipcRenderer.invoke('session:save', graph),
@@ -69,6 +89,7 @@ const api = {
   // TTS & Whisper
   speak: (text: string) => ipcRenderer.invoke('tts:speak', text),
   stopSpeaking: () => ipcRenderer.invoke('tts:stop'),
+  testVoiceOutput: () => ipcRenderer.invoke('ai:testVoiceOutput'),
   transcribe: (audioData: ArrayBuffer) => ipcRenderer.invoke('whisper:transcribe', audioData),
 
   // Replay System

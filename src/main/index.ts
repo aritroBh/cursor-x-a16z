@@ -30,9 +30,28 @@ import {
 import { startRecording, recordStep, stopRecording, saveToNode } from './session/recorder'
 import { registerReplayIpc, replayWalkthrough } from './session/replay'
 import { hasActiveReplay, stopReplay } from './session/replayController'
+import { mirrorReplayExecute } from './session/mirrorReplay'
 import { CONTROLLED_DEMO_HEIGHT, CONTROLLED_DEMO_WIDTH, createControlledDemoWorkflow } from './session/demoWorkflow'
 import { setActiveCoordinateDisplay } from './screenCoordinates'
-import type { Step } from './session/types'
+import type { BehavioralCheckpoint, BehavioralState, LearningGraph, Step } from './session/types'
+import {
+  blendBehavioralStates,
+  createDefaultBehavioralState,
+  diffBehavioralCheckpoints,
+  normalizeBehavioralState
+} from './behavioral/model'
+import {
+  createCheckpointFromCurrentGraph,
+  getBufferedBehavioralFrameCount,
+  getCurrentBehavioralState,
+  recordAppSwitchFrame,
+  recordBehavioralFrame,
+  recordBehavioralFeedback,
+  seedDemoCheckpoints,
+  setBehavioralStateEmitter,
+  startBehavioralTracking,
+  stopBehavioralTracking
+} from './behavioral/tracker'
 import { safeLog, safeWarn, safeError } from './logger'
 
 const icon = join(__dirname, '../../resources/icon.png')
@@ -227,6 +246,64 @@ function isLearningGraph(value: any): boolean {
   )
 }
 
+function sendOverlayEvent(channel: string, payload: any): void {
+  if (!overlayWindow || overlayWindow.isDestroyed()) return
+  overlayWindow.webContents.send(channel, payload)
+}
+
+function sortedBehavioralCheckpoints(graph: LearningGraph, includeSynthetic = true): BehavioralCheckpoint[] {
+  return Object.values(graph.behavioralCheckpoints || {})
+    .filter((checkpoint) => includeSynthetic || checkpoint.synthetic !== true)
+    .sort((a, b) => Date.parse(a.timestamp) - Date.parse(b.timestamp))
+}
+
+function behavioralCheckpointForId(graph: LearningGraph, checkpointId: any): BehavioralCheckpoint | null {
+  const checkpoints = graph.behavioralCheckpoints || {}
+  return typeof checkpointId === 'string' && checkpoints[checkpointId] ? checkpoints[checkpointId] : null
+}
+
+function newestBehavioralCheckpoint(graph: LearningGraph): BehavioralCheckpoint | null {
+  const checkpoints = sortedBehavioralCheckpoints(graph, false)
+  return checkpoints[checkpoints.length - 1] || null
+}
+
+function realBehavioralFrameCount(graph: LearningGraph): number {
+  const persisted = (graph.behavioralFrames || []).filter((frame) => frame.synthetic !== true).length
+  return persisted + getBufferedBehavioralFrameCount()
+}
+
+function hasRealBehavioralSignature(graph: LearningGraph): boolean {
+  return realBehavioralFrameCount(graph) > 0 || sortedBehavioralCheckpoints(graph, false).length > 0
+}
+
+function realCheckpointOrNull(checkpoint: BehavioralCheckpoint | null): BehavioralCheckpoint | null {
+  return checkpoint && checkpoint.synthetic !== true ? checkpoint : null
+}
+
+function safeFeedbackArm(value: any): keyof LearningGraph['bandtState'] {
+  return value === 'A' || value === 'B' || value === 'C' ? value : 'C'
+}
+
+function latestStepsForNode(graph: LearningGraph, nodeId?: string): Step[] {
+  const sessions = nodeId
+    ? graph.sessions.filter((session) => session.nodesVisited.includes(nodeId))
+    : graph.sessions.filter((session) => session.steps.length > 0)
+  const latest = sessions.length > 0 ? sessions[sessions.length - 1] : null
+  return latest?.steps || []
+}
+
+function selectMirrorSignature(graph: LearningGraph, input: any): BehavioralState {
+  if (input?.blendedSignature) return normalizeBehavioralState(input.blendedSignature)
+
+  const requested = realCheckpointOrNull(behavioralCheckpointForId(graph, input?.checkpointId))
+  if (requested) return requested.signature
+
+  const current = realCheckpointOrNull(behavioralCheckpointForId(graph, graph.currentBehavioralCheckpointId))
+  if (current) return current.signature
+
+  return newestBehavioralCheckpoint(graph)?.signature || getCurrentBehavioralState() || createDefaultBehavioralState()
+}
+
 function toggleOverlay(): void {
   safeLog('[TOGGLE] toggleOverlay called, isVisible:', overlayWindow?.isVisible())
   if (!overlayWindow) return
@@ -405,6 +482,24 @@ app.whenReady().then(async () => {
   }
 
   uIOhook.start()
+  setBehavioralStateEmitter((state) => {
+    sendOverlayEvent('spec:state', state)
+    sendOverlayEvent('spec:mood', state.moodLabel)
+  })
+  startBehavioralTracking()
+
+  app.on('browser-window-blur', (_event, window) => {
+    recordAppSwitchFrame(window === overlayWindow ? 'overlay blur' : 'window blur')
+  })
+
+  app.on('browser-window-focus', (_event, window) => {
+    recordAppSwitchFrame(window === overlayWindow ? 'overlay focus' : 'window focus')
+  })
+
+  app.on('before-quit', () => {
+    stopBehavioralTracking()
+    setBehavioralStateEmitter(null)
+  })
 
   // IPC Handlers
   ipcMain.on('overlay:hide', () => {
@@ -470,7 +565,16 @@ app.whenReady().then(async () => {
       safeLog(`${logPrefix} starting screenshot capture`)
       const screenshot = base64PNG || (await captureScreenBase64())
       safeLog(`${logPrefix} screenshot captured`, { bytesBase64: screenshot.length })
-      return analyzeScreen(screenshot)
+      const result = await analyzeScreen(screenshot)
+      recordBehavioralFrame({
+        t: Date.now(),
+        dwellMs: 0,
+        actionType: 'scan',
+        revisionSignal: 0,
+        app: typeof result?.app === 'string' ? result.app : 'screen',
+        targetLabel: 'real screenshot/VLM state'
+      })
+      return result
     } catch (err: any) {
       if (isPermissionError(err) || err.code === 'SCREEN_PERMISSION_DENIED') {
         event.sender.send('permissions:screen-denied')
@@ -514,6 +618,14 @@ app.whenReady().then(async () => {
       }
 
       const result = await detectScreenTargets(screenshot, prompt)
+      recordBehavioralFrame({
+        t: Date.now(),
+        dwellMs: 0,
+        actionType: 'scan',
+        revisionSignal: result.targets.length > 0 ? 0 : 0.35,
+        app: typeof result.app === 'string' ? result.app : 'screen',
+        targetLabel: `VLM targets: ${result.targets.length}`
+      })
       safeLog('[SCREEN_TARGETS] targets returned', {
         prompt,
         app: result.app,
@@ -613,6 +725,83 @@ app.whenReady().then(async () => {
   })
 
   ipcMain.handle('session:load', async (_event, appName = DEFAULT_APP_NAME) => loadGraph(appName))
+
+  ipcMain.handle('behavior:getState', async () => getCurrentBehavioralState())
+
+  ipcMain.handle('behavior:recordFrame', async (_event, frame, appName = DEFAULT_APP_NAME) => {
+    const recorded = recordBehavioralFrame(frame)
+    const graph = loadGraph(appName)
+    graph.behavioralFrames = [...(graph.behavioralFrames || []), recorded].slice(-500)
+    saveGraph(graph)
+    const state = getCurrentBehavioralState()
+    sendOverlayEvent('spec:state', state)
+    sendOverlayEvent('spec:mood', state.moodLabel)
+    return { frame: recorded, state }
+  })
+
+  ipcMain.handle('behavior:createCheckpoint', async (_event, appName = DEFAULT_APP_NAME) => {
+    const result = createCheckpointFromCurrentGraph(loadGraph(appName))
+    saveGraph(result.graph)
+    sendOverlayEvent('behavior:checkpoint-created', result.checkpoint)
+    sendOverlayEvent('spec:state', result.checkpoint.signature)
+    sendOverlayEvent('spec:mood', result.checkpoint.signature.moodLabel)
+    return result.checkpoint
+  })
+
+  ipcMain.handle('behavior:listCheckpoints', async (_event, appName = DEFAULT_APP_NAME) =>
+    sortedBehavioralCheckpoints(loadGraph(appName))
+  )
+
+  ipcMain.handle('behavior:diffCheckpoints', async (_event, fromId, toId, appName = DEFAULT_APP_NAME) => {
+    const graph = loadGraph(appName)
+    const from = realCheckpointOrNull(behavioralCheckpointForId(graph, fromId))
+    const to = realCheckpointOrNull(behavioralCheckpointForId(graph, toId))
+    if (!from || !to) return null
+    return diffBehavioralCheckpoints(from, to)
+  })
+
+  ipcMain.handle('behavior:blendCheckpoints', async (_event, fromId, toId, t, appName = DEFAULT_APP_NAME) => {
+    const graph = loadGraph(appName)
+    const from = realCheckpointOrNull(behavioralCheckpointForId(graph, fromId))
+    const to = realCheckpointOrNull(behavioralCheckpointForId(graph, toId))
+    if (!from || !to) return null
+    const state = blendBehavioralStates(from.signature, to.signature, t)
+    sendOverlayEvent('spec:state', state)
+    sendOverlayEvent('spec:mood', state.moodLabel)
+    return state
+  })
+
+  ipcMain.handle('behavior:seedDemo', async (_event, appName = DEFAULT_APP_NAME) => {
+    if (app.isPackaged && process.env.SPECTER_ENABLE_DEV_FALLBACK !== 'true') {
+      throw new Error('Synthetic demo checkpoints are a dev-only fallback and cannot be used as learned behavior.')
+    }
+    const result = seedDemoCheckpoints(loadGraph(appName))
+    saveGraph(result.graph)
+    const current = result.checkpoints[result.checkpoints.length - 1]
+    sendOverlayEvent('behavior:checkpoint-created', current)
+    sendOverlayEvent('spec:state', current?.signature || getCurrentBehavioralState())
+    sendOverlayEvent('spec:mood', current?.signature.moodLabel || 'idle')
+    return sortedBehavioralCheckpoints(result.graph)
+  })
+
+  ipcMain.handle('behavior:feedback', async (_event, input = {}, appName = DEFAULT_APP_NAME) => {
+    const graph = loadGraph(appName)
+    const result = recordBehavioralFeedback(input)
+    const arm = safeFeedbackArm(input?.arm)
+    graph.behavioralFrames = [...(graph.behavioralFrames || []), result.frame].slice(-500)
+    graph.bandtState = recordReward(graph.bandtState, arm, result.reward)
+    saveGraph(graph)
+    const state = getCurrentBehavioralState()
+    sendOverlayEvent('spec:state', state)
+    sendOverlayEvent('spec:mood', state.moodLabel)
+    safeLog('[BEHAVIOR] feedback recorded', {
+      kind: input?.kind || 'hesitation',
+      reward: result.reward,
+      arm,
+      actionType: result.frame.actionType
+    })
+    return { frame: result.frame, state, reward: result.reward, bandtState: graph.bandtState }
+  })
 
   ipcMain.handle('session:resume-prompt', async (_event, appName = DEFAULT_APP_NAME) =>
     getResumePrompt(loadGraph(appName))
@@ -722,6 +911,52 @@ app.whenReady().then(async () => {
     const latest = sessions.length > 0 ? sessions[sessions.length - 1] : null
     const steps = latest?.steps || []
     await replayWalkthrough(steps, () => {})
+  })
+
+  ipcMain.handle('mirror:run', async (_event, input = {}, appName = DEFAULT_APP_NAME) => {
+    if (input?.confirmed !== true) {
+      const message = 'Mirror Mode requires visible renderer confirmation before real mouse automation.'
+      sendOverlayEvent('mirror:error', { message })
+      sendOverlayEvent('spec:mood', 'stuck')
+      throw new Error(message)
+    }
+
+    const graph = loadGraph(appName)
+    if (!hasRealBehavioralSignature(graph)) {
+      const message = 'Mirror Mode needs measured behavioral frames or a real behavioral checkpoint before it can run.'
+      sendOverlayEvent('mirror:error', { message })
+      sendOverlayEvent('spec:mood', 'stuck')
+      throw new Error(message)
+    }
+
+    const signature = selectMirrorSignature(graph, input)
+    sendOverlayEvent('mirror:started', { signature })
+    sendOverlayEvent('spec:mood', 'mirroring')
+
+    try {
+      let steps = latestStepsForNode(graph, input?.nodeId)
+      if (steps.length === 0) {
+        steps = latestStepsForNode(graph)
+      }
+
+      if (steps.length === 0) {
+        const message = 'Mirror Mode needs a real recorded or saved workflow. Start a real-app walkthrough or record a session first.'
+        sendOverlayEvent('mirror:error', { message })
+        sendOverlayEvent('spec:mood', 'stuck')
+        throw new Error(message)
+      }
+
+      await mirrorReplayExecute(steps, signature)
+      sendOverlayEvent('mirror:complete', { total: steps.length })
+      sendOverlayEvent('spec:mood', 'celebrating')
+      return { ok: true, totalSteps: steps.length, signature }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      safeError('[MIRROR_MODE] failed', error)
+      sendOverlayEvent('mirror:error', { message })
+      sendOverlayEvent('spec:mood', 'stuck')
+      throw error
+    }
   })
 
   ipcMain.handle('tts:speak', async (_event, text) => {

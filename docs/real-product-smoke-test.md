@@ -1,7 +1,7 @@
 # Specter — Real-Product Smoke Test
 
 This document is the **pre-demo / pre-ship smoke test** for the real-app ghost tutor loop.
-Run all tests before every demo. The controlled demo is a fallback — if all tests below pass, the product is real.
+Run all tests before every demo. The controlled demo is a dev fallback — if all tests below pass, the product is real.
 
 ---
 
@@ -13,6 +13,7 @@ Run all tests before every demo. The controlled demo is a fallback — if all te
 - [ ] macOS Accessibility permission granted (for cursor tracking)
 - [ ] Run `npm run dev` — overlay at `http://localhost:5173/overlay.html`
 - [ ] Double-shift triggers the overlay (check uIOhook is running)
+- [ ] Use the computer normally for at least 60 seconds before creating a behavioral checkpoint
 
 ---
 
@@ -178,3 +179,26 @@ This test verifies that manual picking is a real product path, not just a debug 
 
 **Voice is provider-dependent.** Natural voice works when billing/quotas are resolved.
 **The ghost tutor works on any app regardless of voice provider.**
+
+---
+
+## Test 9: Reality Lock — Behavioral Checkpoints and Mirror Mode
+
+**Setup:** Any real app open. Do not seed synthetic data.
+
+**Steps:**
+1. Use the computer normally for at least 60 seconds: move the cursor, click, type, delete, pause, and switch windows.
+2. Open Specter → Debug / Dev Fallback Tools.
+3. Click **Create Checkpoint**.
+4. Start or save a real-app walkthrough.
+5. Click **Mirror Mode** and confirm real mouse control.
+6. After it completes, click **Accept**, **Override**, **Hesitated**, or **Corrected**.
+
+**Pass criteria:**
+- Behavioral frames are recorded from measured behavior.
+- Spec mood changes from the measured `BehavioralState`.
+- The checkpoint is created from real frames, not synthetic demo data.
+- Diff compares real checkpoints only.
+- Mirror Mode uses the latest real saved workflow.
+- Feedback updates reward/confidence.
+- If no real frames or no real workflow exist, Mirror Mode refuses instead of launching the controlled demo.

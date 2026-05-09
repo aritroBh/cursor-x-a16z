@@ -88,12 +88,15 @@ async function main() {
     'src/main/ai/screener.ts',
     'src/main/ai/tts.ts',
     'src/main/ai/whisper.ts',
+    'src/main/behavioral/model.ts',
+    'src/main/behavioral/tracker.ts',
     'src/main/session/types.ts',
     'src/main/session/graph.ts',
     'src/main/session/storage.ts',
     'src/main/session/recorder.ts',
     'src/main/session/replay.ts',
     'src/main/session/replayAuto.ts',
+    'src/main/session/mirrorReplay.ts',
     'src/main/session/replayController.ts',
     'src/main/session/replaySafety.ts',
     'src/main/userCursor.ts',
@@ -102,12 +105,14 @@ async function main() {
     'src/renderer/src/overlay.tsx',
     'src/renderer/src/OverlayApp.tsx',
     'src/renderer/overlay/GhostCursor.tsx',
+    'src/renderer/overlay/SpecBuddy.tsx',
     'src/renderer/overlay/InputBar.tsx',
     'src/renderer/overlay/MicRecorder.ts',
     'src/renderer/overlay/ModeToggle.tsx',
     'src/renderer/overlay/SessionPanel.tsx',
     'src/renderer/src/assets/overlay.css',
-    'docs/manual-stress-test-checklist.md'
+    'docs/manual-stress-test-checklist.md',
+    'docs/reality-lock.md'
   ]
 
   for (const file of requiredFiles) {
@@ -485,6 +490,69 @@ async function main() {
   check(storage.includes('instruction') && storage.includes('targetLabel'), 'stored session steps preserve instructional labels')
   check(storage.includes('waitForMs'), 'stored session steps preserve waitForMs')
   check(recorder.includes('waitForMs'), 'recorded steps preserve waitForMs')
+
+  printHeader('Mirror Mode / Spec')
+
+  const behavioralTypes = readFile('src/main/session/types.ts')
+  const behavioralModel = readFile('src/main/behavioral/model.ts')
+  const behavioralTracker = readFile('src/main/behavioral/tracker.ts')
+  const mirrorReplay = readFile('src/main/session/mirrorReplay.ts')
+  const specBuddy = readFile('src/renderer/overlay/SpecBuddy.tsx')
+  const realityLock = readFile('docs/reality-lock.md')
+
+  check(behavioralTypes.includes('export interface BehavioralState'), 'session/types.ts exports BehavioralState')
+  check(behavioralTypes.includes('export interface BehavioralCheckpoint'), 'session/types.ts exports BehavioralCheckpoint')
+  check(behavioralTypes.includes('behavioralCheckpoints?: Record<string, BehavioralCheckpoint>'), 'LearningGraph includes behavioralCheckpoints')
+  check(storage.includes('normalizeBehavioralCheckpoint') && storage.includes('currentBehavioralCheckpointId'), 'storage.ts normalizes behavioralCheckpoints')
+  check(behavioralModel.includes('export function aggregateBehavioralSignature'), 'behavioral/model.ts aggregates signatures')
+  check(behavioralModel.includes('export function blendBehavioralStates'), 'behavioral/model.ts blends states')
+  check(behavioralModel.includes('export function diffBehavioralCheckpoints'), 'behavioral/model.ts diffs checkpoints')
+  check(behavioralTracker.includes('actionType: isRepeatedClick') && behavioralTracker.includes("'pause'"), 'tracker.ts records repeated clicks and hesitation frames')
+  check(behavioralTracker.includes('recordAppSwitchFrame') && behavioralTracker.includes('recordReplayBehavioralEvent'), 'tracker.ts records app switches and replay events')
+  check(behavioralTracker.includes('recordBehavioralFeedback') && behavioralTracker.includes('rewardFromFeedback'), 'tracker.ts derives reward from real feedback')
+  check(behavioralTracker.includes('synthetic: true') && behavioralTracker.includes('DEV FALLBACK'), 'tracker.ts labels synthetic fallback checkpoints')
+  check(behavioralTracker.includes('realFrames.length === 0') && behavioralTracker.includes('Create Checkpoint needs measured behavioral frames'), 'tracker.ts refuses checkpoints without real frames')
+  check(behavioralTracker.includes('getMousePercent'), 'tracker.ts uses safe cursor percent snapshots')
+  check(mainIndex.includes('setBehavioralStateEmitter') && mainIndex.includes("sendOverlayEvent('spec:state'"), 'index.ts streams measured behavioral state to Spec')
+  check(mainIndex.includes("ipcMain.handle('behavior:getState'"), 'index.ts registers behavior:getState IPC')
+  check(mainIndex.includes("ipcMain.handle('behavior:seedDemo'"), 'index.ts registers behavior:seedDemo IPC')
+  check(mainIndex.includes("ipcMain.handle('behavior:feedback'"), 'index.ts registers real feedback IPC')
+  check(mainIndex.includes("ipcMain.handle('mirror:run'"), 'index.ts registers mirror:run IPC')
+  check(
+    mainIndex.includes('Synthetic demo checkpoints are a dev-only fallback') && mainIndex.includes('SPECTER_ENABLE_DEV_FALLBACK'),
+    'index.ts gates synthetic demo data behind dev fallback'
+  )
+  check(
+    !/ipcMain\.handle\('mirror:run'[\s\S]*?seedDemoCheckpoints/.test(mainIndex),
+    'Mirror Mode does not seed demo checkpoints in its main path'
+  )
+  check(
+    !/ipcMain\.handle\('mirror:run'[\s\S]*?ensureControlledDemoWorkflow/.test(mainIndex),
+    'Mirror Mode does not fall back to the controlled demo'
+  )
+  check(
+    mainIndex.includes('Mirror Mode needs measured behavioral frames') &&
+      mainIndex.includes('Mirror Mode needs a real recorded or saved workflow'),
+    'Mirror Mode refuses to run without real behavior and real workflow data'
+  )
+  check(preload.includes('behaviorGetState') && preload.includes('behaviorRecordFeedback'), 'preload exposes behavioral IPC helpers')
+  check(preload.includes('runMirrorMode') && preload.includes('onSpecState'), 'preload exposes Mirror Mode and Spec events')
+  check(planner.includes('export async function planWithPersona'), 'planner.ts exports planWithPersona')
+  check(mirrorReplay.includes('durationForPersona') && mirrorReplay.includes('mirrorReplayExecute'), 'mirrorReplay includes persona-conditioned timing')
+  check(specBuddy.includes('spec-buddy--') && specBuddy.includes('judging your click'), 'SpecBuddy renders mood classes and labels')
+  check(specBuddy.includes('measured behavior') && specBuddy.includes('feedback reward'), 'SpecBuddy uses measured pitch labels')
+  for (const mood of ['idle', 'thinking', 'stuck', 'flow', 'celebrating', 'mirroring', 'judging']) {
+    check(overlayCss.includes(`spec-buddy--${mood}`), `overlay.css includes spec-buddy--${mood}`)
+  }
+  check(overlayApp.includes('<SpecBuddy'), 'OverlayApp renders SpecBuddy')
+  check(overlayApp.includes('DEV Synthetic Data') && overlayApp.includes('Mirror Mode'), 'OverlayApp exposes Mirror Mode and labeled dev fallback controls')
+  check(overlayApp.includes('behaviorBlendCheckpoints') && overlayApp.includes('behaviorDiffCheckpoints'), 'OverlayApp exposes checkpoint blend and diff controls')
+  check(overlayApp.includes('submitMirrorFeedback') && overlayApp.includes('behaviorRecordFeedback'), 'OverlayApp sends accept/override/hesitation/correction feedback')
+  check(overlayApp.includes('Pitch Mode') && overlayApp.includes('What changed?'), 'OverlayApp exposes Pitch Mode and final diff card')
+  check(overlayApp.includes('event.key.toLowerCase()') && overlayApp.includes('createBehaviorCheckpoint'), 'OverlayApp includes dev checkpoint shortcuts')
+  check(!overlayApp.includes('if (key === "j") setSpecMood'), 'OverlayApp does not hardcode dev mood shortcuts')
+  check(realityLock.includes('Spec can be funny, but the system cannot be fake.'), 'Reality Lock documents the non-fake product rule')
+  check(realityLock.includes('measured, not magic'), 'Reality Lock pitch language says measured, not magic')
 
   const total = passed + failed
   console.log('\n' + chalk.bold('-'.repeat(48)))

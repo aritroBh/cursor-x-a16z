@@ -3,6 +3,7 @@ import { join, dirname } from 'path'
 import { homedir } from 'os'
 import { LearningGraph, Node, Edge, Branch, Step, Session } from './types'
 import { createDefaultBandtState, normalizeBandtState } from '../ai/bandit'
+import { normalizeBehavioralCheckpoint, normalizeBehavioralFrame } from '../behavioral/model'
 import { safeError } from '../logger'
 
 const DEFAULT_APP_NAME = 'Specter'
@@ -16,7 +17,10 @@ export function createDefaultGraph(appName = DEFAULT_APP_NAME): LearningGraph {
     edges: [],
     branches: {},
     sessions: [],
-    bandtState: createDefaultBandtState()
+    bandtState: createDefaultBandtState(),
+    behavioralCheckpoints: {},
+    currentBehavioralCheckpointId: null,
+    behavioralFrames: []
   }
 }
 
@@ -120,33 +124,57 @@ function normalizeSession(sessionId: string, value: any): Session {
 
 export function normalizeGraph(graph: any, appName: string): LearningGraph {
   const fallback = createDefaultGraph(appName)
+  const source = isRecord(graph) ? graph : {}
 
-  const nodes = isRecord(graph.nodes)
-    ? Object.fromEntries(Object.entries(graph.nodes).map(([id, node]) => [id, normalizeNode(id, node)]))
+  const nodes = isRecord(source.nodes)
+    ? Object.fromEntries(Object.entries(source.nodes).map(([id, node]) => [id, normalizeNode(id, node)]))
     : fallback.nodes
 
-  const branches = isRecord(graph.branches)
-    ? Object.fromEntries(Object.entries(graph.branches).map(([id, branch]) => [id, normalizeBranch(id, branch)]))
+  const branches = isRecord(source.branches)
+    ? Object.fromEntries(Object.entries(source.branches).map(([id, branch]) => [id, normalizeBranch(id, branch)]))
     : fallback.branches
 
-  const edges = Array.isArray(graph.edges)
-    ? (graph.edges.map(normalizeEdge).filter((edge) => Boolean(edge)) as Edge[])
+  const edges = Array.isArray(source.edges)
+    ? (source.edges.map(normalizeEdge).filter((edge) => Boolean(edge)) as Edge[])
     : fallback.edges
 
-  const sessions = Array.isArray(graph.sessions)
-    ? graph.sessions.map((session: any, index: number) => normalizeSession(`session-${index + 1}`, session))
+  const sessions = Array.isArray(source.sessions)
+    ? source.sessions.map((session: any, index: number) => normalizeSession(`session-${index + 1}`, session))
     : fallback.sessions
+
+  const behavioralCheckpoints = isRecord(source.behavioralCheckpoints)
+    ? Object.fromEntries(
+        Object.entries(source.behavioralCheckpoints).map(([id, checkpoint]) => [
+          id,
+          normalizeBehavioralCheckpoint(checkpoint, id)
+        ])
+      )
+    : fallback.behavioralCheckpoints
+
+  const currentBehavioralCheckpointId =
+    typeof source.currentBehavioralCheckpointId === 'string' &&
+    behavioralCheckpoints &&
+    source.currentBehavioralCheckpointId in behavioralCheckpoints
+      ? source.currentBehavioralCheckpointId
+      : null
+
+  const behavioralFrames = Array.isArray(source.behavioralFrames)
+    ? source.behavioralFrames.map(normalizeBehavioralFrame).slice(-500)
+    : fallback.behavioralFrames
 
   return {
     ...fallback,
-    ...graph,
-    userId: typeof graph.userId === 'string' && graph.userId.trim() ? graph.userId : fallback.userId,
-    app: typeof graph.app === 'string' && graph.app.trim() ? graph.app : appName,
+    ...source,
+    userId: typeof source.userId === 'string' && source.userId.trim() ? source.userId : fallback.userId,
+    app: typeof source.app === 'string' && source.app.trim() ? source.app : appName,
     nodes,
     edges,
     branches,
     sessions,
-    bandtState: normalizeBandtState(graph.bandtState)
+    bandtState: normalizeBandtState(source.bandtState),
+    behavioralCheckpoints,
+    currentBehavioralCheckpointId,
+    behavioralFrames
   }
 }
 

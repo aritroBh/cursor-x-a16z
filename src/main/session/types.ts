@@ -52,6 +52,84 @@ export interface BanditState {
   C: [number, number];
 }
 
+export type SpecMood =
+  | 'idle'
+  | 'thinking'
+  | 'stuck'
+  | 'flow'
+  | 'celebrating'
+  | 'mirroring'
+  | 'judging';
+
+export interface BehavioralState {
+  cognitiveLoad: number;
+  impulsivity: number;
+  flowScore: number;
+  revisionRate: number;
+  backtrackRate: number;
+  decisionConfidence: number;
+  moodLabel: SpecMood;
+  sampledAt: string;
+}
+
+export interface BehavioralFrame {
+  t: number;
+  cursorX?: number;
+  cursorY?: number;
+  cursorDelta?: { dx: number; dy: number };
+  dwellMs: number;
+  actionType:
+    | 'scan'
+    | 'click'
+    | 'repeat-click'
+    | 'type'
+    | 'pause'
+    | 'backtrack'
+    | 'app-switch'
+    | 'replay-retry'
+    | 'replay-failure'
+    | 'accept'
+    | 'override'
+    | 'hesitation'
+    | 'correction'
+    | 'unknown';
+  revisionSignal: number;
+  app?: string;
+  targetLabel?: string;
+  synthetic?: boolean;
+}
+
+export interface BehavioralCheckpoint {
+  id: string;
+  timestamp: string;
+  sessionN: number;
+  signature: BehavioralState;
+  specPersonality: {
+    defaultMood: SpecMood;
+    eyeShape: 'wide' | 'focused' | 'sleepy' | 'judging' | 'glow';
+    bounce: number;
+    sass: number;
+  };
+  parentId: string | null;
+  label: string;
+  commitMessage: string;
+  synthetic?: boolean;
+}
+
+export interface BehavioralDiff {
+  fromId: string;
+  toId: string;
+  deltas: {
+    cognitiveLoad: number;
+    impulsivity: number;
+    flowScore: number;
+    revisionRate: number;
+    backtrackRate: number;
+    decisionConfidence: number;
+  };
+  summary: string[];
+}
+
 export interface LearningGraph {
   userId: string;
   app: string;
@@ -60,4 +138,7 @@ export interface LearningGraph {
   branches: Record<string, Branch>;
   sessions: Session[];
   bandtState: BanditState;
+  behavioralCheckpoints?: Record<string, BehavioralCheckpoint>;
+  currentBehavioralCheckpointId?: string | null;
+  behavioralFrames?: BehavioralFrame[];
 }

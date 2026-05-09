@@ -45,10 +45,10 @@ export async function moveRealMouse(x: number, y: number, durationMs = DEFAULT_M
   }
 }
 
-export async function clickRealMouse(x: number, y: number): Promise<void> {
+export async function clickRealMouse(x: number, y: number, durationMs = DEFAULT_MOVE_DURATION_MS): Promise<void> {
   try {
-    safeLog('[AUTO_REAL_MOUSE] clickRealMouse invoked REAL OS cursor automation', { x, y })
-    await moveRealMouse(x, y)
+    safeLog('[AUTO_REAL_MOUSE] clickRealMouse invoked REAL OS cursor automation', { x, y, durationMs })
+    await moveRealMouse(x, y, durationMs)
     await mouse.click(Button.LEFT)
     safeLog('[AUTO_REAL_MOUSE] nut-js REAL OS click complete', { x, y })
   } catch (error) {
@@ -56,7 +56,7 @@ export async function clickRealMouse(x: number, y: number): Promise<void> {
   }
 }
 
-export async function executeRealMouseSteps(steps: Step[]): Promise<void> {
+export async function executeRealMouseSteps(steps: Step[], moveDurationMs = DEFAULT_MOVE_DURATION_MS): Promise<void> {
   safeLog('[AUTO_REAL_MOUSE] executeRealMouseSteps invoked REAL OS automation', { totalSteps: steps.length })
   for (const [index, step] of steps.entries()) {
     safeLog('[AUTO_REAL_MOUSE] executing real cursor step', {
@@ -71,17 +71,17 @@ export async function executeRealMouseSteps(steps: Step[]): Promise<void> {
 
     switch (step.action) {
       case 'click':
-        await clickRealMouse(step.x, step.y)
+        await clickRealMouse(step.x, step.y, moveDurationMs)
         break
       case 'type':
-        await moveRealMouse(step.x, step.y)
+        await moveRealMouse(step.x, step.y, moveDurationMs)
         if (step.typeText) {
           await mouse.click(Button.LEFT)
           await keyboard.type(step.typeText)
         }
         break
       case 'scroll':
-        await moveRealMouse(step.x, step.y)
+        await moveRealMouse(step.x, step.y, moveDurationMs)
         await mouse.scrollDown(3)
         break
       case 'wait':

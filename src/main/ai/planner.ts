@@ -1,5 +1,7 @@
 import { classifyAnthropicError, createAnthropicClient, getAnthropicModel } from './config'
 import { safeLog, safeWarn, safeError } from '../logger'
+import type { BehavioralState } from '../session/types'
+import { normalizeBehavioralState } from '../behavioral/model'
 
 const CLAUDE_MODEL = getAnthropicModel()
 const STEP_ACTIONS = ['click', 'type', 'scroll', 'wait']
@@ -273,6 +275,91 @@ export async function planSteps(userIntent: string, screenState: any, sessionHis
       )
     }
     safeError('[AI_BACKEND] Anthropic unavailable; using fallback. AI_BACKEND_UNAVAILABLE', summary)
+    return fallback
+  }
+}
+
+export async function planWithPersona(
+  userIntent: string,
+  screenState: any,
+  sessionHistory: any[],
+  mode: string,
+  signature: BehavioralState
+): Promise<any> {
+  const normalizedMode = normalizeMode(mode)
+  const normalizedScreenState = safeScreenState(screenState)
+  const normalizedHistory = Array.isArray(sessionHistory) ? sessionHistory : []
+  const normalizedIntent = typeof userIntent === 'string' && userIntent.trim() ? userIntent : 'Specter Mirror Mode'
+  const normalizedSignature = normalizeBehavioralState(signature)
+  const fallback = fallbackSequence(normalizedIntent, normalizedScreenState, normalizedMode)
+  const client = createAnthropicClient()
+
+  safeLog('[MIRROR_MODE] planning with behavioral persona', {
+    intent: normalizedIntent,
+    mode: normalizedMode,
+    app: normalizedScreenState.app,
+    mood: normalizedSignature.moodLabel
+  })
+
+  if (!client) {
+    safeWarn('[AI_BACKEND] Anthropic API key missing; using persona fallback')
+    return fallback
+  }
+
+  try {
+    const message = await client.messages.create({
+      model: CLAUDE_MODEL,
+      max_tokens: 4096,
+      system:
+        `${SYSTEM_PROMPT}\n\n` +
+        "You are planning actions for this user's behavioral signature. " +
+        'Condition the sequence on their impulsivity, cognitiveLoad, flowScore, revisionRate, and decisionConfidence. ' +
+        'High impulsivity prefers direct actions and fewer checks. High cognitiveLoad prefers slower, explicit, reversible steps. ' +
+        'High decisionConfidence prefers direct target movement with low hesitation. Return the same JSON Step[] shape as the normal planner.',
+      messages: [
+        {
+          role: 'user',
+          content: JSON.stringify(
+            {
+              userIntent: normalizedIntent,
+              screenState: normalizedScreenState,
+              sessionHistory: normalizedHistory,
+              mode: normalizedMode,
+              behavioralSignature: normalizedSignature,
+              directnessPreference: normalizedSignature.impulsivity * 0.55 + normalizedSignature.decisionConfidence * 0.45,
+              carefulnessPreference: normalizedSignature.cognitiveLoad * 0.7 + normalizedSignature.revisionRate * 0.3,
+              requiredShape: {
+                steps: [
+                  {
+                    id: 'string',
+                    instruction: 'string',
+                    targetLabel: 'string',
+                    x: 0,
+                    y: 0,
+                    action: 'click | type | scroll | wait',
+                    typeText: 'optional string',
+                    waitForMs: 'optional number'
+                  }
+                ],
+                levelTitle: 'string',
+                estimatedMinutes: 'number'
+              }
+            },
+            null,
+            2
+          )
+        }
+      ]
+    })
+
+    const rawText = message.content
+      .flatMap((part) => (part.type === 'text' && 'text' in part && typeof part.text === 'string' ? [part.text] : []))
+      .join('\n')
+
+    return normalizeSequence(extractJson(rawText), fallback)
+  } catch (error: any) {
+    const summary = classifyAnthropicError(error)
+    safeError('[AI_BACKEND] Persona planner unavailable; using fallback. AI_BACKEND_UNAVAILABLE', summary)
     return fallback
   }
 }

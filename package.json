@@ -20,7 +20,9 @@
     "security-check": "npx ts-node scripts/security-check.ts",
     "test:vision": "npx ts-node scripts/test-vision.ts",
     "test:vision:live": "npx ts-node scripts/test-vision-live.ts",
-    "clinical:demo": "npx ts-node scripts/clinical-demo.ts"
+    "clinical:demo": "npx ts-node scripts/clinical-demo.ts",
+    "test:clinical": "npx ts-node scripts/test-clinical.ts",
+    "apex:demo": "npx ts-node scripts/apex-demo.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.33.0",

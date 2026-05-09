@@ -3,3 +3,5 @@ export * from "./prohibitedActions";
 export * from "./contextBundle";
 export * from "./ehrWorkflow";
 export * from "./drafter";
+export * from "./apex";
+export * from "./notesSummarizer";

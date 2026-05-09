@@ -3,6 +3,11 @@ import { WorkflowTimeline } from "./WorkflowTimeline";
 import { CapturedSources } from "./CapturedSources";
 import { DraftNotePreview } from "./DraftNotePreview";
 import { SafetyGates } from "./SafetyGates";
+import {
+  ApexNotesSummary,
+  type ApexSnapshot,
+  type NotesSummary,
+} from "./ApexNotesSummary";
 
 declare global {
   interface Window {
@@ -14,22 +19,59 @@ interface ClinicalApi {
   bundleGet(): Promise<BundleSummary>;
   bundleReset(): Promise<{ ok: boolean }>;
   bundleAddClipboard(meta?: Record<string, unknown>): Promise<CaptureResult>;
-  bundleAddManual(rawText: string, meta?: Record<string, unknown>): Promise<CaptureResult>;
-  bundleAddFixture(rawText: string, meta?: Record<string, unknown>): Promise<CaptureResult>;
+  bundleAddManual(
+    rawText: string,
+    meta?: Record<string, unknown>,
+  ): Promise<CaptureResult>;
+  bundleAddFixture(
+    rawText: string,
+    meta?: Record<string, unknown>,
+  ): Promise<CaptureResult>;
   workflowCompile(): Promise<CompileResult>;
   workflowDryrun(): Promise<DryRunResult>;
   workflowRun(mode: "dry_run" | "clinician_confirmed"): Promise<DryRunResult>;
-  draftGenerate(draftNoteType?: string): Promise<{ draft: DraftNote; validation: { ok: boolean; errors: string[] } }>;
-  draftGet(): Promise<{ draft: DraftNote | null; validation?: { ok: boolean; errors: string[] } }>;
+  draftGenerate(draftNoteType?: string): Promise<{
+    draft: DraftNote;
+    validation: { ok: boolean; errors: string[] };
+  }>;
+  draftGet(): Promise<{
+    draft: DraftNote | null;
+    validation?: { ok: boolean; errors: string[] };
+  }>;
   safetyListProhibited(): Promise<string[]>;
+  apexGet(): Promise<ApexSnapshot>;
+  apexStart(): Promise<ApexSnapshot>;
+  apexReset(): Promise<ApexSnapshot>;
+  apexAdvance(opts?: { capturedSourceId?: string }): Promise<ApexSnapshot>;
+  apexRepeatIteration(): Promise<ApexSnapshot>;
+  apexCaptureClipboard(meta?: Record<string, unknown>): Promise<CaptureResult>;
+  apexCaptureManual(
+    rawText: string,
+    meta?: Record<string, unknown>,
+  ): Promise<CaptureResult>;
+  apexDryrun(): Promise<DryRunResult>;
+  apexSummaryGenerate(scope?: string): Promise<{
+    summary: NotesSummary;
+    validation: { ok: boolean; errors: string[] };
+  }>;
+  apexSummaryGet(): Promise<{
+    summary: NotesSummary | null;
+    validation?: { ok: boolean; errors: string[] };
+  }>;
   windowClose(): Promise<{ ok: boolean }>;
   onBundleUpdated(cb: (data: any) => void): () => void;
   onWorkflowTrace(cb: (data: any) => void): () => void;
   onDraftGenerated(cb: (data: any) => void): () => void;
+  onApexUpdated(cb: (data: any) => void): () => void;
+  onApexSummaryGenerated(cb: (data: any) => void): () => void;
 }
 
 export interface BundleSummary {
-  patientContext?: { patientId?: string; encounterId?: string; encounterType?: string };
+  patientContext?: {
+    patientId?: string;
+    encounterId?: string;
+    encounterType?: string;
+  };
   sources: Array<{
     id: string;
     noteType?: string;
@@ -80,9 +122,10 @@ export interface DraftNote {
   generator: string;
 }
 
-type Tab = "workflow" | "sources" | "draft" | "safety";
+type Tab = "apex" | "workflow" | "sources" | "draft" | "safety";
 
 const TAB_LABELS: Record<Tab, string> = {
+  apex: "APeX Notes Summary",
   workflow: "Workflow Timeline",
   sources: "Captured Sources",
   draft: "Draft Note",
@@ -215,13 +258,18 @@ analgesia PRN for breakthrough pain. NPO overnight.`,
 ];
 
 export function ClinicalApp(): JSX.Element {
-  const [tab, setTab] = useState<Tab>("workflow");
+  const [tab, setTab] = useState<Tab>("apex");
   const [bundle, setBundle] = useState<BundleSummary | null>(null);
   const [compiled, setCompiled] = useState<CompileResult | null>(null);
   const [dryRun, setDryRun] = useState<DryRunResult | null>(null);
   const [draft, setDraft] = useState<DraftNote | null>(null);
-  const [draftValidation, setDraftValidation] = useState<{ ok: boolean; errors: string[] } | null>(null);
+  const [draftValidation, setDraftValidation] = useState<{
+    ok: boolean;
+    errors: string[];
+  } | null>(null);
   const [prohibited, setProhibited] = useState<string[]>([]);
+  const [apexSnapshot, setApexSnapshot] = useState<ApexSnapshot | null>(null);
+  const [apexBusy, setApexBusy] = useState(false);
   const [status, setStatus] = useState<string>("Ready");
   const [error, setError] = useState<string | null>(null);
 
@@ -233,20 +281,36 @@ export function ClinicalApp(): JSX.Element {
     setBundle(b);
   }, [api]);
 
+  const refreshApex = useCallback(async () => {
+    if (!api) return;
+    const snap = await api.apexGet();
+    setApexSnapshot(snap);
+  }, [api]);
+
   useEffect(() => {
     if (!api) return;
     void refreshBundle();
+    void refreshApex();
     void api.workflowCompile().then(setCompiled);
     void api.safetyListProhibited().then(setProhibited);
     const off1 = api.onBundleUpdated(() => void refreshBundle());
     const off2 = api.onDraftGenerated((d: any) => {
       setStatus(`Draft generated (${d?.generator ?? "unknown"})`);
     });
+    const off3 = api.onApexUpdated(() => void refreshApex());
+    const off4 = api.onApexSummaryGenerated((d: any) => {
+      setStatus(
+        `APeX summary generated (${d?.generator ?? "unknown"}, ${d?.perNoteCount ?? 0} per-note)`,
+      );
+      void refreshApex();
+    });
     return () => {
       off1?.();
       off2?.();
+      off3?.();
+      off4?.();
     };
-  }, [api, refreshBundle]);
+  }, [api, refreshApex, refreshBundle]);
 
   const guardedRun = useCallback(
     async (label: string, fn: () => Promise<void>) => {
@@ -317,8 +381,100 @@ export function ClinicalApp(): JSX.Element {
       setDraftValidation(null);
       setDryRun(null);
       await refreshBundle();
+      await refreshApex();
     });
-  }, [api, guardedRun, refreshBundle]);
+  }, [api, guardedRun, refreshApex, refreshBundle]);
+
+  const apexHandlers = useMemo(
+    () => ({
+      onStart: async () => {
+        if (!api) return;
+        setApexBusy(true);
+        try {
+          await guardedRun("Starting APeX walkthrough", async () => {
+            const snap = await api.apexStart();
+            setApexSnapshot(snap);
+            setTab("apex");
+          });
+        } finally {
+          setApexBusy(false);
+        }
+      },
+      onAdvance: async () => {
+        if (!api) return;
+        setApexBusy(true);
+        try {
+          await guardedRun("Advancing APeX step", async () => {
+            const snap = await api.apexAdvance();
+            setApexSnapshot(snap);
+          });
+        } finally {
+          setApexBusy(false);
+        }
+      },
+      onRepeat: async () => {
+        if (!api) return;
+        setApexBusy(true);
+        try {
+          await guardedRun("Capturing another note row", async () => {
+            const snap = await api.apexRepeatIteration();
+            setApexSnapshot(snap);
+          });
+        } finally {
+          setApexBusy(false);
+        }
+      },
+      onReset: async () => {
+        if (!api) return;
+        setApexBusy(true);
+        try {
+          await guardedRun("Resetting APeX walkthrough", async () => {
+            const snap = await api.apexReset();
+            setApexSnapshot(snap);
+          });
+        } finally {
+          setApexBusy(false);
+        }
+      },
+      onCapture: async () => {
+        if (!api) return;
+        setApexBusy(true);
+        try {
+          await guardedRun("Capturing clipboard for APeX note", async () => {
+            const completedSoFar = apexSnapshot?.completedSteps.length ?? 0;
+            const result = await api.apexCaptureClipboard({
+              noteType: "APeX Chart Review note",
+              idHint: `apex_${completedSoFar + 1}`,
+            });
+            const snap = await api.apexAdvance({
+              capturedSourceId: result.sourceId,
+            });
+            setApexSnapshot(snap);
+            await refreshBundle();
+          });
+        } finally {
+          setApexBusy(false);
+        }
+      },
+      onGenerateSummary: async () => {
+        if (!api) return;
+        setApexBusy(true);
+        try {
+          await guardedRun("Generating APeX summary", async () => {
+            const result = await api.apexSummaryGenerate(
+              "APeX Chart Review > Notes",
+            );
+            const snap = await api.apexGet();
+            setApexSnapshot({ ...snap, summary: result.summary });
+            setTab("apex");
+          });
+        } finally {
+          setApexBusy(false);
+        }
+      },
+    }),
+    [api, apexSnapshot, guardedRun, refreshBundle],
+  );
 
   const headerStats = useMemo(
     () => ({
@@ -334,7 +490,8 @@ export function ClinicalApp(): JSX.Element {
     return (
       <div style={styles.shell}>
         <div style={{ padding: 24, color: "#fb7185" }}>
-          Clinical IPC bridge not loaded. Open this window via Cmd+Shift+K from a packaged or dev build of Specter.
+          Clinical IPC bridge not loaded. Open this window via Cmd+Shift+K from
+          a packaged or dev build of Specter.
         </div>
       </div>
     );
@@ -346,7 +503,8 @@ export function ClinicalApp(): JSX.Element {
         <div>
           <div style={styles.title}>Specter Clinical</div>
           <div style={styles.subtitle}>
-            Synthetic-data dry run · Clinician signs every note &amp; order manually
+            Synthetic-data dry run · Clinician signs every note &amp; order
+            manually
           </div>
         </div>
         <div style={styles.statRow}>
@@ -374,21 +532,40 @@ export function ClinicalApp(): JSX.Element {
 
       <section style={styles.actionRow}>
         <ActionButton onClick={loadAllFixtures}>Load 5 fixtures</ActionButton>
-        <ActionButton onClick={captureFromClipboard}>Capture clipboard</ActionButton>
+        <ActionButton onClick={captureFromClipboard}>
+          Capture clipboard
+        </ActionButton>
         <ActionButton onClick={runDryRun}>Run dry-run</ActionButton>
-        <ActionButton onClick={generateDraft} disabled={(bundle?.sources.length ?? 0) === 0}>
+        <ActionButton
+          onClick={generateDraft}
+          disabled={(bundle?.sources.length ?? 0) === 0}
+        >
           Generate draft
         </ActionButton>
         <ActionButton onClick={resetBundle} variant="ghost">
           Reset
         </ActionButton>
         <div style={styles.spacer} />
-        <div style={{ ...styles.statusPill, color: error ? "#fb7185" : "#a1a1aa" }}>
+        <div
+          style={{ ...styles.statusPill, color: error ? "#fb7185" : "#a1a1aa" }}
+        >
           {error ? "error: " + error : status}
         </div>
       </section>
 
       <main style={styles.main}>
+        {tab === "apex" && (
+          <ApexNotesSummary
+            snapshot={apexSnapshot}
+            busy={apexBusy}
+            onStart={apexHandlers.onStart}
+            onAdvance={apexHandlers.onAdvance}
+            onRepeat={apexHandlers.onRepeat}
+            onReset={apexHandlers.onReset}
+            onCapture={apexHandlers.onCapture}
+            onGenerateSummary={apexHandlers.onGenerateSummary}
+          />
+        )}
         {tab === "workflow" && (
           <WorkflowTimeline compiled={compiled} dryRun={dryRun} />
         )}
@@ -448,7 +625,9 @@ function Stat({
 }) {
   return (
     <div style={styles.stat}>
-      <div style={{ ...styles.statValue, color: accent ?? "#e6e8eb" }}>{value}</div>
+      <div style={{ ...styles.statValue, color: accent ?? "#e6e8eb" }}>
+        {value}
+      </div>
       <div style={styles.statLabel}>{label}</div>
     </div>
   );

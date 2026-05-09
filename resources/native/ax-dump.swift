@@ -10,12 +10,7 @@ import Cocoa
 import ApplicationServices
 
 let args = CommandLine.arguments
-guard args.count >= 2 else {
-    FileHandle.standardError.write("usage: ax-dump <bundle-id|app-name>\n".data(using: .utf8)!)
-    exit(2)
-}
-
-let target = args[1]
+let target: String
 
 func findApp(_ identifier: String) -> NSRunningApplication? {
     if let app = NSRunningApplication.runningApplications(withBundleIdentifier: identifier).first {
@@ -29,9 +24,23 @@ func findApp(_ identifier: String) -> NSRunningApplication? {
     return nil
 }
 
-guard let app = findApp(target) else {
-    FileHandle.standardError.write("not-found:\(target)\n".data(using: .utf8)!)
-    exit(3)
+let app: NSRunningApplication
+if args.count >= 2 {
+    target = args[1]
+    guard let resolved = findApp(target) else {
+        FileHandle.standardError.write("not-found:\(target)\n".data(using: .utf8)!)
+        exit(3)
+    }
+    app = resolved
+} else {
+    // No arg = walk the frontmost app, mirroring the PowerShell helper's
+    // GetForegroundWindow default. Keeps the cross-platform interface symmetrical.
+    guard let frontmost = NSWorkspace.shared.frontmostApplication else {
+        FileHandle.standardError.write("no-frontmost-app\n".data(using: .utf8)!)
+        exit(4)
+    }
+    target = frontmost.bundleIdentifier ?? frontmost.localizedName ?? "unknown"
+    app = frontmost
 }
 
 let pid = app.processIdentifier

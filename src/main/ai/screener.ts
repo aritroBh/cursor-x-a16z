@@ -5,7 +5,6 @@ import {
   screenPointToPercent,
   getActiveCoordinateDisplay,
 } from "../screenCoordinates";
-import { getFocusedAppBundleId } from "../openara";
 import { dumpAxElements, type AxElement } from "../axDump";
 import { createAnthropicClient, getAnthropicVisionModel } from "./config";
 
@@ -359,20 +358,17 @@ export async function detectScreenTargetsViaAx(
     return null;
   }
 
-  const focusedApp = await getFocusedAppBundleId();
-  if (!focusedApp) {
-    safeWarn("[AX_TARGETS] no focused app");
-    return null;
-  }
-
-  const dump = await dumpAxElements(focusedApp);
+  // No app argument — the helper picks the foreground app itself
+  // (NSWorkspace.frontmostApplication on macOS, GetForegroundWindow on
+  // Windows). One contract, two backends.
+  const dump = await dumpAxElements();
   if (!dump || dump.elements.length === 0) {
     safeWarn("[AX_TARGETS] ax-dump returned no elements", {
-      app: focusedApp,
       count: dump?.elements.length ?? 0,
     });
     return null;
   }
+  const focusedApp = dump.app;
 
   const compact = compactAxElements(dump.elements);
   const elementById = new Map<number, AxElement>();

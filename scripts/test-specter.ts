@@ -163,6 +163,9 @@ async function main() {
   const walkthroughGuide = readFile(
     "src/renderer/overlay/WalkthroughGuide.tsx",
   );
+  const targetPreviewGhost = readFile(
+    "src/renderer/overlay/TargetPreviewGhost.tsx",
+  );
 
   printHeader("Environment");
 
@@ -430,12 +433,12 @@ async function main() {
     "real-app flow does not auto-start or auto-select normalizedTargets[0]",
   );
   check(
-    overlayAppBody.includes("Where should Specter guide you?") &&
+    overlayAppBody.includes("Does this look right?") &&
       overlayAppBody.includes(
-        "I found a few possible targets. Pick one, or click Pick manually.",
+        "Specter is previewing where it will guide you.",
       ) &&
       overlayAppBody.includes("specter-target-list"),
-    "renderer shows stable target confirmation copy before ghost confirmation",
+    "renderer shows preview-oriented confirmation copy",
   );
   check(
     overlayAppBody.includes("NORMAL_TARGET_LIMIT = 3") &&
@@ -474,7 +477,7 @@ async function main() {
   );
   check(
     overlayAppBody.includes("specter-workflow-title") &&
-      overlayAppBody.includes("Where should Specter guide you?") &&
+      overlayAppBody.includes("Does this look right?") &&
       !/specter-workflow-title[\s\S]{0,180}realAppTargets\?\.microTask/.test(
         overlayAppBody,
       ),
@@ -484,7 +487,7 @@ async function main() {
     overlayAppBody.includes("specter-target-marker") &&
       overlayCss.includes(".specter-target-marker.is-selected") &&
       overlayCss.includes(".specter-target-list-item.is-hovered"),
-    "markers are subtle and synchronize hover/selected states with rows",
+    "marker styles exist and synchronize hover/selected states with rows",
   );
   check(
     overlayAppBody.includes("is-debug-targets") &&
@@ -562,8 +565,46 @@ async function main() {
   );
   check(
     mainIndex.includes("[REAL_APP_WALKTHROUGH] confirmed target") &&
-      overlayAppBody.includes("[REAL_APP_WALKTHROUGH] confirmed target"),
-    "walkthrough start logs the confirmed real-app target",
+      overlayAppBody.includes("[REAL_APP_WALKTHROUGH] confirmed target") &&
+      overlayAppBody.includes("[REAL_APP_WALKTHROUGH] start from preview target"),
+    "walkthrough start logs the confirmed real-app target and preview target",
+  );
+  check(
+    fileExists("src/renderer/overlay/TargetPreviewGhost.tsx"),
+    "TargetPreviewGhost component exists",
+  );
+  check(
+    targetPreviewGhost.includes('pointerEvents: "none"') &&
+      targetPreviewGhost.includes("position: \"fixed\"") &&
+      targetPreviewGhost.includes("9999"),
+    "TargetPreviewGhost uses pointer-events: none and fixed positioning",
+  );
+  check(
+    /showDebugTools\s*&&\s*[\s\S]{0,80}displayedRealAppTargets\.map/.test(
+      overlayAppBody,
+    ),
+    "normal mode does not render all candidate numbered dots",
+  );
+  check(
+    overlayAppBody.includes("TargetPreviewGhost") &&
+      overlayAppBody.includes("previewGhostStart") &&
+      overlayAppBody.includes("computePreviewGhostStart"),
+    "OverlayApp integrates preview ghost and start-point computation",
+  );
+  check(
+    overlayAppBody.includes("Previewing: ") &&
+      overlayAppBody.includes("Pick a target to preview."),
+    "confirmation card copy includes preview language",
+  );
+  check(
+    overlayAppBody.includes("handleManualTargetPick") &&
+      overlayAppBody.includes("setSelectedRealAppTarget") &&
+      overlayAppBody.includes("setPreviewGhostStart"),
+    "manual pick selects a preview target before starting walkthrough",
+  );
+  check(
+    targetPreviewGhost.includes("vw") && targetPreviewGhost.includes("vh"),
+    "preview target uses normalized viewport x/y",
   );
   check(
     screenerBody.includes("Chrome tab prompts") &&

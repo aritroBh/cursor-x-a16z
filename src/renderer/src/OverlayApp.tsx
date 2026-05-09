@@ -7,6 +7,7 @@ import { SpecBuddy } from "../overlay/SpecBuddy";
 import { ModeToggle } from "../overlay/ModeToggle";
 import { SessionPanel } from "../overlay/SessionPanel";
 import { UltraReplyBubble, UltraState } from "../overlay/UltraReplyBubble";
+import { TargetPreviewGhost } from "../overlay/TargetPreviewGhost";
 import type {
   BehavioralCheckpoint,
   BehavioralDiff,
@@ -377,6 +378,10 @@ const OverlayApp: React.FC = () => {
   const [isManualTargetPicking, setIsManualTargetPicking] = useState(false);
   const [hoveredRealAppTargetKey, setHoveredRealAppTargetKey] =
     useState<string>("");
+  const [previewGhostStart, setPreviewGhostStart] = useState<{
+    x: number;
+    y: number;
+  } | null>(null);
   const [realAppNotice, setRealAppNotice] = useState("");
   const [showDebugTools, setShowDebugTools] = useState(false);
   const [aiHealthMessage, setAiHealthMessage] = useState("");
@@ -532,6 +537,35 @@ const OverlayApp: React.FC = () => {
       if (context !== "walkthrough start") setSelectedTargetMapping(null);
       return null;
     }
+  };
+
+  const computePreviewGhostStart = async (): Promise<{
+    x: number;
+    y: number;
+  }> => {
+    try {
+      const cursorPos = api.getCursorPercent
+        ? await api.getCursorPercent()
+        : null;
+      const cursorX = finitePercent(cursorPos?.x);
+      const cursorY = finitePercent(cursorPos?.y);
+      if (cursorX !== null && cursorY !== null) {
+        return { x: cursorX, y: cursorY };
+      }
+    } catch {
+      // fall through
+    }
+
+    const hud = hudRef.current;
+    if (hud) {
+      const rect = hud.getBoundingClientRect();
+      return {
+        x: ((rect.left + rect.width / 2) / window.innerWidth) * 100,
+        y: ((rect.top + rect.height / 2) / window.innerHeight) * 100,
+      };
+    }
+
+    return { x: 50, y: 50 };
   };
 
   const handleUltraSpokenInput = async (text: string) => {
@@ -1348,12 +1382,16 @@ const OverlayApp: React.FC = () => {
     }
   };
 
-  const selectRealAppTarget = (target: RealAppTarget) => {
+  const selectRealAppTarget = async (target: RealAppTarget) => {
     const normalized = normalizedRealAppTarget(target);
     setSelectedRealAppTarget(normalized);
     setHoveredRealAppTargetKey(realAppTargetKey(normalized));
     setIsManualTargetPicking(false);
     setRealAppNotice("");
+
+    const start = await computePreviewGhostStart();
+    setPreviewGhostStart(start);
+
     void logTargetCoordinateAlignment(normalized, "target selected");
   };
 
@@ -1367,7 +1405,9 @@ const OverlayApp: React.FC = () => {
     );
   };
 
-  const handleManualTargetPick = (event: React.MouseEvent<HTMLDivElement>) => {
+  const handleManualTargetPick = async (
+    event: React.MouseEvent<HTMLDivElement>,
+  ) => {
     if (!isManualTargetPicking) return;
 
     const rect = event.currentTarget.getBoundingClientRect();
@@ -1402,6 +1442,10 @@ const OverlayApp: React.FC = () => {
     setSelectedRealAppTarget(target);
     setHoveredRealAppTargetKey(realAppTargetKey(target));
     void logTargetCoordinateAlignment(target, "manual target picked");
+
+    const start = await computePreviewGhostStart();
+    setPreviewGhostStart(start);
+
     setRealAppTargets((current) => ({
       ...(current || {
         app: "Manual",
@@ -1450,6 +1494,11 @@ const OverlayApp: React.FC = () => {
       if (!nodeId)
         throw new Error("Specter could not save the real-app walkthrough.");
 
+      console.log("[REAL_APP_WALKTHROUGH] start from preview target", {
+        label: target.label,
+        x: target.x,
+        y: target.y,
+      });
       console.log("[REAL_APP_WALKTHROUGH] confirmed target", {
         nodeId,
         label: target.label,
@@ -1835,8 +1884,8 @@ const OverlayApp: React.FC = () => {
     realAppIntent || intent || realAppTargets?.prompt || "";
   const selectedTargetLabel = selectedRealAppTarget?.label || "";
   const realAppTargetHelperText = selectedRealAppTarget
-    ? `Ready to guide to ${selectedTargetLabel}.`
-    : "Select a target first, or pick manually.";
+    ? `Previewing: ${selectedTargetLabel}.`
+    : "Pick a target to preview.";
   const workflowCardClassName = [
     "specter-workflow-card",
     showDebugTools ? "is-debug-targets" : "is-compact-targets",
@@ -1941,6 +1990,21 @@ const OverlayApp: React.FC = () => {
           step={currentStep}
         />
         <WalkthroughGuide step={currentStep} />
+        <TargetPreviewGhost
+          target={
+            selectedRealAppTarget
+              ? {
+                  x: selectedRealAppTarget.viewportX ?? selectedRealAppTarget.x,
+                  y: selectedRealAppTarget.viewportY ?? selectedRealAppTarget.y,
+                  label: selectedRealAppTarget.label,
+                }
+              : null
+          }
+          start={previewGhostStart || undefined}
+          active={Boolean(
+            showWorkflowCard && selectedRealAppTarget && !isReplayRunning,
+          )}
+        />
         {(isVisible || isReplayRunning || isLoading) && (
           <SpecBuddy
             mood={specMood}
@@ -1971,7 +2035,8 @@ const OverlayApp: React.FC = () => {
           </>
         )}
 
-        {!isReplayRunning &&
+        {showDebugTools &&
+          !isReplayRunning &&
           !isManualTargetPicking &&
           displayedRealAppTargets.map((target, index) => {
             const key = realAppTargetKey(target);
@@ -2003,7 +2068,21 @@ const OverlayApp: React.FC = () => {
             );
           })}
 
-        {selectedRealAppTarget && !isReplayRunning && (
+        {selectedRealAppTarget && !isReplayRunning && !showDebugTools && (
+          <div
+            className="preview-endpoint-pulse"
+            style={{
+              position: "fixed",
+              left: `${selectedRealAppTarget.viewportX ?? selectedRealAppTarget.x}vw`,
+              top: `${selectedRealAppTarget.viewportY ?? selectedRealAppTarget.y}vh`,
+              transform: "translate(-50%, -50%)",
+              zIndex: 10001,
+              pointerEvents: "none",
+            }}
+          />
+        )}
+
+        {showDebugTools && selectedRealAppTarget && !isReplayRunning && (
           <div
             style={{
               position: "fixed",
@@ -2263,12 +2342,12 @@ const OverlayApp: React.FC = () => {
                           : "Target confirmation"}
                       </div>
                       <div className="specter-workflow-title">
-                        Where should Specter guide you?
+                        Does this look right?
                       </div>
                       <div className="specter-workflow-subtitle">
                         {showFallbackWorkflow
                           ? "I couldn't confidently detect the target. Pick manually or use Practice Mode."
-                          : "I found a few possible targets. Pick one, or click Pick manually."}
+                          : "Specter is previewing where it will guide you."}
                       </div>
                     </div>
                     <div className="specter-workflow-meta">

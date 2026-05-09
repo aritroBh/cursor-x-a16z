@@ -69,6 +69,33 @@ export function getActiveCoordinateDisplayId(): number {
   return getActiveCoordinateDisplay().id;
 }
 
+export async function mapPercentToScreen(x: number, y: number) {
+  const display = getActiveCoordinateDisplay();
+  const percentPoint = {
+    x: clampPercent(x),
+    y: clampPercent(y),
+  };
+  const screenPoint = {
+    x: Math.round(
+      display.bounds.x + (percentPoint.x / 100) * display.bounds.width,
+    ),
+    y: Math.round(
+      display.bounds.y + (percentPoint.y / 100) * display.bounds.height,
+    ),
+  };
+
+  return {
+    percent: percentPoint,
+    screenPoint,
+    activeDisplay: {
+      id: display.id,
+      bounds: rectSnapshot(display.bounds),
+      scaleFactor: display.scaleFactor,
+    },
+    coordinateMode: COORDINATE_MODE,
+  };
+}
+
 export function getPrimaryDisplayMetrics() {
   const primary = screen.getPrimaryDisplay();
   const active = getActiveCoordinateDisplay();

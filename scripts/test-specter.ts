@@ -87,6 +87,19 @@ async function main() {
     return source.slice(start, end === -1 ? undefined : end);
   }
 
+  function functionBody(
+    source: string,
+    name: string,
+    nextName?: string,
+  ): string {
+    const start = source.indexOf(`function ${name}`);
+    if (start === -1) return "";
+    const end = nextName
+      ? source.indexOf(`function ${nextName}`, start + 1)
+      : -1;
+    return source.slice(start, end === -1 ? undefined : end);
+  }
+
   printHeader("Files");
 
   const requiredFiles = [
@@ -390,6 +403,84 @@ async function main() {
       );
     });
   }
+
+  printHeader("Real-App Target Confirmation");
+
+  const createRealAppStepBody = functionBody(
+    mainIndex,
+    "createRealAppStep",
+    "realAppNodeId",
+  );
+
+  check(
+    !/const\s+bestTarget\s*=\s*normalizedTargets\[0\][\s\S]{0,300}setSelectedRealAppTarget\(bestTarget\)/.test(
+      overlayAppBody,
+    ) &&
+      !/setSelectedRealAppTarget\(\s*normalizedTargets\[0\]\s*\)/.test(
+        overlayAppBody,
+      ),
+    "real-app flow does not auto-start or auto-select normalizedTargets[0]",
+  );
+  check(
+    overlayAppBody.includes("I found a few possible targets.") &&
+      overlayAppBody.includes(
+        "Pick the one you want, or click Pick manually.",
+      ) &&
+      overlayAppBody.includes("specter-target-list"),
+    "renderer shows target candidates before ghost confirmation",
+  );
+  check(
+    overlayAppBody.includes("[SCREEN_TARGETS] candidate list") &&
+      mainIndex.includes("[SCREEN_TARGETS] candidate list"),
+    "candidate list logging exists in renderer and main",
+  );
+  check(
+    mainIndex.includes('ipcMain.handle("coordinate:mapPercentToScreen"') &&
+      preloadBody.includes("coordinate:mapPercentToScreen") &&
+      preloadBody.includes("mapPercentToScreen"),
+    "coordinate:mapPercentToScreen IPC exists and is exposed",
+  );
+  check(
+    overlayAppBody.includes("[COORD_ALIGNMENT] target mapping") &&
+      overlayAppBody.includes("expectedScreenPixel") &&
+      overlayAppBody.includes("overlayViewport"),
+    "renderer logs target coordinate alignment details",
+  );
+  check(
+    mainIndex.includes("[REAL_APP_WALKTHROUGH] confirmed target") &&
+      overlayAppBody.includes("[REAL_APP_WALKTHROUGH] confirmed target"),
+    "walkthrough start logs the confirmed real-app target",
+  );
+  check(
+    screenerBody.includes("Chrome tab prompts") &&
+      screenerBody.includes("New tab button") &&
+      screenerBody.includes("Tab strip") &&
+      screenerBody.includes("Do not choose page content"),
+    "screener prompt includes Chrome tabs/new tab/tab strip guidance",
+  );
+  check(
+    overlayAppBody.includes(
+      "Click the exact spot you want the ghost cursor to teach.",
+    ) &&
+      overlayAppBody.includes("event.currentTarget.getBoundingClientRect()") &&
+      overlayAppBody.includes("window.innerWidth") &&
+      overlayAppBody.includes("window.innerHeight"),
+    "manual target pick uses full viewport instructions and frame",
+  );
+  check(
+    ghostCursor.includes('position: "fixed"') &&
+      ghostCursor.includes("left: `${step.x}vw`") &&
+      ghostCursor.includes("top: `${step.y}vh`") &&
+      overlayAppBody.includes("step={currentStep}") &&
+      overlayAppBody.includes("left: `${target.x}vw`") &&
+      overlayAppBody.includes("top: `${target.y}vh`"),
+    "manual markers and GhostCursor use the same full-screen percent frame",
+  );
+  check(
+    createRealAppStepBody.includes("x: clampPercent(target?.x)") &&
+      createRealAppStepBody.includes("y: clampPercent(target?.y)"),
+    "createRealAppStep preserves target x/y exactly after percent clamping",
+  );
 
   printHeader("Whisper and Mic");
 

@@ -40,6 +40,29 @@ Run all tests before every demo. The controlled demo is a dev fallback — if al
 - Click **Start ghost** → ghost cursor guides to your chosen point.
 - ✅ This still proves the product — ghost over real Chrome.
 
+## Test 1B: Chrome — Tabs
+
+**Setup:** Open Chrome on a new tab page.
+
+**Steps:**
+1. Double-shift → Specter appears.
+2. Type: `how do I use tabs in Google Chrome?`
+3. Press Enter.
+4. Wait for target candidates.
+
+**Pass criteria:**
+- Specter suggests **New tab button** or **Tab strip** near the top of Chrome.
+- A marker appears near the Chrome tab bar, not page content.
+- Specter does **not** silently start the ghost.
+- User confirms the marker or picks manually.
+- Ghost appears at the confirmed marker.
+
+**Fallback path (if the marker is wrong):**
+- Click **Pick manually**.
+- Click the Chrome `+` tab button.
+- Click **Start ghost**.
+- Ghost should guide to that exact spot.
+
 ---
 
 ## Test 2: Google Slides or Figma — Add Text
@@ -100,7 +123,7 @@ This test verifies that manual picking is a real product path, not just a debug 
 2. Type anything → wait for vision result.
 3. If vision returned targets: click **Pick manually** from the action row.
 4. If vision failed: the fallback card already shows **Pick manually** as the first button — click it.
-5. Overlay says: *"Click the thing you want Specter to teach. Press Escape to cancel."*
+5. Overlay says: *"Click the exact spot you want the ghost cursor to teach. Press Escape to cancel."*
 6. Click any visible element in the real app.
 7. Click **Start ghost**.
 

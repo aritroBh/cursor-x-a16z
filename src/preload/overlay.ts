@@ -27,6 +27,8 @@ const api = {
   getCursorPosition: () => ipcRenderer.invoke("cursor:getPosition"),
   getCursorPercent: () => ipcRenderer.invoke("cursor:getPositionPercent"),
   getCursorCalibration: () => ipcRenderer.invoke("cursor:diagnostics"),
+  mapPercentToScreen: (input: { x: number; y: number }) =>
+    ipcRenderer.invoke("coordinate:mapPercentToScreen", input),
   moveCursorToScreenCenter: () => ipcRenderer.invoke("cursor:moveCenter"),
   waitForCursorTarget: (
     x: number,

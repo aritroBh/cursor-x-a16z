@@ -50,6 +50,17 @@ interface RealAppTargetsResult {
   fallbackAvailable?: boolean;
 }
 
+interface CoordinateMappingResult {
+  percent?: { x: number; y: number };
+  screenPoint?: { x: number; y: number };
+  activeDisplay?: {
+    id: number;
+    bounds: { x: number; y: number; width: number; height: number };
+    scaleFactor: number;
+  };
+  coordinateMode?: string;
+}
+
 const SHOW_WALKTHROUGH_DEBUG = import.meta.env.DEV;
 const DEFAULT_REAL_APP_PROMPT = "Teach me one visible action";
 const DEFAULT_CONFIDENCE_THRESHOLD = 0.65;
@@ -302,6 +313,8 @@ const OverlayApp: React.FC = () => {
     useState<RealAppTargetsResult | null>(null);
   const [selectedRealAppTarget, setSelectedRealAppTarget] =
     useState<RealAppTarget | null>(null);
+  const [selectedTargetMapping, setSelectedTargetMapping] =
+    useState<CoordinateMappingResult | null>(null);
   const [isManualTargetPicking, setIsManualTargetPicking] = useState(false);
   const [realAppNotice, setRealAppNotice] = useState("");
   const [showDebugTools, setShowDebugTools] = useState(false);
@@ -394,6 +407,53 @@ const OverlayApp: React.FC = () => {
     }
     console.log("[ULTRA] skipped because silent mode");
     api.stopSpeaking().catch(() => undefined);
+  };
+
+  const logTargetCoordinateAlignment = async (
+    target: RealAppTarget,
+    context: "target selected" | "manual target picked" | "walkthrough start",
+  ): Promise<CoordinateMappingResult | null> => {
+    const overlayViewport = {
+      width: window.innerWidth,
+      height: window.innerHeight,
+    };
+
+    try {
+      const mapping = await api.mapPercentToScreen?.({
+        x: target.x,
+        y: target.y,
+      });
+      const details = {
+        label: target.label,
+        percent: { x: target.x, y: target.y },
+        confidence: target.confidence,
+        source: target.source,
+        action: target.action,
+        displayBounds: mapping?.activeDisplay?.bounds,
+        activeDisplay: mapping?.activeDisplay,
+        overlayViewport,
+        expectedScreenPixel: mapping?.screenPoint,
+        coordinateMode: mapping?.coordinateMode,
+        context,
+      };
+
+      console.log("[COORD_ALIGNMENT] target mapping", details);
+      if (context !== "walkthrough start") {
+        console.log("[REAL_APP_FLOW] target selected", details);
+        setSelectedTargetMapping(mapping || null);
+      }
+      return mapping || null;
+    } catch (error) {
+      console.warn("[COORD_ALIGNMENT] target mapping failed", {
+        label: target.label,
+        percent: { x: target.x, y: target.y },
+        overlayViewport,
+        context,
+        error,
+      });
+      if (context !== "walkthrough start") setSelectedTargetMapping(null);
+      return null;
+    }
   };
 
   const handleUltraSpokenInput = async (text: string) => {
@@ -786,14 +846,24 @@ const OverlayApp: React.FC = () => {
 
   // Return to click-through if input is blurred and mouse is not over UI
   useEffect(() => {
-    if (!isInputFocused) {
+    if (
+      !isInputFocused &&
+      !realAppTargets &&
+      !selectedRealAppTarget &&
+      !isManualTargetPicking
+    ) {
       if (import.meta.env.VITE_DEBUG_VERBOSE === "true")
         console.log(
           "[OVERLAY_INTERACTION] input blurred, restoring click-through",
         );
       setInteractivity(false);
     }
-  }, [isInputFocused]);
+  }, [
+    isInputFocused,
+    realAppTargets,
+    selectedRealAppTarget,
+    isManualTargetPicking,
+  ]);
 
   useEffect(() => {
     if (!manualConfirmMessage) return;
@@ -818,12 +888,32 @@ const OverlayApp: React.FC = () => {
         event.preventDefault();
         setIsManualTargetPicking(false);
         setRealAppNotice("Manual target picking canceled.");
+        if (!realAppTargets && !selectedRealAppTarget) setInteractivity(false);
       }
     };
 
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [isManualTargetPicking]);
+  }, [isManualTargetPicking, realAppTargets, selectedRealAppTarget]);
+
+  useEffect(() => {
+    const needsTargetInteraction = Boolean(
+      realAppTargets || selectedRealAppTarget || isManualTargetPicking,
+    );
+
+    if (needsTargetInteraction) {
+      setInteractivity(true);
+      return;
+    }
+
+    if (
+      !isInputFocusedRef.current &&
+      !isHudHoveredRef.current &&
+      !isHudDraggingRef.current
+    ) {
+      setInteractivity(false);
+    }
+  }, [realAppTargets, selectedRealAppTarget, isManualTargetPicking]);
 
   useEffect(() => {
     if (!realAppTargets || replayState === "running") return;
@@ -905,6 +995,7 @@ const OverlayApp: React.FC = () => {
     setErrorMessage("");
     setRealAppTargets(null);
     setSelectedRealAppTarget(null);
+    setSelectedTargetMapping(null);
     setIsManualTargetPicking(false);
     setRealAppNotice("");
     setLoadingMessage("Analyzing your screen...");
@@ -1022,6 +1113,7 @@ const OverlayApp: React.FC = () => {
     setCalibrationMessage("");
     setRealAppTargets(null);
     setSelectedRealAppTarget(null);
+    setSelectedTargetMapping(null);
     setIsManualTargetPicking(false);
     setRealAppNotice("");
     setIsLoading(true);
@@ -1065,6 +1157,7 @@ const OverlayApp: React.FC = () => {
     setCalibrationMessage("");
     setRealAppTargets(null);
     setSelectedRealAppTarget(null);
+    setSelectedTargetMapping(null);
     setIsManualTargetPicking(false);
     setRealAppNotice("");
     setIsLoading(true);
@@ -1084,6 +1177,7 @@ const OverlayApp: React.FC = () => {
           confidenceThreshold: DEFAULT_CONFIDENCE_THRESHOLD,
         });
         setSelectedRealAppTarget(null);
+        setSelectedTargetMapping(null);
         setIsLoading(false);
 
         if (mode === "ultra") {
@@ -1112,32 +1206,50 @@ const OverlayApp: React.FC = () => {
             ? result.confidenceThreshold
             : DEFAULT_CONFIDENCE_THRESHOLD,
       };
-      const bestTarget = normalizedTargets[0] || null;
       const threshold =
         nextTargets.confidenceThreshold || DEFAULT_CONFIDENCE_THRESHOLD;
 
       setRealAppTargets(nextTargets);
-      setSelectedRealAppTarget(bestTarget);
+      setSelectedRealAppTarget(null);
+      setSelectedTargetMapping(null);
 
-      if (!bestTarget) {
+      console.log("[SCREEN_TARGETS] candidate list", {
+        prompt: testIntent,
+        app: nextTargets.app,
+        microTask: nextTargets.microTask,
+        needsConfirmation: nextTargets.needsConfirmation,
+        overlayViewport: {
+          width: window.innerWidth,
+          height: window.innerHeight,
+        },
+        candidates: normalizedTargets.map((target, index) => ({
+          index,
+          label: target.label,
+          description: target.description,
+          x: target.x,
+          y: target.y,
+          confidence: target.confidence,
+          action: target.action,
+          source: target.source,
+        })),
+      });
+
+      if (normalizedTargets.length === 0) {
         setRealAppNotice(
-          "I couldn't confidently see the target. Click the element you want to teach, or use Practice Mode.",
+          "I couldn't confidently see the target. Click the exact spot you want the ghost cursor to teach, or press Escape to cancel.",
         );
         setIsManualTargetPicking(true);
-      } else if ((bestTarget.confidence ?? 0) < threshold) {
-        speakIfUltra(
-          `I found a possible target: ${bestTarget.label}. Confirm it before we start.`,
-          "target found",
-        );
-        setRealAppNotice(
-          "Low confidence — confirm or pick a different target manually.",
-        );
       } else {
+        const leadTarget = normalizedTargets[0];
         speakIfUltra(
-          `Target found: ${bestTarget.label}. Confirm it before we start.`,
+          `I found possible targets, starting with ${leadTarget.label}. Pick the right marker before we start.`,
           "target found",
         );
-        setRealAppNotice("Target found — confirm it and the ghost will start.");
+        const confidenceHint =
+          (leadTarget.confidence ?? 0) < threshold ? " Confidence is low." : "";
+        setRealAppNotice(
+          `I found a few possible targets.${confidenceHint} Pick the one you want, or click Pick manually.`,
+        );
       }
     } catch (error) {
       setErrorMessage(messageFromError(error));
@@ -1148,23 +1260,18 @@ const OverlayApp: React.FC = () => {
 
   const selectRealAppTarget = (target: RealAppTarget) => {
     const normalized = normalizedRealAppTarget(target);
-    console.log("[REAL_APP_FLOW] target selected", {
-      label: normalized.label,
-      x: normalized.x,
-      y: normalized.y,
-      confidence: normalized.confidence,
-      source: normalized.source,
-    });
     setSelectedRealAppTarget(normalized);
     setIsManualTargetPicking(false);
     setRealAppNotice("Confirm the target before the ghost starts.");
+    void logTargetCoordinateAlignment(normalized, "target selected");
   };
 
   const startManualTargetPicking = () => {
     console.log("[MANUAL_TARGET] manual target picking armed");
     setIsManualTargetPicking(true);
+    setInteractivity(true);
     setRealAppNotice(
-      "Click the thing you want Specter to teach. Press Escape to cancel.",
+      "Click the exact spot you want the ghost cursor to teach. Press Escape to cancel.",
     );
   };
 
@@ -1172,6 +1279,10 @@ const OverlayApp: React.FC = () => {
     if (!isManualTargetPicking) return;
 
     const rect = event.currentTarget.getBoundingClientRect();
+    const fullViewportRect = {
+      width: window.innerWidth,
+      height: window.innerHeight,
+    };
     const target = normalizedRealAppTarget({
       id: "manual-real-app-target",
       label: "Manual target",
@@ -1186,8 +1297,16 @@ const OverlayApp: React.FC = () => {
     console.log("[REAL_APP_FLOW] manual target picked", {
       x: target.x,
       y: target.y,
+      manualPickRect: {
+        left: rect.left,
+        top: rect.top,
+        width: rect.width,
+        height: rect.height,
+      },
+      fullViewportRect,
     });
     setSelectedRealAppTarget(target);
+    void logTargetCoordinateAlignment(target, "manual target picked");
     setRealAppTargets((current) => ({
       ...(current || {
         app: "Manual",
@@ -1230,17 +1349,18 @@ const OverlayApp: React.FC = () => {
 
     try {
       console.log("[MODE] current mode", { mode, flow: "real-app" });
+      await logTargetCoordinateAlignment(target, "walkthrough start");
       const workflow = await api.createRealAppWorkflow(workflowInput);
       const nodeId = workflow?.nodeId;
       if (!nodeId)
         throw new Error("Specter could not save the real-app walkthrough.");
 
-      console.log("[REAL_APP_WALKTHROUGH] starting", {
+      console.log("[REAL_APP_WALKTHROUGH] confirmed target", {
         nodeId,
         label: target.label,
-        x: target.x,
-        y: target.y,
+        percent: { x: target.x, y: target.y },
         source: target.source,
+        confidence: target.confidence,
         mode,
       });
 
@@ -1258,6 +1378,7 @@ const OverlayApp: React.FC = () => {
       speakIfUltra("Walkthrough complete.", "walkthrough complete");
       setRealAppTargets(null);
       setSelectedRealAppTarget(null);
+      setSelectedTargetMapping(null);
       setRealAppNotice("");
     } catch (error) {
       console.error("[REAL_APP_WALKTHROUGH] failed:", error);
@@ -1548,6 +1669,7 @@ const OverlayApp: React.FC = () => {
     setCalibrationMessage("");
     setRealAppTargets(null);
     setSelectedRealAppTarget(null);
+    setSelectedTargetMapping(null);
     setIsManualTargetPicking(false);
     setRealAppNotice("");
     setLoadingMessage("Analyzing your screen...");
@@ -1672,7 +1794,11 @@ const OverlayApp: React.FC = () => {
           className="siri-glow-fullscreen"
           style={{ pointerEvents: "none" }}
         />
-        <GhostCursor mood={specMood} isVisible={isVisible} />
+        <GhostCursor
+          mood={specMood}
+          isVisible={isVisible || isReplayRunning}
+          step={currentStep}
+        />
         <WalkthroughGuide step={currentStep} />
         {(isVisible || isReplayRunning || isLoading) && (
           <SpecBuddy
@@ -1762,6 +1888,51 @@ const OverlayApp: React.FC = () => {
               pointerEvents: "none",
             }}
           />
+        )}
+
+        {import.meta.env.DEV && selectedRealAppTarget && !isReplayRunning && (
+          <div
+            style={{
+              position: "fixed",
+              left: `min(calc(${selectedRealAppTarget.x}vw + 22px), calc(100vw - 220px))`,
+              top: `min(calc(${selectedRealAppTarget.y}vh + 22px), calc(100vh - 116px))`,
+              zIndex: 10004,
+              width: "204px",
+              padding: "9px 10px",
+              borderRadius: "12px",
+              border: "1px solid rgba(255,255,255,0.16)",
+              background: "rgba(14, 16, 20, 0.86)",
+              color: "rgba(255,255,255,0.9)",
+              boxShadow: "0 14px 34px rgba(0,0,0,0.3)",
+              backdropFilter: "blur(14px)",
+              pointerEvents: "auto",
+            }}
+          >
+            <div style={{ fontSize: "11px", fontWeight: 850 }}>
+              {selectedRealAppTarget.label}
+            </div>
+            <div
+              style={{
+                marginTop: "4px",
+                fontSize: "10px",
+                lineHeight: 1.35,
+                color: "rgba(255,255,255,0.62)",
+              }}
+            >
+              {`x ${formatCoordinate(selectedRealAppTarget.x)}% / y ${formatCoordinate(selectedRealAppTarget.y)}% / ${confidencePercent(selectedRealAppTarget.confidence)}`}
+              <br />
+              {selectedTargetMapping?.screenPoint
+                ? `screen ${selectedTargetMapping.screenPoint.x}, ${selectedTargetMapping.screenPoint.y} / display ${selectedTargetMapping.activeDisplay?.id ?? "?"}`
+                : "screen mapping pending"}
+            </div>
+            <button
+              className="specter-action-button blue"
+              style={{ marginTop: "8px", minHeight: "28px", width: "100%" }}
+              onClick={startManualTargetPicking}
+            >
+              Looks wrong? Pick manually
+            </button>
+          </div>
         )}
 
         {showWalkthroughDebug && (
@@ -1975,6 +2146,31 @@ const OverlayApp: React.FC = () => {
                     </div>
                   )}
 
+                  {!showFallbackWorkflow && realAppMarkerTargets.length > 0 && (
+                    <div className="specter-target-list">
+                      {realAppMarkerTargets.map((target, index) => (
+                        <button
+                          key={`${target.id || target.label}-list-${index}`}
+                          className={`specter-target-list-item ${
+                            selectedRealAppTarget &&
+                            Math.abs(selectedRealAppTarget.x - target.x) <
+                              0.01 &&
+                            Math.abs(selectedRealAppTarget.y - target.y) <
+                              0.01 &&
+                            selectedRealAppTarget.label === target.label
+                              ? "is-selected"
+                              : ""
+                          }`}
+                          onClick={() => selectRealAppTarget(target)}
+                        >
+                          <span>{index + 1}</span>
+                          <strong>{target.label}</strong>
+                          <em>{confidencePercent(target.confidence)}</em>
+                        </button>
+                      ))}
+                    </div>
+                  )}
+
                   {!showFallbackWorkflow &&
                     (selectedRealAppTarget ? (
                       <div className="specter-target-summary">
@@ -2002,8 +2198,7 @@ const OverlayApp: React.FC = () => {
                       </div>
                     ) : (
                       <div className="specter-workflow-note">
-                        Pick a numbered marker, or click anywhere to set
-                        manually.
+                        Pick a numbered marker, or click Pick manually.
                       </div>
                     ))}
 

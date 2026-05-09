@@ -16,7 +16,7 @@ export const GhostCursor: React.FC<GhostCursorProps> = ({
     <svg
       className="ghost-cursor"
       style={{
-        position: "absolute",
+        position: "fixed",
         left: `${step.x}vw`,
         top: `${step.y}vh`,
         pointerEvents: "none",

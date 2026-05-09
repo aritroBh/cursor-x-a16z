@@ -406,6 +406,61 @@
   padding: 10px;
 }
 
+.specter-target-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.specter-target-list-item {
+  display: grid;
+  grid-template-columns: 20px 1fr auto;
+  align-items: center;
+  gap: 8px;
+  min-height: 30px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 8px;
+  padding: 6px 8px;
+  color: rgba(255, 255, 255, 0.88);
+  background: rgba(255, 255, 255, 0.07);
+  text-align: left;
+  cursor: pointer;
+}
+
+.specter-target-list-item.is-selected {
+  border-color: rgba(48, 209, 88, 0.58);
+  background: rgba(48, 209, 88, 0.15);
+}
+
+.specter-target-list-item span {
+  display: inline-grid;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  border-radius: 999px;
+  background: rgba(10, 132, 255, 0.88);
+  color: #fff;
+  font-size: 11px;
+  font-weight: 900;
+}
+
+.specter-target-list-item strong {
+  min-width: 0;
+  overflow: hidden;
+  color: #fff;
+  font-size: 12px;
+  font-weight: 800;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.specter-target-list-item em {
+  color: rgba(255, 255, 255, 0.58);
+  font-size: 10px;
+  font-style: normal;
+  font-weight: 800;
+}
+
 .specter-target-title {
   font-size: 14px;
   font-weight: 850;
@@ -1052,7 +1107,8 @@
   position: relative;
   z-index: 2;
   overflow: visible;
-  filter: url("#spec-soft-glow") drop-shadow(0 8px 18px rgba(64, 156, 255, 0.22));
+  filter: url("#spec-soft-glow")
+    drop-shadow(0 8px 18px rgba(64, 156, 255, 0.22));
 }
 
 .spec-buddy__body-group {
@@ -1157,7 +1213,16 @@
   width: 9px;
   height: 9px;
   background: #ffd60a;
-  clip-path: polygon(50% 0%, 62% 36%, 100% 50%, 62% 64%, 50% 100%, 38% 64%, 0% 50%, 38% 36%);
+  clip-path: polygon(
+    50% 0%,
+    62% 36%,
+    100% 50%,
+    62% 64%,
+    50% 100%,
+    38% 64%,
+    0% 50%,
+    38% 36%
+  );
   opacity: 0;
 }
 

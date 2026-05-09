@@ -54,7 +54,10 @@ import {
   CONTROLLED_DEMO_WIDTH,
   createControlledDemoWorkflow,
 } from "./session/demoWorkflow";
-import { setActiveCoordinateDisplay } from "./screenCoordinates";
+import {
+  mapPercentToScreen,
+  setActiveCoordinateDisplay,
+} from "./screenCoordinates";
 import type {
   BehavioralCheckpoint,
   BehavioralState,
@@ -743,6 +746,14 @@ app.whenReady().then(async () => {
     getCoordinateCalibrationDiagnostics(),
   );
 
+  ipcMain.handle("coordinate:mapPercentToScreen", async (_event, input) => {
+    const x = clampPercent(input?.x);
+    const y = clampPercent(input?.y);
+    const mapping = await mapPercentToScreen(x, y);
+    safeLog("[COORD_ALIGNMENT] mapPercentToScreen", mapping);
+    return mapping;
+  });
+
   ipcMain.handle("cursor:moveCenter", async (event) => {
     if (!validateSender(event, overlayWindow))
       throw new Error("Unauthorized sender");
@@ -910,6 +921,23 @@ app.whenReady().then(async () => {
         count: result.targets.length,
         threshold: REAL_APP_CONFIDENCE_THRESHOLD,
         topConfidence: result.targets[0]?.confidence ?? null,
+        screenshot: {
+          width: screenshotResult.width,
+          height: screenshotResult.height,
+        },
+      });
+      safeLog("[SCREEN_TARGETS] candidate list", {
+        prompt,
+        candidates: result.targets.map((target, index) => ({
+          index,
+          label: target.label,
+          description: target.description,
+          x: target.x,
+          y: target.y,
+          confidence: target.confidence,
+          action: target.action,
+          source: target.source,
+        })),
       });
       return {
         ...result,
@@ -977,6 +1005,16 @@ app.whenReady().then(async () => {
       label: step.targetLabel,
       source,
       mode,
+      confidence: targetConfidence,
+    });
+    safeLog("[REAL_APP_WALKTHROUGH] confirmed target", {
+      nodeId,
+      label: step.targetLabel,
+      percent: {
+        x: step.x,
+        y: step.y,
+      },
+      source,
       confidence: targetConfidence,
     });
 

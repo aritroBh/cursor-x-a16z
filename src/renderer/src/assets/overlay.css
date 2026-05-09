@@ -640,12 +640,7 @@
   pointer-events: none;
 }
 
-.target-preview-ghost {
-  filter: drop-shadow(0 3px 5px rgba(0, 0, 0, 0.38));
-  opacity: 0.88;
-}
-
-.target-preview-ghost.is-pulsing {
+.target-preview-ghost-pulse {
   animation: preview-ghost-pulse 1.4s ease-in-out infinite;
 }
 

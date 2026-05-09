@@ -486,8 +486,9 @@ async function main() {
   check(
     overlayAppBody.includes("specter-target-marker") &&
       overlayCss.includes(".specter-target-marker.is-selected") &&
-      overlayCss.includes(".specter-target-list-item.is-hovered"),
-    "marker styles exist and synchronize hover/selected states with rows",
+      overlayCss.includes(".specter-target-list-item.is-hovered") &&
+      /showDebugTools[\s\S]{0,900}specter-target-marker/.test(overlayAppBody),
+    "marker styles exist, synchronize hover/selected states, and are gated behind showDebugTools",
   );
   check(
     overlayAppBody.includes("is-debug-targets") &&
@@ -603,8 +604,20 @@ async function main() {
     "manual pick selects a preview target before starting walkthrough",
   );
   check(
-    targetPreviewGhost.includes("vw") && targetPreviewGhost.includes("vh"),
-    "preview target uses normalized viewport x/y",
+    targetPreviewGhost.includes("CURSOR_HOTSPOT") &&
+      /translate3d\(calc\(.*vw - .*px\), calc\(.*vh - .*px\), 0\)/.test(
+        targetPreviewGhost,
+      ),
+    "TargetPreviewGhost uses transform translate3d with hotspot correction",
+  );
+  check(
+    targetPreviewGhost.includes("[PREVIEW_GHOST] endpoint"),
+    "TargetPreviewGhost logs endpoint coordinate on arrival",
+  );
+  check(
+    !/className.*specter-target-marker/.test(overlayAppBody) ||
+      /showDebugTools[\s\S]{0,900}specter-target-marker/.test(overlayAppBody),
+    "specter-target-marker is only rendered when showDebugTools is true",
   );
   check(
     screenerBody.includes("Chrome tab prompts") &&
@@ -623,10 +636,12 @@ async function main() {
     "manual target pick uses full viewport instructions and frame",
   );
   check(
-    ghostCursor.includes('position: "fixed"') &&
-      ghostCursor.includes("left: `${x}vw`") &&
-      ghostCursor.includes("top: `${y}vh`") &&
-      ghostCursor.includes("step.viewportX ?? step.x") &&
+    ghostCursor.includes("step.viewportX ?? step.x") &&
+      ghostCursor.includes("step.viewportY ?? step.y") &&
+      ghostCursor.includes("CURSOR_HOTSPOT") &&
+      /translate3d\(calc\(.*vw - .*px\), calc\(.*vh - .*px\), 0\)/.test(
+        ghostCursor,
+      ) &&
       overlayAppBody.includes("step={currentStep}") &&
       overlayAppBody.includes("left: `${target.viewportX ?? target.x}vw`") &&
       overlayAppBody.includes("top: `${target.viewportY ?? target.y}vh`") &&

@@ -14,6 +14,8 @@ interface TargetPreviewGhostProps {
 
 type Phase = "enter" | "travel" | "arrived" | "reset";
 
+const CURSOR_HOTSPOT = { x: 5.5, y: 3.2 };
+
 const TRAVEL_MS = 600;
 const PAUSE_MS = 400;
 const PULSE_MS = 600;
@@ -37,6 +39,16 @@ export const TargetPreviewGhost: React.FC<TargetPreviewGhostProps> = ({
       sourceFrame: "viewport",
     });
   }, [target?.x, target?.y, target?.label]);
+
+  useEffect(() => {
+    if (phase === "arrived" && target) {
+      console.log("[PREVIEW_GHOST] endpoint", {
+        label: target.label || "unknown",
+        x: target.x,
+        y: target.y,
+      });
+    }
+  }, [phase, target]);
 
   useEffect(() => {
     if (!active || !target) return;
@@ -93,29 +105,31 @@ export const TargetPreviewGhost: React.FC<TargetPreviewGhostProps> = ({
   const isReset = phase === "reset";
 
   return (
-    <svg
-      className={`target-preview-ghost ${isArrived ? "is-pulsing" : ""}`}
+    <div
       style={{
         position: "fixed",
-        left: `${posX}vw`,
-        top: `${posY}vh`,
+        left: 0,
+        top: 0,
+        transform: `translate3d(calc(${posX}vw - ${CURSOR_HOTSPOT.x}px), calc(${posY}vh - ${CURSOR_HOTSPOT.y}px), 0)`,
         pointerEvents: "none",
         zIndex: 9999,
         transition: isTraveling
-          ? "left 600ms ease-out, top 600ms ease-out"
+          ? "transform 600ms ease-out, opacity 600ms ease-out"
           : "none",
         opacity: isReset ? 0 : 0.88,
+        filter: "drop-shadow(0 3px 5px rgba(0, 0, 0, 0.38))",
       }}
-      width="24"
-      height="24"
-      viewBox="0 0 24 24"
     >
-      <path
-        d="M5.5 3.21V20.8c0 .45.54.67.85.35l4.86-4.86a.5.5 0 0 1 .35-.15h6.87a.5.5 0 0 0 .35-.85L5.5 3.21z"
-        fill="white"
-        stroke="black"
-        strokeWidth="1"
-      />
-    </svg>
+      <div className={isArrived ? "target-preview-ghost-pulse" : ""}>
+        <svg width="24" height="24" viewBox="0 0 24 24">
+          <path
+            d="M5.5 3.21V20.8c0 .45.54.67.85.35l4.86-4.86a.5.5 0 0 1 .35-.15h6.87a.5.5 0 0 0 .35-.85L5.5 3.21z"
+            fill="white"
+            stroke="black"
+            strokeWidth="1"
+          />
+        </svg>
+      </div>
+    </div>
   );
 };

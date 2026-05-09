@@ -141,4 +141,4 @@ fixtures only.
 ## Sources of truth
 
 The full research synthesis with citations is at
-[`research/00-SYNTHESIS-ucsf-apex-spec.md`](../../research/00-SYNTHESIS-ucsf-apex-spec.md).
+[`research/00-SYNTHESIS-ucsf-apex-spec.md`](../research/00-SYNTHESIS-ucsf-apex-spec.md).

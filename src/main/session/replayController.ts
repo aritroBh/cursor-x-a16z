@@ -69,7 +69,9 @@ export function sleep(ms: number, controller: ReplayController): Promise<boolean
 export function sendOverlay(channel: string, payload: any): void {
   const overlayWindow = getOverlayWindow()
   if (!overlayWindow || overlayWindow.isDestroyed()) return
-  overlayWindow.webContents.send(channel, payload)
+  const contents = overlayWindow.webContents
+  if (!contents || contents.isDestroyed()) return
+  contents.send(channel, payload)
 }
 
 export function setOverlayForReplay(): void {

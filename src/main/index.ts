@@ -59,6 +59,35 @@ const icon = join(__dirname, '../../resources/icon.png')
 const DEFAULT_APP_NAME = 'Specter'
 const REAL_APP_CONFIDENCE_THRESHOLD = 0.65
 
+function isBrokenPipeError(error: unknown): boolean {
+  if (!error) return false
+  const isEpipeCode = typeof error === 'object' && 'code' in error && (error as any).code === 'EPIPE'
+  const isEpipeMessage = error instanceof Error && error.message.includes('EPIPE')
+  return isEpipeCode || isEpipeMessage
+}
+
+process.stdout?.on?.('error', (error) => {
+  if (isBrokenPipeError(error)) return
+})
+
+process.stderr?.on?.('error', (error) => {
+  if (isBrokenPipeError(error)) return
+})
+
+const defaultUncaughtException = process.listeners('uncaughtException')
+process.removeAllListeners('uncaughtException')
+
+process.on('uncaughtException', (error, origin) => {
+  if (isBrokenPipeError(error)) {
+    return
+  }
+  defaultUncaughtException.forEach(handler => handler(error, origin))
+  if (defaultUncaughtException.length === 0) {
+    console.error('Uncaught Exception:', error)
+    process.exit(1)
+  }
+})
+
 let mainWindow: BrowserWindow | null = null
 let overlayWindow: BrowserWindow | null = null
 
@@ -247,9 +276,16 @@ function isLearningGraph(value: any): boolean {
   )
 }
 
-function sendOverlayEvent(channel: string, payload: any): void {
-  if (!overlayWindow || overlayWindow.isDestroyed()) return
-  overlayWindow.webContents.send(channel, payload)
+function safeSend(window: BrowserWindow | null | undefined, channel: string, payload?: unknown) {
+  if (!window || window.isDestroyed()) return false
+  const contents = window.webContents
+  if (!contents || contents.isDestroyed()) return false
+  contents.send(channel, payload)
+  return true
+}
+
+function sendOverlayEvent(channel: string, payload?: any): void {
+  safeSend(overlayWindow, channel, payload)
 }
 
 function sortedBehavioralCheckpoints(graph: LearningGraph, includeSynthetic = true): BehavioralCheckpoint[] {
@@ -344,7 +380,7 @@ function toggleOverlay(): void {
     overlayWindow.showInactive()
     overlayWindow.moveTop()
   }
-  overlayWindow.webContents.send('overlay:toggle')
+  safeSend(overlayWindow, 'overlay:toggle')
 }
 
 let lastShiftTime = 0
@@ -555,7 +591,9 @@ app.whenReady().then(async () => {
       return await captureScreenBase64()
     } catch (err: any) {
       if (isPermissionError(err) || err.code === 'SCREEN_PERMISSION_DENIED') {
-        event.sender.send('permissions:screen-denied')
+        if (!event.sender.isDestroyed()) {
+          event.sender.send('permissions:screen-denied')
+        }
       }
       throw err
     }
@@ -588,7 +626,9 @@ app.whenReady().then(async () => {
       return result
     } catch (err: any) {
       if (isPermissionError(err) || err.code === 'SCREEN_PERMISSION_DENIED') {
-        event.sender.send('permissions:screen-denied')
+        if (!event.sender.isDestroyed()) {
+          event.sender.send('permissions:screen-denied')
+        }
       }
       safeError('[Specter] Screen analysis failed; using fallback screen state:', err)
       return fallbackScreenState()
@@ -650,7 +690,9 @@ app.whenReady().then(async () => {
       }
     } catch (err: any) {
       if (isPermissionError(err) || err.code === 'SCREEN_PERMISSION_DENIED') {
-        event.sender.send('permissions:screen-denied')
+        if (!event.sender.isDestroyed()) {
+          event.sender.send('permissions:screen-denied')
+        }
       }
       safeError('[REAL_APP_TEST] target detection failed:', err)
       return {

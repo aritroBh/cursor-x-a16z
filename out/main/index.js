@@ -2279,7 +2279,9 @@ function sleep(ms, controller) {
 function sendOverlay(channel, payload) {
   const overlayWindow2 = getOverlayWindow();
   if (!overlayWindow2 || overlayWindow2.isDestroyed()) return;
-  overlayWindow2.webContents.send(channel, payload);
+  const contents = overlayWindow2.webContents;
+  if (!contents || contents.isDestroyed()) return;
+  contents.send(channel, payload);
 }
 function setOverlayForReplay() {
   const overlayWindow2 = getOverlayWindow();
@@ -3135,6 +3137,30 @@ function createControlledDemoWorkflow(window) {
 const icon = path.join(__dirname, "../../resources/icon.png");
 const DEFAULT_APP_NAME = "Specter";
 const REAL_APP_CONFIDENCE_THRESHOLD = 0.65;
+function isBrokenPipeError(error) {
+  if (!error) return false;
+  const isEpipeCode = typeof error === "object" && "code" in error && error.code === "EPIPE";
+  const isEpipeMessage = error instanceof Error && error.message.includes("EPIPE");
+  return isEpipeCode || isEpipeMessage;
+}
+process.stdout?.on?.("error", (error) => {
+  if (isBrokenPipeError(error)) return;
+});
+process.stderr?.on?.("error", (error) => {
+  if (isBrokenPipeError(error)) return;
+});
+const defaultUncaughtException = process.listeners("uncaughtException");
+process.removeAllListeners("uncaughtException");
+process.on("uncaughtException", (error, origin) => {
+  if (isBrokenPipeError(error)) {
+    return;
+  }
+  defaultUncaughtException.forEach((handler) => handler(error, origin));
+  if (defaultUncaughtException.length === 0) {
+    console.error("Uncaught Exception:", error);
+    process.exit(1);
+  }
+});
 let mainWindow = null;
 let overlayWindow = null;
 function bufferFromAudioData(audioData) {
@@ -3276,9 +3302,15 @@ function isLearningGraph(value) {
     value && typeof value === "object" && "userId" in value && "app" in value && "nodes" in value && "sessions" in value && "banditState" in value
   );
 }
+function safeSend(window, channel, payload) {
+  if (!window || window.isDestroyed()) return false;
+  const contents = window.webContents;
+  if (!contents || contents.isDestroyed()) return false;
+  contents.send(channel, payload);
+  return true;
+}
 function sendOverlayEvent(channel, payload) {
-  if (!overlayWindow || overlayWindow.isDestroyed()) return;
-  overlayWindow.webContents.send(channel, payload);
+  safeSend(overlayWindow, channel, payload);
 }
 function sortedBehavioralCheckpoints(graph, includeSynthetic = true) {
   return Object.values(graph.behavioralCheckpoints || {}).filter((checkpoint) => includeSynthetic || checkpoint.synthetic !== true).sort((a, b) => Date.parse(a.timestamp) - Date.parse(b.timestamp));
@@ -3353,7 +3385,7 @@ function toggleOverlay() {
     overlayWindow.showInactive();
     overlayWindow.moveTop();
   }
-  overlayWindow.webContents.send("overlay:toggle");
+  safeSend(overlayWindow, "overlay:toggle");
 }
 let lastShiftTime = 0;
 let lastToggleTime = 0;
@@ -3532,7 +3564,9 @@ electron.app.whenReady().then(async () => {
       return await captureScreenBase64();
     } catch (err) {
       if (isPermissionError(err) || err.code === "SCREEN_PERMISSION_DENIED") {
-        event.sender.send("permissions:screen-denied");
+        if (!event.sender.isDestroyed()) {
+          event.sender.send("permissions:screen-denied");
+        }
       }
       throw err;
     }
@@ -3564,7 +3598,9 @@ electron.app.whenReady().then(async () => {
       return result;
     } catch (err) {
       if (isPermissionError(err) || err.code === "SCREEN_PERMISSION_DENIED") {
-        event.sender.send("permissions:screen-denied");
+        if (!event.sender.isDestroyed()) {
+          event.sender.send("permissions:screen-denied");
+        }
       }
       safeError("[Specter] Screen analysis failed; using fallback screen state:", err);
       return fallbackScreenState();
@@ -3620,7 +3656,9 @@ electron.app.whenReady().then(async () => {
       };
     } catch (err) {
       if (isPermissionError(err) || err.code === "SCREEN_PERMISSION_DENIED") {
-        event.sender.send("permissions:screen-denied");
+        if (!event.sender.isDestroyed()) {
+          event.sender.send("permissions:screen-denied");
+        }
       }
       safeError("[REAL_APP_TEST] target detection failed:", err);
       return {

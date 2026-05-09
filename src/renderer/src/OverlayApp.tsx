@@ -18,7 +18,7 @@ import type {
 type SpecterMode = "silent" | "ultra";
 type ReplayState = "idle" | "running" | "paused";
 type ReplayMode = "walkthrough" | "auto" | null;
-type AutomationMode = "auto" | "mirror" | "calibration";
+type AutomationMode = "auto" | "mirror" | "calibration" | "agent";
 type RealAppAction = "click" | "type" | "scroll" | "wait";
 type EdgeLightState = "hidden" | "summon" | "idle" | "walkthrough";
 type MirrorFeedbackKind = "accept" | "override" | "hesitation" | "correction";
@@ -123,6 +123,24 @@ function messageFromError(error: unknown): string {
   if (error instanceof Error && error.message) return error.message;
   if (typeof error === "string" && error.trim()) return error;
   return "Specter hit a temporary issue. Try again.";
+}
+
+function isNoteHtmlCompilationIntent(text: string): boolean {
+  const normalized = text.toLowerCase();
+  const asksForNotes = /\b(epic|notes?|note list)\b/.test(normalized);
+  const asksForOutput =
+    /\b(html|hpi|llm|summary|summari[sz]e|synthesis|synthesi[sz]e|draft)\b/.test(
+      normalized,
+    );
+  const asksForAgentAction =
+    /\b(copy|compile|generate|open|capture|export|summari[sz]e|synthesi[sz]e|draft)\b/.test(
+      normalized,
+    );
+  return (
+    asksForNotes &&
+    asksForOutput &&
+    asksForAgentAction
+  );
 }
 
 async function confirmAutomationGate(
@@ -368,6 +386,7 @@ const OverlayApp: React.FC = () => {
   const [lastNodeId, setLastNodeId] = useState("");
   const [manualConfirmMessage, setManualConfirmMessage] = useState("");
   const [calibrationMessage, setCalibrationMessage] = useState("");
+  const [agentStatusMessage, setAgentStatusMessage] = useState("");
   const [realAppIntent, setRealAppIntent] = useState("");
   const [realAppTargets, setRealAppTargets] =
     useState<RealAppTargetsResult | null>(null);
@@ -376,6 +395,7 @@ const OverlayApp: React.FC = () => {
   const [selectedTargetMapping, setSelectedTargetMapping] =
     useState<CoordinateMappingResult | null>(null);
   const [isManualTargetPicking, setIsManualTargetPicking] = useState(false);
+  const [manualPickPoint, setManualPickPoint] = useState({ x: 0, y: 0 });
   const [hoveredRealAppTargetKey, setHoveredRealAppTargetKey] =
     useState<string>("");
   const [previewGhostStart, setPreviewGhostStart] = useState<{
@@ -998,9 +1018,7 @@ const OverlayApp: React.FC = () => {
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key === "Escape") {
         event.preventDefault();
-        setIsManualTargetPicking(false);
-        setRealAppNotice("Manual target picking canceled.");
-        if (!realAppTargets && !selectedRealAppTarget) setInteractivity(false);
+        cancelManualTargetPicking();
       }
     };
 
@@ -1248,11 +1266,84 @@ const OverlayApp: React.FC = () => {
     }
   };
 
+  const runNoteHtmlAgent = async (text: string) => {
+    const agentIntent =
+      text.trim() ||
+      intent.trim() ||
+      "Epic Notes is already open. Open each visible note, copy the full note content, and synthesize one HPI with the LLM.";
+
+    console.log("[NOTE_HTML_AGENT] confirmation shown");
+    if (
+      !window.confirm(
+        "Specter will control your mouse, open Epic notes, copy note text, synthesize an HPI with the LLM, and write local files. Continue?",
+      )
+    ) {
+      console.log("[NOTE_HTML_AGENT] confirmation canceled");
+      return;
+    }
+    console.log("[NOTE_HTML_AGENT] confirmation accepted");
+
+    setIntent(agentIntent);
+    setRealAppIntent(agentIntent);
+    setLastNodeId("");
+    setCurrentStep(null);
+    setReplayMode("auto");
+    setReplayState("running");
+    setErrorMessage("");
+    setCalibrationMessage("");
+    setAgentStatusMessage("");
+    setRealAppTargets(null);
+    setSelectedRealAppTarget(null);
+    setSelectedTargetMapping(null);
+    setHoveredRealAppTargetKey("");
+    setIsManualTargetPicking(false);
+    setRealAppNotice("");
+    setIsLoading(true);
+    setLoadingMessage("Opening notes, copying text, and drafting HPI...");
+    setSpecMood("thinking");
+
+    let automationArmed = false;
+    try {
+      await confirmAutomationGate("agent", 50);
+      automationArmed = true;
+      const result = await api.compileNotesToHtml({ intent: agentIntent });
+      const message = `Drafted HPI from ${result?.noteCount ?? 0} notes: ${result?.hpiPath || result?.htmlPath || "output file ready"}`;
+      console.log("[NOTE_HTML_AGENT] completed", {
+        htmlPath: result?.htmlPath,
+        hpiPath: result?.hpiPath,
+        noteCount: result?.noteCount,
+        hpiLength:
+          typeof result?.hpiText === "string" ? result.hpiText.length : 0,
+      });
+      setAgentStatusMessage(message);
+      speakIfUltra("Done. I drafted the HPI from the notes.", "agent complete");
+      setSpecMood("celebrating");
+    } catch (error) {
+      console.error("[NOTE_HTML_AGENT] failed:", error);
+      setErrorMessage(messageFromError(error));
+      setSpecMood("stuck");
+    } finally {
+      if (automationArmed) {
+        await api.cancelAutomationSession().catch((error: unknown) => {
+          console.warn("[NOTE_HTML_AGENT] gate cancel failed:", error);
+        });
+      }
+      setReplayState("idle");
+      setReplayMode(null);
+      setIsLoading(false);
+    }
+  };
+
   const handleInputSubmit = async (text: string) => {
     const isTutorActive =
       currentStep || replayState === "running" || ultraReply || lastNodeId;
     if (modeRef.current === "ultra" && isTutorActive) {
       await handleUltraSpokenInput(text);
+      return;
+    }
+    const requestedText = text.trim() || intent.trim();
+    if (isNoteHtmlCompilationIntent(requestedText)) {
+      await runNoteHtmlAgent(requestedText);
       return;
     }
     await startRealAppTest(text);
@@ -1269,6 +1360,7 @@ const OverlayApp: React.FC = () => {
     setReplayState("idle");
     setErrorMessage("");
     setCalibrationMessage("");
+    setAgentStatusMessage("");
     setRealAppTargets(null);
     setSelectedRealAppTarget(null);
     setSelectedTargetMapping(null);
@@ -1397,12 +1489,29 @@ const OverlayApp: React.FC = () => {
 
   const startManualTargetPicking = () => {
     console.log("[MANUAL_TARGET] manual target picking armed");
+    setManualPickPoint({
+      x: Math.round(window.innerWidth / 2),
+      y: Math.round(window.innerHeight / 2),
+    });
     setIsManualTargetPicking(true);
     setHoveredRealAppTargetKey("");
     setInteractivity(true);
     setRealAppNotice(
       "Click the exact spot you want the ghost cursor to teach. Press Escape to cancel.",
     );
+  };
+
+  const cancelManualTargetPicking = () => {
+    setIsManualTargetPicking(false);
+    setRealAppNotice("Manual target picking canceled.");
+    if (!realAppTargets && !selectedRealAppTarget) setInteractivity(false);
+  };
+
+  const updateManualPickPoint = (event: React.MouseEvent<HTMLDivElement>) => {
+    setManualPickPoint({
+      x: Math.round(event.clientX),
+      y: Math.round(event.clientY),
+    });
   };
 
   const handleManualTargetPick = async (
@@ -1807,39 +1916,30 @@ const OverlayApp: React.FC = () => {
     setCurrentStep(null);
     setReplayState("idle");
     setReplayMode(null);
+    setUltraReply("");
+    setUltraSessionHistory([]);
+    setUltraState("idle");
     setMirrorStatus("idle");
     setSpecMood(behavioralState?.moodLabel || "idle");
     setErrorMessage("");
     setManualConfirmMessage("");
     setCalibrationMessage("");
+    setAgentStatusMessage("");
     setRealAppTargets(null);
     setSelectedRealAppTarget(null);
     setSelectedTargetMapping(null);
     setHoveredRealAppTargetKey("");
+    setPreviewGhostStart(null);
     setIsManualTargetPicking(false);
     setRealAppNotice("");
+    setInteractivity(true);
     setLoadingMessage("Analyzing your screen...");
     if (api.stopSpeaking) {
       void api.stopSpeaking().catch(() => undefined);
     }
-  };
-
-  const enterNewPrompt = () => {
-    setIntent("");
-    setRealAppIntent("");
-    setCurrentStep(null);
-    setReplayState("idle");
-    setReplayMode(null);
-    setErrorMessage("");
-    setManualConfirmMessage("");
-    setCalibrationMessage("");
-    setRealAppTargets(null);
-    setSelectedRealAppTarget(null);
-    setSelectedTargetMapping(null);
-    setHoveredRealAppTargetKey("");
-    setIsManualTargetPicking(false);
-    setRealAppNotice("");
-    setInteractivity(true);
+    window.setTimeout(() => {
+      document.querySelector<HTMLInputElement>(".input-bar-field")?.focus();
+    }, 0);
   };
 
   const isMirrorRunning = mirrorStatus === "running";
@@ -1873,7 +1973,7 @@ const OverlayApp: React.FC = () => {
       ? "Mirroring..."
       : !hasCompletedWalkthrough
         ? "Mirror Mode (needs walkthrough)"
-        : "Mirror Mode ✓";
+        : "Mirror Mode ready";
   const realAppConfidenceThreshold =
     realAppTargets?.confidenceThreshold || DEFAULT_CONFIDENCE_THRESHOLD;
   const realAppMarkerTargets = realAppTargets?.targets || [];
@@ -2048,29 +2148,46 @@ const OverlayApp: React.FC = () => {
             />
           )}
 
-        {false && isManualTargetPicking && !isReplayRunning && (
-          <>
+        {isManualTargetPicking && !isReplayRunning && (
+          <div
+            className="specter-manual-pick-layer"
+            onMouseMove={updateManualPickPoint}
+            onClick={handleManualTargetPick}
+            role="button"
+            aria-label="Pick a manual target"
+          >
             <div
-              onClick={handleManualTargetPick}
+              className="specter-manual-pick-reticle"
               style={{
-                position: "fixed",
-                inset: 0,
-                zIndex: 10002,
-                cursor: "crosshair",
-                pointerEvents: "auto",
-                background: "rgba(0, 0, 0, 0.08)",
+                transform: `translate3d(${manualPickPoint.x}px, ${manualPickPoint.y}px, 0) translate(-50%, -50%)`,
               }}
             />
-            <div className="specter-manual-pick-instruction">
-              Click the exact spot you want Specter to teach.
+            <div
+              className="specter-manual-pick-card"
+              onClick={(event) => event.stopPropagation()}
+            >
+              <div>
+                <strong>Pick the exact click target</strong>
+                <span>
+                  Click the exact spot you want Specter to teach. Press Escape
+                  to cancel.
+                </span>
+              </div>
+              <button
+                className="specter-manual-pick-cancel"
+                onClick={cancelManualTargetPicking}
+              >
+                Cancel
+              </button>
             </div>
-          </>
+          </div>
         )}
 
         {showDebugTools &&
-          !isReplayRunning &&
-          !isManualTargetPicking &&
           displayedRealAppTargets.map((target, index) => {
+            if (!showWorkflowCard || isReplayRunning || isManualTargetPicking) {
+              return null;
+            }
             const key = realAppTargetKey(target);
             const isSelected = sameRealAppTarget(selectedRealAppTarget, target);
             const isHovered = hoveredRealAppTargetKey === key;
@@ -2276,6 +2393,31 @@ const OverlayApp: React.FC = () => {
             }}
           >
             {errorMessage}
+          </div>
+        )}
+
+        {agentStatusMessage && !errorMessage && (
+          <div
+            style={{
+              position: "fixed",
+              top: "24px",
+              left: "50%",
+              transform: "translateX(-50%)",
+              background: "rgba(22, 126, 78, 0.9)",
+              color: "#fff",
+              padding: "10px 16px",
+              borderRadius: "16px",
+              fontSize: "13px",
+              fontWeight: 650,
+              maxWidth: "min(760px, calc(100vw - 32px))",
+              textAlign: "center",
+              overflowWrap: "anywhere",
+              backdropFilter: "blur(10px)",
+              pointerEvents: "none",
+              zIndex: 10000,
+            }}
+          >
+            {agentStatusMessage}
           </div>
         )}
 
@@ -2510,7 +2652,7 @@ const OverlayApp: React.FC = () => {
                         <button
                           className="specter-action-button"
                           disabled={isLoading}
-                          onClick={enterNewPrompt}
+                          onClick={startNewChat}
                         >
                           New prompt
                         </button>
@@ -2551,7 +2693,7 @@ const OverlayApp: React.FC = () => {
                         <button
                           className="specter-action-button"
                           disabled={isLoading}
-                          onClick={enterNewPrompt}
+                          onClick={startNewChat}
                         >
                           New prompt
                         </button>
@@ -2578,115 +2720,118 @@ const OverlayApp: React.FC = () => {
               )}
 
               {!showWorkflowCard && (
-              <div
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  gap: "12px",
-                  width: "100%",
-                  justifyContent: "center",
-                }}
-              >
-                <ModeToggle mode={mode} onChange={setMode} />
-                <button
-                  className="specter-debug-toggle"
-                  onClick={() => setShowDebugTools(!showDebugTools)}
+                <div
                   style={{
-                    background: showDebugTools
-                      ? "rgba(255,255,255,0.18)"
-                      : "rgba(255,255,255,0.08)",
-                    border: "1px solid rgba(255,255,255,0.12)",
-                    borderRadius: "8px",
-                    padding: "4px 8px",
-                    color: "rgba(255,255,255,0.6)",
-                    fontSize: "10px",
-                    fontWeight: 700,
-                    textTransform: "uppercase",
-                    letterSpacing: "0.5px",
-                    cursor: "pointer",
-                    transition: "all 0.2s ease",
+                    display: "flex",
+                    alignItems: "center",
+                    gap: "12px",
+                    width: "100%",
+                    justifyContent: "center",
                   }}
                 >
-                  {showDebugTools ? "⚙️ Hide Debug" : "⚙️ Debug"}
-                </button>
-              </div>
+                  <ModeToggle mode={mode} onChange={setMode} />
+                  <button
+                    className="specter-debug-toggle"
+                    onClick={() => setShowDebugTools(!showDebugTools)}
+                    style={{
+                      background: showDebugTools
+                        ? "rgba(255,255,255,0.18)"
+                        : "rgba(255,255,255,0.08)",
+                      border: "1px solid rgba(255,255,255,0.12)",
+                      borderRadius: "8px",
+                      padding: "4px 8px",
+                      color: "rgba(255,255,255,0.6)",
+                      fontSize: "10px",
+                      fontWeight: 700,
+                      textTransform: "uppercase",
+                      letterSpacing: "0.5px",
+                      cursor: "pointer",
+                      transition: "all 0.2s ease",
+                    }}
+                  >
+                    {showDebugTools ? "Hide debug" : "Debug"}
+                  </button>
+                </div>
               )}
 
               {!showWorkflowCard && (
-              <div
-                onMouseEnter={() => setInteractivity(true)}
-                onMouseLeave={() => setInteractivity(false)}
-                style={{ width: "100%", position: "relative" }}
-              >
-                {mode === "ultra" && (
-                  <UltraReplyBubble
-                    reply={ultraReply}
-                    state={ultraState}
-                    voiceFallback={lastTTSProvider === "macos"}
-                  />
-                )}
-                <InputBar
-                  onSubmit={handleInputSubmit}
-                  onNewChat={startNewChat}
-                  disabled={isLoading}
-                  mode={mode}
-                  onTranscriptionStart={() => {
-                    if (mode === "ultra") setUltraState("transcribing");
-                  }}
-                  onTranscriptionEnd={() => {
-                    if (mode === "ultra" && ultraState === "transcribing")
-                      setUltraState("waitingForUser");
-                  }}
-                  onFocus={() => {
-                    if (import.meta.env.VITE_DEBUG_VERBOSE === "true")
-                      console.log("[OVERLAY_INTERACTION] input focused");
-                    setIsInputFocused(true);
-                  }}
-                  onBlur={() => {
-                    if (import.meta.env.VITE_DEBUG_VERBOSE === "true")
-                      console.log("[OVERLAY_INTERACTION] input blurred");
-                    setIsInputFocused(false);
-                  }}
-                  onRecordingOverlayMouseEnter={() => setInteractivity(true)}
-                  onRecordingOverlayMouseLeave={() => setInteractivity(false)}
-                />
-                {!intent && screenState?.app && (
-                  <div
-                    style={{
-                      position: "absolute",
-                      top: "-24px",
-                      left: "20px",
-                      fontSize: "11px",
-                      fontWeight: 600,
-                      color: "rgba(255,255,255,0.42)",
-                      letterSpacing: "0.2px",
-                      display: "flex",
-                      alignItems: "center",
-                      gap: "8px",
+                <div
+                  onMouseEnter={() => setInteractivity(true)}
+                  onMouseLeave={() => setInteractivity(false)}
+                  style={{ width: "100%", position: "relative" }}
+                >
+                  {mode === "ultra" && (
+                    <UltraReplyBubble
+                      reply={ultraReply}
+                      state={ultraState}
+                      voiceFallback={lastTTSProvider === "macos"}
+                    />
+                  )}
+                  <InputBar
+                    onSubmit={handleInputSubmit}
+                    onNewChat={startNewChat}
+                    disabled={isLoading}
+                    mode={mode}
+                    onUltraSpokenInput={handleUltraSpokenInput}
+                    onTranscriptionStart={() => {
+                      if (mode === "ultra") setUltraState("transcribing");
                     }}
-                  >
-                    <span>Looking at {screenState.app}</span>
-                    {mode === "ultra" && (
-                      <span
-                        style={{
-                          color:
-                            ultraState === "thinking" ||
-                            ultraState === "speaking" ||
-                            ultraState === "transcribing"
-                              ? "#30d158"
-                              : "rgba(255,255,255,0.25)",
-                          fontSize: "9px",
-                          textTransform: "uppercase",
-                          letterSpacing: "1px",
-                          fontWeight: 800,
-                        }}
-                      >
-                        {ultraState === "waitingForUser" ? "Ready" : ultraState}
-                      </span>
-                    )}
-                  </div>
-                )}
-              </div>
+                    onTranscriptionEnd={() => {
+                      if (mode === "ultra" && ultraState === "transcribing")
+                        setUltraState("waitingForUser");
+                    }}
+                    onFocus={() => {
+                      if (import.meta.env.VITE_DEBUG_VERBOSE === "true")
+                        console.log("[OVERLAY_INTERACTION] input focused");
+                      setIsInputFocused(true);
+                    }}
+                    onBlur={() => {
+                      if (import.meta.env.VITE_DEBUG_VERBOSE === "true")
+                        console.log("[OVERLAY_INTERACTION] input blurred");
+                      setIsInputFocused(false);
+                    }}
+                    onRecordingOverlayMouseEnter={() => setInteractivity(true)}
+                    onRecordingOverlayMouseLeave={() => setInteractivity(false)}
+                  />
+                  {!intent && screenState?.app && (
+                    <div
+                      style={{
+                        position: "absolute",
+                        top: "-24px",
+                        left: "20px",
+                        fontSize: "11px",
+                        fontWeight: 600,
+                        color: "rgba(255,255,255,0.42)",
+                        letterSpacing: "0.2px",
+                        display: "flex",
+                        alignItems: "center",
+                        gap: "8px",
+                      }}
+                    >
+                      <span>Looking at {screenState.app}</span>
+                      {mode === "ultra" && (
+                        <span
+                          style={{
+                            color:
+                              ultraState === "thinking" ||
+                              ultraState === "speaking" ||
+                              ultraState === "transcribing"
+                                ? "#30d158"
+                                : "rgba(255,255,255,0.25)",
+                            fontSize: "9px",
+                            textTransform: "uppercase",
+                            letterSpacing: "1px",
+                            fontWeight: 800,
+                          }}
+                        >
+                          {ultraState === "waitingForUser"
+                            ? "Ready"
+                            : ultraState}
+                        </span>
+                      )}
+                    </div>
+                  )}
+                </div>
               )}
 
               {showDebugTools && (
@@ -2817,8 +2962,8 @@ const OverlayApp: React.FC = () => {
                           fontWeight: 700,
                         }}
                       >
-                        Use computer 60s → Create Checkpoint → start a
-                        walkthrough → Mirror Mode unlocks
+                        Use computer 60s, create a checkpoint, then start a
+                        walkthrough to unlock Mirror Mode.
                       </div>
                     )}
 
@@ -3112,7 +3257,7 @@ const OverlayApp: React.FC = () => {
                               : "rgba(255,100,80,0.9)",
                           }}
                         >
-                          <span>{pill.ok ? "✓" : "✗"}</span>
+                          <span>{pill.ok ? "OK" : "Issue"}</span>
                           <span>
                             {pill.label}: {pill.detail}
                           </span>
@@ -3185,7 +3330,7 @@ const OverlayApp: React.FC = () => {
                             openai: "OpenAI TTS",
                             macos: "macOS Fallback (Robotic)",
                           };
-                          let msg = `Voice test OK — used ${providerNames[res.providerUsed] || res.providerUsed}.`;
+                          let msg = `Voice test OK - used ${providerNames[res.providerUsed] || res.providerUsed}.`;
                           if (res.failures?.elevenlabs) {
                             msg += `\nElevenLabs failed: ${res.failures.elevenlabs}`;
                           }

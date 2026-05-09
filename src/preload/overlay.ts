@@ -100,6 +100,8 @@ const api = {
     ),
   ultraConverse: (payload: any) =>
     ipcRenderer.invoke("ultra:converse", payload),
+  compileNotesToHtml: (input: any) =>
+    ipcRenderer.invoke("agent:compileNoteHtml", input),
   checkAIBackend: () => ipcRenderer.invoke("ai:healthCheck"),
   healthCheck: () => ipcRenderer.invoke("ai:healthCheck"),
 

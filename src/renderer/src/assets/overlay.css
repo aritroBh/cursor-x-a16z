@@ -509,22 +509,153 @@
   font-weight: 750;
 }
 
+.walkthrough-guide-container {
+  position: fixed;
+  left: 0;
+  top: 0;
+  pointer-events: none;
+  z-index: 9998;
+  width: 0;
+  height: 0;
+  will-change: transform;
+  transition: transform 0.22s ease;
+}
+
+.walkthrough-guide-ring,
+.walkthrough-guide-dot {
+  position: absolute;
+  left: 0;
+  top: 0;
+  border-radius: 999px;
+  transform: translate(-50%, -50%);
+}
+
+.walkthrough-guide-ring {
+  width: 46px;
+  height: 46px;
+  border: 2px solid rgba(100, 210, 255, 0.68);
+  background: rgba(10, 132, 255, 0.1);
+  box-shadow:
+    0 0 0 7px rgba(10, 132, 255, 0.08),
+    0 12px 30px rgba(0, 0, 0, 0.2);
+  animation: wt-ring-pulse 1.55s ease-out infinite;
+}
+
+.walkthrough-guide-dot {
+  width: 7px;
+  height: 7px;
+  background: #ffffff;
+  box-shadow:
+    0 0 0 2px rgba(10, 132, 255, 0.72),
+    0 0 18px rgba(100, 210, 255, 0.8);
+}
+
+.walkthrough-guide-container.is-locked .walkthrough-guide-ring {
+  width: 52px;
+  height: 52px;
+  border-color: rgba(48, 209, 88, 0.82);
+  background: rgba(48, 209, 88, 0.14);
+  box-shadow:
+    0 0 0 8px rgba(48, 209, 88, 0.1),
+    0 12px 30px rgba(0, 0, 0, 0.22);
+  animation: none;
+}
+
+.walkthrough-guide-container.is-locked .walkthrough-guide-dot {
+  box-shadow:
+    0 0 0 2px rgba(48, 209, 88, 0.82),
+    0 0 18px rgba(48, 209, 88, 0.72);
+}
+
+.walkthrough-guide-pointer {
+  position: absolute;
+  left: -2px;
+  top: -2px;
+  display: block;
+  opacity: 0.76;
+  filter: drop-shadow(0 4px 8px rgba(0, 0, 0, 0.34));
+  transform: translate(8px, 10px) scale(0.74);
+  transform-origin: top left;
+  transition: opacity 0.18s ease;
+}
+
+.walkthrough-guide-container.is-locked .walkthrough-guide-pointer {
+  opacity: 0.9;
+}
+
+.walkthrough-guide-pointer path {
+  fill: #ffffff;
+  stroke: rgba(8, 10, 14, 0.92);
+  stroke-width: 2.2;
+  stroke-linejoin: round;
+}
+
+.walkthrough-guide-bubble {
+  position: absolute;
+  max-width: min(230px, calc(100vw - 48px));
+  padding: 7px 9px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 8px;
+  background: rgba(14, 16, 20, 0.82);
+  color: rgba(255, 255, 255, 0.94);
+  box-shadow: 0 12px 28px rgba(0, 0, 0, 0.28);
+  backdrop-filter: blur(14px);
+  font-size: 12px;
+  font-weight: 750;
+  line-height: 1.25;
+  overflow-wrap: anywhere;
+}
+
+.walkthrough-guide-bubble.is-right {
+  left: 30px;
+}
+
+.walkthrough-guide-bubble.is-left {
+  right: 30px;
+}
+
+.walkthrough-guide-bubble.is-below {
+  top: 24px;
+}
+
+.walkthrough-guide-bubble.is-above {
+  bottom: 24px;
+}
+
+@keyframes wt-ring-pulse {
+  0% {
+    transform: translate(-50%, -50%) scale(0.66);
+    opacity: 0.82;
+  }
+  100% {
+    transform: translate(-50%, -50%) scale(1.36);
+    opacity: 0;
+  }
+}
+
 .specter-target-marker {
   position: fixed;
   transform: translate(-50%, -50%);
   z-index: 10003;
-  width: 22px;
-  height: 22px;
-  border: 1px solid rgba(255, 255, 255, 0.5);
+  width: 26px;
+  height: 26px;
+  border: 1px solid rgba(255, 255, 255, 0.72);
   border-radius: 999px;
-  background: rgba(10, 132, 255, 0.42);
-  color: rgba(255, 255, 255, 0.92);
-  font-size: 10px;
+  background:
+    radial-gradient(
+      circle at 35% 28%,
+      rgba(255, 255, 255, 0.92),
+      rgba(255, 255, 255, 0.18) 22%,
+      transparent 38%
+    ),
+    rgba(10, 132, 255, 0.66);
+  color: #ffffff;
+  font-size: 11px;
   font-weight: 900;
   line-height: 1;
   box-shadow:
-    0 0 0 5px rgba(10, 132, 255, 0.1),
-    0 8px 20px rgba(0, 0, 0, 0.24);
+    0 0 0 6px rgba(10, 132, 255, 0.12),
+    0 12px 26px rgba(0, 0, 0, 0.28);
   cursor: pointer;
   pointer-events: auto;
   transition:
@@ -535,7 +666,14 @@
 
 .specter-target-marker:hover,
 .specter-target-marker.is-hovered {
-  background: rgba(10, 132, 255, 0.78);
+  background:
+    radial-gradient(
+      circle at 35% 28%,
+      rgba(255, 255, 255, 0.96),
+      rgba(255, 255, 255, 0.22) 24%,
+      transparent 40%
+    ),
+    rgba(10, 132, 255, 0.88);
   box-shadow:
     0 0 0 7px rgba(10, 132, 255, 0.16),
     0 10px 26px rgba(0, 0, 0, 0.28);
@@ -546,7 +684,14 @@
   width: 28px;
   height: 28px;
   border-color: rgba(255, 255, 255, 0.9);
-  background: rgba(48, 209, 88, 0.86);
+  background:
+    radial-gradient(
+      circle at 35% 28%,
+      rgba(255, 255, 255, 0.96),
+      rgba(255, 255, 255, 0.18) 24%,
+      transparent 40%
+    ),
+    rgba(48, 209, 88, 0.86);
   box-shadow:
     0 0 0 8px rgba(48, 209, 88, 0.15),
     0 10px 28px rgba(0, 0, 0, 0.3);
@@ -620,6 +765,111 @@
   background: rgba(10, 132, 255, 0.34);
 }
 
+.specter-manual-pick-layer {
+  position: fixed;
+  inset: 0;
+  z-index: 10007;
+  cursor: crosshair;
+  pointer-events: auto;
+  background:
+    linear-gradient(rgba(255, 255, 255, 0.035) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255, 255, 255, 0.035) 1px, transparent 1px),
+    rgba(4, 8, 14, 0.14);
+  background-size: 28px 28px;
+}
+
+.specter-manual-pick-reticle {
+  position: fixed;
+  left: 0;
+  top: 0;
+  width: 64px;
+  height: 64px;
+  border: 1px solid rgba(100, 210, 255, 0.9);
+  border-radius: 999px;
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+  box-shadow:
+    0 0 0 9999px rgba(0, 0, 0, 0.08),
+    0 0 0 8px rgba(100, 210, 255, 0.08),
+    0 12px 34px rgba(0, 0, 0, 0.28);
+}
+
+.specter-manual-pick-reticle::before,
+.specter-manual-pick-reticle::after {
+  content: "";
+  position: absolute;
+  background: rgba(255, 255, 255, 0.88);
+  box-shadow: 0 0 12px rgba(100, 210, 255, 0.7);
+}
+
+.specter-manual-pick-reticle::before {
+  left: 50%;
+  top: -14px;
+  width: 1px;
+  height: 92px;
+  transform: translateX(-50%);
+}
+
+.specter-manual-pick-reticle::after {
+  left: -14px;
+  top: 50%;
+  width: 92px;
+  height: 1px;
+  transform: translateY(-50%);
+}
+
+.specter-manual-pick-card {
+  position: fixed;
+  left: 50%;
+  bottom: 28px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: center;
+  width: min(520px, calc(100vw - 28px));
+  padding: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  border-radius: 8px;
+  background: rgba(12, 14, 18, 0.9);
+  color: rgba(255, 255, 255, 0.94);
+  box-shadow: 0 18px 46px rgba(0, 0, 0, 0.34);
+  backdrop-filter: blur(18px);
+  transform: translateX(-50%);
+  cursor: default;
+}
+
+.specter-manual-pick-card strong {
+  display: block;
+  margin-bottom: 2px;
+  font-size: 13px;
+  font-weight: 850;
+}
+
+.specter-manual-pick-card span {
+  display: block;
+  color: rgba(255, 255, 255, 0.64);
+  font-size: 12px;
+  font-weight: 650;
+  line-height: 1.35;
+}
+
+.specter-manual-pick-cancel {
+  min-height: 34px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 8px;
+  padding: 0 12px;
+  color: rgba(255, 255, 255, 0.86);
+  background: rgba(255, 255, 255, 0.08);
+  font-size: 12px;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.specter-manual-pick-cancel:hover {
+  border-color: rgba(255, 255, 255, 0.24);
+  background: rgba(255, 255, 255, 0.12);
+}
+
 .specter-manual-pick-instruction {
   position: fixed;
   left: 50%;
@@ -638,6 +888,17 @@
   font-weight: 800;
   line-height: 1.35;
   pointer-events: none;
+}
+
+@media (max-width: 520px) {
+  .specter-manual-pick-card {
+    grid-template-columns: 1fr;
+    gap: 10px;
+  }
+
+  .specter-manual-pick-cancel {
+    width: 100%;
+  }
 }
 
 .target-preview-ghost-pulse {

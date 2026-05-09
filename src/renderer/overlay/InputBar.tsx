@@ -11,6 +11,7 @@ interface InputBarProps {
   onRecordingOverlayMouseEnter?: () => void;
   onRecordingOverlayMouseLeave?: () => void;
   mode?: "silent" | "ultra";
+  onUltraSpokenInput?: (text: string) => void;
   onTranscriptionStart?: () => void;
   onTranscriptionEnd?: () => void;
 }
@@ -81,6 +82,7 @@ export const InputBar: React.FC<InputBarProps> = ({
   onRecordingOverlayMouseEnter,
   onRecordingOverlayMouseLeave,
   mode = "silent",
+  onUltraSpokenInput,
   onTranscriptionStart,
   onTranscriptionEnd,
 }) => {
@@ -198,9 +200,9 @@ export const InputBar: React.FC<InputBarProps> = ({
       if (result.ok && typeof result.text === "string" && result.text.trim()) {
         const text = result.text.trim();
         console.log("[MIC] transcription success", { length: text.length });
-        if (mode === "ultra") {
+        if (mode === "ultra" && onUltraSpokenInput) {
           console.log("[MIC] ultra mode auto-submitting transcription");
-          onSubmit(text);
+          onUltraSpokenInput(text);
           setMicState("idle");
         } else {
           setValue(text);
@@ -303,10 +305,10 @@ export const InputBar: React.FC<InputBarProps> = ({
               className="input-bar-new-chat"
               disabled={disabled}
               onClick={handleNewChat}
-              aria-label="Start a new chat"
-              title="Start a new chat"
+              aria-label="Start a new prompt"
+              title="Start a new prompt"
             >
-              <span>New Chat</span>
+              <span>New prompt</span>
               <ChevronDownIcon />
             </button>
           )}

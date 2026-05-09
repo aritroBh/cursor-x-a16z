@@ -208,7 +208,9 @@ function formatAIHealthStatus(health: any): string {
   const overallAppAI = overall.readyForRealAppAI ? "ready" : "not ready";
   const overallVoiceInput = overall.readyForVoiceInput ? "ready" : "not ready";
   const overallVoiceOutput = overall.readyForNaturalVoiceOutput
-    ? "Natural"
+    ? overall.naturalVoiceConfiguredOnly
+      ? "Configured (test required)"
+      : "Natural"
     : "macOS say";
   const reason = testRequest.reason ? `\nReason: ${testRequest.reason}` : "";
 
@@ -916,7 +918,7 @@ const OverlayApp: React.FC = () => {
       });
       if (res?.error === "AI_BACKEND_UNAVAILABLE") {
         setErrorMessage(
-          "AI vision unavailable. Use Fallback Practice, pick target manually, or check backend.",
+          "AI vision unavailable. Use Practice Mode, pick target manually, or check backend.",
         );
         setIsLoading(false);
         return;
@@ -1072,7 +1074,7 @@ const OverlayApp: React.FC = () => {
       const result = await api.detectRealAppTargets(testIntent);
       if (result?.error === "AI_BACKEND_UNAVAILABLE") {
         const msg =
-          "I couldn't confidently detect the target. Pick it manually or use Fallback Practice.";
+          "I couldn't confidently detect the target. Pick it manually or use Practice Mode.";
         setRealAppTargets({
           error: "AI_BACKEND_UNAVAILABLE",
           fallbackAvailable: true,
@@ -1119,7 +1121,7 @@ const OverlayApp: React.FC = () => {
 
       if (!bestTarget) {
         setRealAppNotice(
-          "I couldn't confidently see the target. Click the thing you want Specter to teach.",
+          "I couldn't confidently see the target. Click the element you want to teach, or use Practice Mode.",
         );
         setIsManualTargetPicking(true);
       } else if ((bestTarget.confidence ?? 0) < threshold) {
@@ -1953,7 +1955,7 @@ const OverlayApp: React.FC = () => {
                       </div>
                       <div className="specter-workflow-title">
                         {showFallbackWorkflow
-                          ? "I couldn't confidently detect the target. Pick it manually or use Fallback Practice."
+                          ? "I couldn't confidently detect the target. Pick it manually or use Practice Mode."
                           : realAppTargets?.microTask ||
                             "First, I will teach one visible action."}
                       </div>
@@ -2034,7 +2036,7 @@ const OverlayApp: React.FC = () => {
                           disabled={isLoading}
                           onClick={prepareControlledDemo}
                         >
-                          Fallback Practice
+                          Practice Mode
                         </button>
                       </>
                     ) : (
@@ -2659,17 +2661,25 @@ const OverlayApp: React.FC = () => {
                       onClick={async () => {
                         try {
                           const res = await api.testVoiceOutput();
-                          const providerNames = {
+                          const providerNames: Record<string, string> = {
                             elevenlabs: "ElevenLabs",
                             openai: "OpenAI TTS",
                             macos: "macOS Fallback (Robotic)",
                           };
-                          let msg = `Voice test successful using ${providerNames[res.providerUsed as keyof typeof providerNames] || res.providerUsed}.`;
+                          let msg = `Voice test OK — used ${providerNames[res.providerUsed] || res.providerUsed}.`;
+                          if (res.failures?.elevenlabs) {
+                            msg += `\nElevenLabs failed: ${res.failures.elevenlabs}`;
+                          }
+                          if (res.failures?.openai) {
+                            msg += `\nOpenAI TTS failed: ${res.failures.openai}`;
+                          }
                           if (
-                            res.providerUsed !== "elevenlabs" &&
+                            res.providerUsed === "macos" &&
+                            !res.failures?.elevenlabs &&
+                            !res.failures?.openai &&
                             res.fallbackReason
                           ) {
-                            msg += `\nElevenLabs failed: ${res.fallbackReason}`;
+                            msg += `\nReason: ${res.fallbackReason}`;
                           }
                           setAiHealthMessage(msg);
                         } catch (err) {

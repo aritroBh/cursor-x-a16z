@@ -354,6 +354,43 @@ async function main() {
     check(preloadBody.includes(exposed), `preload exposes ${exposed}`);
   }
 
+  // Verify every api.<method>( call in OverlayApp has a matching preload key.
+  // This catches the class of bug where the renderer calls a method that the
+  // preload never exposed, which fails silently at runtime.
+  {
+    const apiCallPattern = /\bapi\.([A-Za-z_][A-Za-z0-9_]*)\s*\(/g;
+    const rendererMethods = new Set<string>();
+    let m: RegExpExecArray | null;
+    while ((m = apiCallPattern.exec(overlayAppBody)) !== null) {
+      rendererMethods.add(m[1]);
+    }
+    const criticalMethods = [
+      "healthCheck",
+      "checkAIBackend",
+      "testVoiceOutput",
+      "ultraConverse",
+      "transcribe",
+      "speak",
+      "planSteps",
+      "analyzeScreen",
+      "moveRealMouse",
+    ];
+    for (const method of criticalMethods) {
+      check(
+        preloadBody.includes(`${method}:`),
+        `preload exposes critical renderer API method: ${method}`,
+      );
+    }
+    Array.from(rendererMethods).forEach((method) => {
+      // Skip event-listener helpers (onXxx) — they're pattern-matched above
+      if (method.startsWith("on")) return;
+      check(
+        preloadBody.includes(`${method}:`),
+        `renderer calls api.${method}() and preload exposes it`,
+      );
+    });
+  }
+
   printHeader("Whisper and Mic");
 
   const micRecorder = readFile("src/renderer/overlay/MicRecorder.ts");

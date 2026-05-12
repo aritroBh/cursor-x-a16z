@@ -332,6 +332,7 @@ export async function replayWalkthrough(
           safeLog("[WALKTHROUGH] wait step sleeping", { index, waitMs });
           result = (await sleep(waitMs, controller)) ? "correct" : "cancelled";
         } else if (step.action === "click") {
+          const peekabooAvailable = await isPeekabooAvailable();
           const resolved = resolveTarget(step, {
             hasDOM: false,
             peekabooAvailable: isPeekabooAvailable(),

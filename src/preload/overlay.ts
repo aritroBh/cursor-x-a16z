@@ -47,6 +47,7 @@ const api = {
     timeoutMs?: number,
   ) => ipcRenderer.invoke("cursor:waitForTarget", x, y, tolerancePx, timeoutMs),
 
+  getPeekabooStatus: () => ipcRenderer.invoke("automation:peekaboo-status"),
   // Automation Gate
   requestAutomationSession: (mode: string, steps?: number) =>
     ipcRenderer.invoke("automation:request", mode, steps),

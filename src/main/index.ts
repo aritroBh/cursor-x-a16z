@@ -826,6 +826,10 @@ app.whenReady().then(async () => {
     showClinicalWindow();
   });
 
+  ipcMain.handle("automation:peekaboo-status", async () => {
+    return await getPeekabooStatus();
+  });
+
   ipcMain.handle("env:getStartupMode", () => {
     return process.env.SPECTER_MODE || "ghostwiki";
   });

@@ -24,7 +24,8 @@
     "test:clinical": "npx ts-node scripts/test-clinical.ts",
     "apex:demo": "npx ts-node scripts/apex-demo.ts",
     "test:foreground-app": "npx ts-node scripts/test-foreground-app.ts",
-    "test:targetResolver": "npx ts-node scripts/test-targetResolver.ts"
+    "test:targetResolver": "npx ts-node scripts/test-targetResolver.ts",
+    "test:peekabooAdapter": "npx ts-node --transpile-only scripts/test-peekabooAdapter.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.33.0",
@@ -42,7 +43,7 @@
     "@electron-toolkit/eslint-config-prettier": "^2.0.0",
     "@electron-toolkit/eslint-config-ts": "^2.0.0",
     "@electron-toolkit/tsconfig": "^1.0.1",
-    "@types/node": "^20.11.24",
+    "@types/node": "^20.19.41",
     "@types/react": "^18.2.61",
     "@types/react-dom": "^18.2.19",
     "@vitejs/plugin-react": "^4.2.1",

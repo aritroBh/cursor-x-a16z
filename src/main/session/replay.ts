@@ -6,6 +6,7 @@ import { Step } from "./types";
 import { replayAutoExecute } from "./replayAuto";
 import { recordReplayBehavioralEvent } from "../behavioral/tracker";
 import { resolveTarget } from "../automation/targetResolver";
+import { isPeekabooAvailable } from "../automation/peekabooAdapter";
 import {
   createReplayController,
   isActive,
@@ -333,6 +334,10 @@ export async function replayWalkthrough(
         } else if (step.action === "click") {
           const resolved = resolveTarget(step, {
             hasDOM: false,
+            peekabooAvailable: isPeekabooAvailable(),
+            peekabooTarget: isPeekabooAvailable()
+              ? { bbox: { x: step.x, y: step.y } }
+              : undefined,
             vlmTarget: {
               confidence: step.targetConfidence ?? 0.8,
               bbox: { x: step.x, y: step.y, width: 0, height: 0 },

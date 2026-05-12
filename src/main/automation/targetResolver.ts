@@ -1,5 +1,5 @@
 export interface ResolvedTarget {
-  source: "playwright" | "openara" | "ax" | "vision" | "manual";
+  source: "playwright" | "peekaboo" | "openara" | "ax" | "vision" | "manual";
   confidence: number;
   bbox?: { x: number; y: number; width: number; height: number };
   selector?: string;
@@ -13,6 +13,9 @@ export function resolveTarget(
   context: {
     hasDOM?: boolean;
     domSelector?: string;
+    peekabooAvailable?: boolean;
+    peekabooTarget?: any;
+    usePeekaboo?: boolean;
     axTarget?: any;
     vlmTarget?: any;
     currentApp?: string;
@@ -27,6 +30,24 @@ export function resolveTarget(
       appName: context.currentApp,
       rationale:
         "Playwright DOM locator preferred for browser contexts due to auto-waiting actionability.",
+      requiresConfirmation: false,
+    };
+  }
+
+  // 1.5 Peekaboo Adapter
+  const isMac = process.platform === "darwin";
+  const envUsePeekaboo = process.env.USE_PEEKABOO;
+  const usePeekaboo =
+    context.usePeekaboo ??
+    (envUsePeekaboo === "true" || (envUsePeekaboo !== "false" && isMac));
+
+  if (usePeekaboo && context.peekabooAvailable && context.peekabooTarget) {
+    return {
+      source: "peekaboo",
+      confidence: 0.98,
+      bbox: context.peekabooTarget.bbox,
+      appName: context.currentApp,
+      rationale: "Peekaboo macOS automation target available.",
       requiresConfirmation: false,
     };
   }

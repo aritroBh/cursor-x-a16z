@@ -1,5 +1,9 @@
 import { safeLog, safeWarn } from "../logger";
 import { clickRealMouse, executeRealMouseSteps } from "../cursor";
+import {
+  isPeekabooAvailable,
+  clickTarget as peekabooClick,
+} from "../automation/peekabooAdapter";
 import type { Step } from "./types";
 import { resolveTarget } from "../automation/targetResolver";
 import {
@@ -77,6 +81,10 @@ export async function replayAutoExecute(steps: Step[]): Promise<void> {
 
         const resolved = resolveTarget(step, {
           hasDOM: false, // In auto replay, default to non-playwright unless specifically configured
+          peekabooAvailable: isPeekabooAvailable(),
+          peekabooTarget: isPeekabooAvailable()
+            ? { bbox: { x: step.x, y: step.y } }
+            : undefined,
           vlmTarget: {
             confidence: step.targetConfidence ?? 0.8,
             bbox: { x: step.x, y: step.y, width: 0, height: 0 },
@@ -107,6 +115,18 @@ export async function replayAutoExecute(steps: Step[]): Promise<void> {
             selector: resolved.selector,
           });
           // Playwright click stub
+        } else if (resolved.source === "peekaboo") {
+          safeLog("[AUTO_REAL_MOUSE] Executing Peekaboo click", {
+            index,
+            target: step.targetLabel || { x: step.x, y: step.y },
+          });
+          if (resolved.requiresConfirmation) {
+            safeWarn(
+              "[AUTO_REAL_MOUSE] Target requires confirmation. Pausing/Skipping.",
+            );
+            break;
+          }
+          await peekabooClick(step.targetLabel || { x: step.x, y: step.y });
         } else if (resolved.source === "openara" || resolved.source === "ax") {
           safeLog("[AUTO_REAL_MOUSE] Executing Accessibility click", {
             index,

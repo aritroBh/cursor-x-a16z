@@ -33,6 +33,38 @@ class WikiStore:
             valid_tokens.add(t)
         return valid_tokens
 
+    def extract_steps(self, content: str) -> list[str]:
+        steps = []
+        import re
+
+        # Try to find ## Steps or similar
+        steps_match = re.search(r'##\s*Steps(.*?)(?:##|\Z)', content, re.DOTALL | re.IGNORECASE)
+        if steps_match:
+            steps_section = steps_match.group(1)
+            # Extract numbered lists or bullet points
+            lines_section = steps_section.strip().split('\n')
+            for l in lines_section:
+                l = l.strip()
+                if not l:
+                    continue
+                # Match "1. " or "- " or "* "
+                match = re.match(r'^(?:\d+\.|\-|\*)\s+(.*)', l)
+                if match:
+                    steps.append(match.group(1))
+
+        # If no explicit steps, try to find any list items in the whole document
+        if not steps:
+            lines_section = content.strip().split('\n')
+            for l in lines_section:
+                l = l.strip()
+                if not l:
+                    continue
+                match = re.match(r'^(?:\d+\.|\-|\*)\s+(.*)', l)
+                if match:
+                    steps.append(match.group(1))
+
+        return steps
+
     def search_fallback(self, query: str, top_k: int = 3, threshold: float = 0.1):
         import re
         results = []
@@ -74,7 +106,7 @@ class WikiStore:
                 results.append({
                     "id": f,
                     "title": title,
-                    "content": content[:500] + "..." if len(content) > 500 else content,
+                    "content": content[:1500] + "..." if len(content) > 1500 else content,
                     "score": score
                 })
 

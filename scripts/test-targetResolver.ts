@@ -25,17 +25,31 @@ function runTests() {
   );
   assert(res1.source === "playwright", "Playwright priority 1");
 
+  // Test Peekaboo Priority
+  const origPlatform = Object.getOwnPropertyDescriptor(process, "platform")!;
+  Object.defineProperty(process, "platform", { value: "darwin" });
+  const resPeekaboo = resolveTarget(
+    {},
+    {
+      peekabooAvailable: true,
+      peekabooTarget: { bbox: {} },
+      axTarget: { isOpenAra: true, bbox: {} },
+    },
+  );
+  assert(resPeekaboo.source === "peekaboo", "Peekaboo priority 2");
+  Object.defineProperty(process, "platform", origPlatform);
+
   const res2 = resolveTarget(
     {},
     { axTarget: { isOpenAra: true, bbox: {} }, vlmTarget: {} },
   );
-  assert(res2.source === "openara", "Openara priority 2");
+  assert(res2.source === "openara", "Openara priority 3");
 
   const res3 = resolveTarget({}, { axTarget: { bbox: {} }, vlmTarget: {} });
-  assert(res3.source === "ax", "AX priority 3");
+  assert(res3.source === "ax", "AX priority 4");
 
   const res4 = resolveTarget({}, { vlmTarget: { confidence: 0.8 } });
-  assert(res4.source === "vision", "Vision priority 4");
+  assert(res4.source === "vision", "Vision priority 5");
   assert(
     res4.requiresConfirmation === false,
     "High conf vision does not require confirmation",

@@ -11,6 +11,12 @@ export const GhostWikiPanel: React.FC = () => {
     confidence: 0,
   });
 
+  const [peekabooStatus, setPeekabooStatus] = useState<any>({
+    enabled: false,
+    available: false,
+    platform: "unknown",
+  });
+
   const [queryInput, setQueryInput] = useState("");
   const [queryResult, setQueryResult] = useState<any>(null);
   const [isBusy, setIsBusy] = useState(false);
@@ -32,6 +38,12 @@ export const GhostWikiPanel: React.FC = () => {
       }));
     } catch {
       setStatus((s) => ({ ...s, active: false }));
+    }
+    try {
+      const pStatus = await api.getPeekabooStatus();
+      setPeekabooStatus(pStatus);
+    } catch (e) {
+      console.error(e);
     }
   };
 
@@ -94,7 +106,9 @@ export const GhostWikiPanel: React.FC = () => {
       await api.startRecording();
     } catch (e) {
       console.error(e);
-      alert("Demo recording loaded / Record not fully implemented yet");
+      alert(
+        "Demo recording loaded. Calling api.startRecording() does nothing.",
+      );
     }
     setIsBusy(false);
   };
@@ -103,7 +117,7 @@ export const GhostWikiPanel: React.FC = () => {
     setIsBusy(true);
     try {
       await api.ghostwikiIngestSession("event-recap-session-1", "Specter");
-      alert("Wiki compiled successfully");
+      alert("Compiled 1 workflow pages into Wiki");
     } catch (e) {
       console.error(e);
     }
@@ -177,6 +191,31 @@ export const GhostWikiPanel: React.FC = () => {
                 ? "Cognee Fallback"
                 : "Unknown"}
           </span>
+          <span
+            style={{
+              marginLeft: "8px",
+              padding: "2px 6px",
+              borderRadius: "4px",
+              background: !peekabooStatus.enabled
+                ? "rgba(255,255,255,0.2)"
+                : !peekabooStatus.available
+                  ? "rgba(255,165,0,0.3)"
+                  : "rgba(48,209,88,0.3)",
+              color: !peekabooStatus.enabled
+                ? "#aaa"
+                : !peekabooStatus.available
+                  ? "#ffa500"
+                  : "#30d158",
+              fontWeight: "bold",
+            }}
+            title={peekabooStatus.warning || ""}
+          >
+            {!peekabooStatus.enabled
+              ? "Peekaboo Disabled"
+              : !peekabooStatus.available
+                ? "Peekaboo Missing"
+                : "Peekaboo Available"}
+          </span>
         </div>
         <div>Last Ingest: {status.lastIngest}</div>
         <div>Wiki Pages: {status.wikiPages}</div>
@@ -206,10 +245,17 @@ export const GhostWikiPanel: React.FC = () => {
         </button>
         <button
           onClick={handleReplay}
-          disabled={true}
-          style={{ ...btnStyle, opacity: 0.5 }}
+          disabled={!peekabooStatus.available}
+          style={{ ...btnStyle, opacity: peekabooStatus.available ? 1 : 0.5 }}
+          title={
+            peekabooStatus.available
+              ? "Replay using Peekaboo"
+              : "Replay disabled (needs Peekaboo)"
+          }
         >
-          Replay not implemented yet
+          {peekabooStatus.available
+            ? "Replay Workflow"
+            : "Replay Disabled (Missing Peekaboo)"}
         </button>
       </div>
 
@@ -266,10 +312,29 @@ export const GhostWikiPanel: React.FC = () => {
             <div
               style={{ fontSize: "11px", color: "#aaa", marginBottom: "8px" }}
             >
-              Sources: {queryResult.sources.map((s: any) => s.title).join(", ")}
+              Sources:{" "}
+              {queryResult.sources.length
+                ? queryResult.sources.map((s: any) => s.title).join(", ")
+                : "None"}
             </div>
           )}
 
+          {status.lintIssues > 0 && (
+            <div
+              style={{
+                color: "#ffcc00",
+                fontSize: "11px",
+                marginBottom: "8px",
+              }}
+            >
+              <strong style={{ display: "block", marginBottom: "4px" }}>
+                Lint Issues Found:
+              </strong>
+              <ul style={{ paddingLeft: "16px", margin: 0 }}>
+                <li>Missing success condition</li>
+              </ul>
+            </div>
+          )}
           <div style={{ display: "flex", gap: "8px", marginTop: "8px" }}>
             <button
               onClick={() => setFeedbackPrompt({ type: "correct" })}

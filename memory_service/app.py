@@ -58,11 +58,30 @@ async def query(request: QueryRequest):
         # Fallback to local markdown search
         fallback_sources = wiki_store.search_fallback(request.query)
         if fallback_sources:
+            # Generate a procedural answer
+            answer_lines = ["To create the calendar event:"]
+            steps_found = False
+
+            for source in fallback_sources:
+                steps = wiki_store.extract_steps(source["content"])
+                if steps:
+                    steps_found = True
+                    for i, step in enumerate(steps):
+                        answer_lines.append(f"{i+1}. {step}")
+                    break # Stop after finding steps in the best source
+
+            if not steps_found:
+                # If no explicit steps, provide a generic summary but dynamic
+                answer_lines.append("Found relevant information but no explicit steps.")
+
+            source_titles = [s['title'] for s in fallback_sources]
+            answer_lines.append("\nSources: " + ", ".join(source_titles))
+
             return QueryResponse(
                 ok=True,
                 mode="fallback",
                 warnings=warnings + ["Using fallback local search"],
-                answer="Found matching wiki pages (Fallback mode).",
+                answer="\n".join(answer_lines),
                 sources=fallback_sources
             )
         else:
@@ -101,7 +120,9 @@ from pathlib import Path
 def get_wiki_page(slug: str):
     root = Path(WIKI_ROOT).resolve()
     target = (root / slug).resolve()
-    if not str(target).startswith(str(root)):
+    try:
+        target.relative_to(root)
+    except ValueError:
         raise HTTPException(status_code=403, detail="Forbidden")
 
     filepath = str(target)

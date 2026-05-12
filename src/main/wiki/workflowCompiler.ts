@@ -76,12 +76,17 @@ export function compileCorrectionToWiki(
   sourceSessionId: string,
   feedbackType: "correct" | "wrong" | "missing-step",
   details: string,
+  originalQuery?: string,
 ): WikiPage {
   const timestamp = new Date().toISOString();
   const id = `correction-${Date.now()}`;
 
   let content = `Feedback received: **${feedbackType}**\n\n`;
-  content += `Details: ${details}\n\n`;
+  if (originalQuery) {
+    content += `Original Query: ${originalQuery}\n\n`;
+  }
+  content += `Correction Text: ${details}\n\n`;
+  content += `Timestamp: ${timestamp}\n\n`;
   content += `Reference: [[workflow-${sourceSessionId}]]\n`;
 
   return {

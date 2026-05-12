@@ -369,6 +369,20 @@ const OverlayApp: React.FC = () => {
   const [isVisible, setIsVisible] = useState(false);
   const [mode, setMode] = useState<SpecterMode>("silent");
   const [intent, setIntent] = useState("");
+
+  useEffect(() => {
+    const fetchMode = async () => {
+      try {
+        const startupMode = await api.getStartupMode();
+        if (startupMode === "ghostwiki" || startupMode === "ultra") {
+          setMode(startupMode);
+        }
+      } catch (err) {
+        console.error("Failed to get startup mode", err);
+      }
+    };
+    fetchMode();
+  }, []);
   const [currentStep, setCurrentStep] = useState<any>(null);
   const [replayState, setReplayState] = useState<ReplayState>("idle");
   const [replayMode, setReplayMode] = useState<ReplayMode>(null);

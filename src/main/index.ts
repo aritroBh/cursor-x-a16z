@@ -145,9 +145,12 @@ process.on("uncaughtException", (error, origin) => {
   }
 });
 
+import { ChildProcess } from "child_process";
+
 let mainWindow: BrowserWindow | null = null;
 let overlayWindow: BrowserWindow | null = null;
 let clinicalWindow: BrowserWindow | null = null;
+let memorySidecarProcess: ChildProcess | null = null;
 
 // Cache of the user's foreground app captured *before* the overlay shows.
 // This is what the AX path uses to walk the right tree — without it,
@@ -793,7 +796,7 @@ app.whenReady().then(async () => {
     safeLog("[STARTUP] Cognee Enabled:", {
       enabled: process.env.COGNEE_ENABLED || "false",
     });
-    startMemorySidecar();
+    memorySidecarProcess = startMemorySidecar();
   }
 
   createWindow();
@@ -821,6 +824,10 @@ app.whenReady().then(async () => {
 
   globalShortcut.register("CommandOrControl+Shift+K", () => {
     showClinicalWindow();
+  });
+
+  ipcMain.handle("env:getStartupMode", () => {
+    return process.env.SPECTER_MODE || "ghostwiki";
   });
 
   ipcMain.handle("clinical:window:show", async () => {
@@ -1771,6 +1778,7 @@ app.whenReady().then(async () => {
           feedbackSourceSessionId,
           feedbackType,
           feedbackDetails,
+          queryText,
         );
         const wikiRoot = process.env.GHOSTWIKI_WIKI_ROOT || "./wiki";
         const filepath = writeWikiPage(page, wikiRoot);
@@ -1823,6 +1831,9 @@ app.whenReady().then(async () => {
 });
 
 app.on("will-quit", () => {
+  if (memorySidecarProcess) {
+    memorySidecarProcess.kill();
+  }
   uIOhook.stop();
 });
 

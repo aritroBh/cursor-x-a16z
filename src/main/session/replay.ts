@@ -5,6 +5,7 @@ import { loadGraph } from "./storage";
 import { Step } from "./types";
 import { replayAutoExecute } from "./replayAuto";
 import { recordReplayBehavioralEvent } from "../behavioral/tracker";
+import { resolveTarget } from "../automation/targetResolver";
 import {
   createReplayController,
   isActive,
@@ -330,6 +331,24 @@ export async function replayWalkthrough(
           safeLog("[WALKTHROUGH] wait step sleeping", { index, waitMs });
           result = (await sleep(waitMs, controller)) ? "correct" : "cancelled";
         } else if (step.action === "click") {
+          const resolved = resolveTarget(step, {
+            hasDOM: false,
+            vlmTarget: {
+              confidence: step.targetConfidence ?? 0.8,
+              bbox: { x: step.x, y: step.y, width: 0, height: 0 },
+            },
+            currentApp: step.appName,
+          });
+          safeLog("[WALKTHROUGH] resolved target", { index, resolved });
+
+          if (resolved.requiresConfirmation) {
+            safeWarn("[WALKTHROUGH] Target explicitly requires confirmation.", {
+              index,
+              resolved,
+            });
+            // In walkthrough mode, the user handles the confirmation via click or space, so we just proceed to wait for them.
+          }
+
           safeLog("[USER_CURSOR] waiting for real cursor to enter tolerance", {
             index,
             x: step.x,

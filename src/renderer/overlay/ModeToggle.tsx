@@ -49,22 +49,22 @@ export const ModeToggle: React.FC<ModeToggleProps> = ({ mode, onChange }) => {
         }}
       >
         Ultra
-        <button
-          onClick={() => onChange("ghostwiki")}
-          style={{
-            padding: "6px 16px",
-            borderRadius: "20px",
-            border: "none",
-            background: mode === "ghostwiki" ? "#fff" : "transparent",
-            color: mode === "ghostwiki" ? "#000" : "#fff",
-            fontSize: "13px",
-            fontWeight: 600,
-            cursor: "pointer",
-            transition: "all 0.2s",
-          }}
-        >
-          GhostWiki
-        </button>
+      </button>
+      <button
+        onClick={() => onChange("ghostwiki")}
+        style={{
+          padding: "6px 16px",
+          borderRadius: "20px",
+          border: "none",
+          background: mode === "ghostwiki" ? "#fff" : "transparent",
+          color: mode === "ghostwiki" ? "#000" : "#fff",
+          fontSize: "13px",
+          fontWeight: 600,
+          cursor: "pointer",
+          transition: "all 0.2s",
+        }}
+      >
+        GhostWiki
       </button>
     </div>
   );

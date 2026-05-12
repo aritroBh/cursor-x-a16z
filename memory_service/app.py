@@ -95,11 +95,16 @@ def get_wiki_pages():
     pages = [{"id": f, "title": os.path.basename(f)} for f in files]
     return {"ok": True, "pages": pages}
 
+from pathlib import Path
+
 @app.get("/wiki/pages/{slug:path}")
 def get_wiki_page(slug: str):
-    # Construct full path carefully to avoid traversal
-    # A simple implementation for the hackathon
-    filepath = os.path.join(WIKI_ROOT, slug)
+    root = Path(WIKI_ROOT).resolve()
+    target = (root / slug).resolve()
+    if not str(target).startswith(str(root)):
+        raise HTTPException(status_code=403, detail="Forbidden")
+
+    filepath = str(target)
     content = wiki_store.read_file(filepath)
     if content is None:
         raise HTTPException(status_code=404, detail="Page not found")

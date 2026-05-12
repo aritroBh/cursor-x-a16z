@@ -669,7 +669,8 @@ async function main(): Promise<void> {
   });
 
   await test("detectAttestationElements catches missing element", () => {
-    const text = "I personally saw the patient and discussed with the resident.";
+    const text =
+      "I personally saw the patient and discussed with the resident.";
     const e = detectAttestationElements(text);
     assert(!isAttestationComplete(e), "missing key portions + agreement");
   });
@@ -677,7 +678,8 @@ async function main(): Promise<void> {
   await test("draftAttestation Mode A produces compliant body", () => {
     const draft = draftAttestation({
       mode: "reference_resident_note",
-      exceptions: "I disagree with the trial of antibiotics; would prefer observation.",
+      exceptions:
+        "I disagree with the trial of antibiotics; would prefer observation.",
     });
     assert(draft.mode === "reference_resident_note", "mode set");
     assert(/personally saw/i.test(draft.body), "body has personal exam");
@@ -690,7 +692,10 @@ async function main(): Promise<void> {
   await test("draftAttestation Mode B (independent) produces compliant header", () => {
     const draft = draftAttestation({ mode: "independent_attending_note" });
     assert(draft.mode === "independent_attending_note", "mode set");
-    assert(isAttestationComplete(draft.elements_present), "all 4 present in independent");
+    assert(
+      isAttestationComplete(draft.elements_present),
+      "all 4 present in independent",
+    );
   });
 
   await test("validateAttestation flags placeholder ATTENDING NAME", () => {
@@ -708,7 +713,10 @@ async function main(): Promise<void> {
     const actions = compileApexAttendingAttestationWalkthrough();
     assert(actions.length === 7, `expected 7 actions, got ${actions.length}`);
     const last = actions[actions.length - 1];
-    assert(last.safetyLevel === "prohibited", "last action is prohibited (sign)");
+    assert(
+      last.safetyLevel === "prohibited",
+      "last action is prohibited (sign)",
+    );
     assert(
       isProhibitedAutonomousAction(last),
       "sign action gates as prohibited autonomously",
@@ -729,9 +737,18 @@ async function main(): Promise<void> {
 
   await test("APEX_TARGETS includes Storyboard, attestation, cosign queue anchors", () => {
     assert(APEX_TARGETS.storyboardLeftRail !== undefined, "storyboard target");
-    assert(APEX_TARGETS.attestationBlock !== undefined, "attestation block target");
-    assert(APEX_TARGETS.cosignQueueInBasket !== undefined, "cosign queue target");
-    assert(APEX_TARGETS.signNoteCommitButton.safetyLevel === "prohibited", "sign button is prohibited");
+    assert(
+      APEX_TARGETS.attestationBlock !== undefined,
+      "attestation block target",
+    );
+    assert(
+      APEX_TARGETS.cosignQueueInBasket !== undefined,
+      "cosign queue target",
+    );
+    assert(
+      APEX_TARGETS.signNoteCommitButton.safetyLevel === "prohibited",
+      "sign button is prohibited",
+    );
   });
 
   console.log("\n[summary]");

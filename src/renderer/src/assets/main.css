@@ -1,20 +1,30 @@
 /* Specter main window styles */
-* { box-sizing: border-box; }
-html, body, #root {
+* {
+  box-sizing: border-box;
+}
+html,
+body,
+#root {
   margin: 0;
   padding: 0;
   width: 100%;
   height: 100%;
   background: #101114;
   color: #f3f4f6;
-  font-family: 'Inter', system-ui, sans-serif;
+  font-family: "Inter", system-ui, sans-serif;
 }
 
 .main-window {
   min-height: 100vh;
   background:
-    linear-gradient(90deg, rgba(10,132,255,0.1), transparent 26%, transparent 74%, rgba(191,90,242,0.1)),
-    linear-gradient(180deg, rgba(255,255,255,0.055), rgba(255,255,255,0)),
+    linear-gradient(
+      90deg,
+      rgba(10, 132, 255, 0.1),
+      transparent 26%,
+      transparent 74%,
+      rgba(191, 90, 242, 0.1)
+    ),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.055), rgba(255, 255, 255, 0)),
     #101114;
 }
 
@@ -28,10 +38,10 @@ html, body, #root {
 }
 
 .demo-stage::before {
-  content: '';
+  content: "";
   position: absolute;
   inset: 14px;
-  border: 1px solid rgba(255,255,255,0.1);
+  border: 1px solid rgba(255, 255, 255, 0.1);
   border-radius: 12px;
   pointer-events: none;
 }
@@ -69,15 +79,20 @@ html, body, #root {
 .demo-target {
   position: absolute;
   transform: translate(-50%, -50%);
-  border: 1px solid rgba(255,255,255,0.15);
+  border: 1px solid rgba(255, 255, 255, 0.15);
   border-radius: 8px;
   color: #f8fafc;
   background: rgba(24, 30, 40, 0.96);
-  box-shadow: 0 10px 28px rgba(0,0,0,0.24), 0 0 0 1px rgba(10,132,255,0.08);
+  box-shadow:
+    0 10px 28px rgba(0, 0, 0, 0.24),
+    0 0 0 1px rgba(10, 132, 255, 0.08);
   font: inherit;
   font-size: 1rem;
   font-weight: 700;
-  transition: background 0.16s ease, border-color 0.16s ease, transform 0.16s ease;
+  transition:
+    background 0.16s ease,
+    border-color 0.16s ease,
+    transform 0.16s ease;
 }
 
 .demo-target:hover {
@@ -150,9 +165,9 @@ html, body, #root {
   width: 34px;
   height: 34px;
   border-radius: 50%;
-  border: 1px solid rgba(255,255,255,0.14);
+  border: 1px solid rgba(255, 255, 255, 0.14);
   color: #9ca3af;
-  background: rgba(255,255,255,0.05);
+  background: rgba(255, 255, 255, 0.05);
   font-size: 0.78rem;
   font-weight: 800;
 }
@@ -169,10 +184,10 @@ html, body, #root {
   bottom: 36px;
   height: 38px;
   padding: 0 15px;
-  border: 1px solid rgba(255,255,255,0.12);
+  border: 1px solid rgba(255, 255, 255, 0.12);
   border-radius: 8px;
   color: #d1d5db;
-  background: rgba(255,255,255,0.06);
+  background: rgba(255, 255, 255, 0.06);
   font: inherit;
   font-size: 0.82rem;
   font-weight: 700;
@@ -180,5 +195,5 @@ html, body, #root {
 }
 
 .demo-reset:hover {
-  background: rgba(255,255,255,0.1);
+  background: rgba(255, 255, 255, 0.1);
 }

@@ -35,7 +35,8 @@ export function DraftNotePreview({
         </div>
         <div style={styles.meta}>
           generator: <code>{draft.generator}</code> · source_map entries:{" "}
-          {draft.source_map.length} · missing: {draft.uncertain_or_missing_info.length}
+          {draft.source_map.length} · missing:{" "}
+          {draft.uncertain_or_missing_info.length}
         </div>
         {validation && !validation.ok ? (
           <div style={styles.invalid}>
@@ -62,9 +63,7 @@ export function DraftNotePreview({
 
       {Object.entries(draft.draft_note).map(([key, value]) => (
         <div key={key} style={styles.section}>
-          <div style={styles.sectionLabel}>
-            {SECTION_LABELS[key] ?? key}
-          </div>
+          <div style={styles.sectionLabel}>{SECTION_LABELS[key] ?? key}</div>
           <pre style={styles.body}>{value}</pre>
         </div>
       ))}

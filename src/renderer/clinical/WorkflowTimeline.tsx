@@ -50,32 +50,54 @@ export function WorkflowTimeline({
               const trace = traceById.get(a.id);
               const safety = SAFETY_COLORS[a.safetyLevel] ?? "#71717a";
               const outcome = trace?.outcome;
-              const outcomeColor = outcome ? OUTCOME_COLORS[outcome] : "#3f3f46";
+              const outcomeColor = outcome
+                ? OUTCOME_COLORS[outcome]
+                : "#3f3f46";
               return (
                 <li key={a.id} style={styles.item}>
                   <div style={styles.itemHeader}>
-                    <span style={{ ...styles.actionTag, background: outcomeColor + "22", color: outcomeColor, borderColor: outcomeColor + "55" }}>
+                    <span
+                      style={{
+                        ...styles.actionTag,
+                        background: outcomeColor + "22",
+                        color: outcomeColor,
+                        borderColor: outcomeColor + "55",
+                      }}
+                    >
                       {trace?.outcome ?? "pending"}
                     </span>
                     <span style={styles.actionId}>{a.id}</span>
-                    <span style={{ ...styles.safetyTag, color: safety, borderColor: safety + "66" }}>
+                    <span
+                      style={{
+                        ...styles.safetyTag,
+                        color: safety,
+                        borderColor: safety + "66",
+                      }}
+                    >
                       {a.safetyLevel}
                     </span>
                   </div>
                   <div style={styles.targetLabel}>
                     {a.action} → {a.semanticTarget.label}
                     {a.semanticTarget.expectedRegion ? (
-                      <span style={styles.region}> · {a.semanticTarget.expectedRegion}</span>
+                      <span style={styles.region}>
+                        {" "}
+                        · {a.semanticTarget.expectedRegion}
+                      </span>
                     ) : null}
                   </div>
                   <div style={styles.reason}>{a.reason}</div>
                   {(a.preconditions?.length || a.postconditions?.length) && (
                     <div style={styles.condRow}>
                       {a.preconditions?.length ? (
-                        <span style={styles.cond}>pre: {a.preconditions.join(", ")}</span>
+                        <span style={styles.cond}>
+                          pre: {a.preconditions.join(", ")}
+                        </span>
                       ) : null}
                       {a.postconditions?.length ? (
-                        <span style={styles.cond}>post: {a.postconditions.join(", ")}</span>
+                        <span style={styles.cond}>
+                          post: {a.postconditions.join(", ")}
+                        </span>
                       ) : null}
                     </div>
                   )}
@@ -87,11 +109,14 @@ export function WorkflowTimeline({
       ))}
       {dryRun ? (
         <div style={styles.summary}>
-          dry-run: {dryRun.trace.length} traced · {dryRun.paused.length} paused · {dryRun.blocked.length} blocked · final state{" "}
+          dry-run: {dryRun.trace.length} traced · {dryRun.paused.length} paused
+          · {dryRun.blocked.length} blocked · final state{" "}
           <code>{dryRun.finalState ?? "∅"}</code>
         </div>
       ) : (
-        <div style={styles.summary}>Click <strong>Run dry-run</strong> to populate the trace.</div>
+        <div style={styles.summary}>
+          Click <strong>Run dry-run</strong> to populate the trace.
+        </div>
       )}
     </div>
   );
@@ -101,14 +126,20 @@ function Header({ title, subtitle }: { title: string; subtitle?: string }) {
   return (
     <div style={{ marginBottom: 16 }}>
       <div style={{ fontSize: 14, fontWeight: 600 }}>{title}</div>
-      {subtitle ? <div style={{ fontSize: 12, color: "#71717a", marginTop: 2 }}>{subtitle}</div> : null}
+      {subtitle ? (
+        <div style={{ fontSize: 12, color: "#71717a", marginTop: 2 }}>
+          {subtitle}
+        </div>
+      ) : null}
     </div>
   );
 }
 
 function Empty({ children }: { children: React.ReactNode }) {
   return (
-    <div style={{ padding: 24, color: "#71717a", fontSize: 13 }}>{children}</div>
+    <div style={{ padding: 24, color: "#71717a", fontSize: 13 }}>
+      {children}
+    </div>
   );
 }
 

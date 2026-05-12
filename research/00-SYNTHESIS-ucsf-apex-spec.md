@@ -52,8 +52,9 @@ legitimately ingest any APeX content.
 > — UCSF Chancellor's office, ChatGPT Enterprise announcement (HIGH)
 
 > Versa API access: by request, requires ucsf.edu account + 10-min training
-> + UCSF network or VPN. IT provides $200/month credit; overage rebilled.
-> — AI@UCSF Versa pricing page (HIGH)
+>
+> - UCSF network or VPN. IT provides $200/month credit; overage rebilled.
+>   — AI@UCSF Versa pricing page (HIGH)
 
 **Implication for our app.** The drafter just needs a Versa-compatible
 client. The Anthropic SDK can be pointed at a Bedrock-style endpoint via
@@ -87,40 +88,41 @@ mode pre-approval.
 
 ## 1. APeX terminology — verified
 
-| Generic Epic | UCSF APeX | Confidence | Source |
-|---|---|---|---|
-| Epic (the EHR) | **APeX** | HIGH | UCSF IT, Hub, AI@UCSF — used consistently |
-| Acronym expansion | **"Advancing Patient-Centered Excellence"** | HIGH | UCSF Med Ed policy, multiple UCSF pages. (Note: hub.ucsf.edu writes "Advanced Patient-Centered Excellence" — both forms appear, "Advancing" is the more widely-cited official.) |
-| Tip sheet repo | **MyAPeX Knowledge Bank** at `myapex.ucsf.edu` | HIGH | UCSF Health SF Children's Hospital APeX Go-Live page |
-| In-app help | **F1 → Physician Learning Home Dashboard** | HIGH | UCSF Health SF Children's Hospital APeX Go-Live page |
-| Tip-sheet hub (alt) | **APeX Hub** at `apexhub.ucsf.edu` | MEDIUM | search results reference this |
-| Storyboard | **Storyboard** (no rebrand) | MEDIUM | Generic Epic + UCSF tip sheet references |
-| Chart Review | **Chart Review** | MEDIUM | Generic Epic + UCSF references |
-| SmartPhrase | **SmartPhrase** (formal); "dot phrase" / ".phrase" colloquial | HIGH | UCSF Med Ed; UCSF dotphrase list page |
-| In Basket | **In Basket** | MEDIUM | Generic Epic + UCSF references |
-| MyChart | **MyChart** (no rebrand) | MEDIUM | Inferred from absence of rebrand evidence |
-| Communication tool | **Voalte** (UCSF clinical messaging) | HIGH | UCSF SF Children's APeX go-live page |
-| Mobile clients | Haiku / Canto / Rover (no rebrand) | MEDIUM | Generic Epic |
-| Client architecture | **Hyperdrive** (Chromium-embedded; replaced Hyperspace) | HIGH | Industry-wide; UCSF likely on Hyperdrive ≥2025 — TODO confirm |
+| Generic Epic        | UCSF APeX                                                     | Confidence | Source                                                                                                                                                                          |
+| ------------------- | ------------------------------------------------------------- | ---------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Epic (the EHR)      | **APeX**                                                      | HIGH       | UCSF IT, Hub, AI@UCSF — used consistently                                                                                                                                       |
+| Acronym expansion   | **"Advancing Patient-Centered Excellence"**                   | HIGH       | UCSF Med Ed policy, multiple UCSF pages. (Note: hub.ucsf.edu writes "Advanced Patient-Centered Excellence" — both forms appear, "Advancing" is the more widely-cited official.) |
+| Tip sheet repo      | **MyAPeX Knowledge Bank** at `myapex.ucsf.edu`                | HIGH       | UCSF Health SF Children's Hospital APeX Go-Live page                                                                                                                            |
+| In-app help         | **F1 → Physician Learning Home Dashboard**                    | HIGH       | UCSF Health SF Children's Hospital APeX Go-Live page                                                                                                                            |
+| Tip-sheet hub (alt) | **APeX Hub** at `apexhub.ucsf.edu`                            | MEDIUM     | search results reference this                                                                                                                                                   |
+| Storyboard          | **Storyboard** (no rebrand)                                   | MEDIUM     | Generic Epic + UCSF tip sheet references                                                                                                                                        |
+| Chart Review        | **Chart Review**                                              | MEDIUM     | Generic Epic + UCSF references                                                                                                                                                  |
+| SmartPhrase         | **SmartPhrase** (formal); "dot phrase" / ".phrase" colloquial | HIGH       | UCSF Med Ed; UCSF dotphrase list page                                                                                                                                           |
+| In Basket           | **In Basket**                                                 | MEDIUM     | Generic Epic + UCSF references                                                                                                                                                  |
+| MyChart             | **MyChart** (no rebrand)                                      | MEDIUM     | Inferred from absence of rebrand evidence                                                                                                                                       |
+| Communication tool  | **Voalte** (UCSF clinical messaging)                          | HIGH       | UCSF SF Children's APeX go-live page                                                                                                                                            |
+| Mobile clients      | Haiku / Canto / Rover (no rebrand)                            | MEDIUM     | Generic Epic                                                                                                                                                                    |
+| Client architecture | **Hyperdrive** (Chromium-embedded; replaced Hyperspace)       | HIGH       | Industry-wide; UCSF likely on Hyperdrive ≥2025 — TODO confirm                                                                                                                   |
 
 ---
 
 ## 2. UCSF AI/Scribe deployment landscape — corrected facts
 
-| Item | Verified fact | Confidence | Source |
-|---|---|---|---|
-| **AI scribe vendor** | **Ambience Healthcare** (NOT Abridge) | HIGH | UC Tech News article on UCSF Health AI scribe rollout |
-| Initial scope | 100 ambulatory + pediatric ED physicians (Oakland and Mission Bay) at first; expanded to 575+ by early 2025; ~800 of 2,000 ambulatory providers using AI scribe by 2025 (~40%) | HIGH/MEDIUM | UC Tech News + Axios |
-| Integration | Ambience integrated into Epic via SMART on FHIR; runs on UCSF Versa platform | MEDIUM | Multiple sources |
-| Physician obligation | "Physicians will still need to carefully read and edit the draft note before signing" | HIGH | UC Tech News (direct quote) |
-| **Versa** | UCSF institutional generative AI platform; HIPAA compliant; **launched August 2023**; approved for UCSF data including PHI; used at UCSF Health sites for patient-care activity | HIGH | it.ucsf.edu Versa news + UC Health |
-| Versa models | OpenAI through Azure + Anthropic through AWS Bedrock; "model-agnostic" | MEDIUM | UC Tech News on Versa Tiger Team award |
-| Versa API access | By request after 10-min training; ucsf.edu account + UCSF network/VPN; $200/mo IT credit | HIGH | AI@UCSF |
-| **ChatGPT Enterprise** | Launching **early 2026** to replace Versa Chat (~9,000 users migrating). GPT-5 underneath. Versa API continues to provide multi-vendor access (AWS/Azure/Anthropic/OpenAI). | HIGH | UCSF Chancellor's office announcement |
-| **Dragon Medical One** | Long-deployed at UCSF for dictation | MEDIUM | Industry-standard at academic centers |
-| **HIPAC** | UCSF-built "Health IT Platform for Advanced Computing" — separate from Versa, for AI compute | MEDIUM | HCI Innovation Group |
+| Item                   | Verified fact                                                                                                                                                                   | Confidence  | Source                                                |
+| ---------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------- | ----------------------------------------------------- |
+| **AI scribe vendor**   | **Ambience Healthcare** (NOT Abridge)                                                                                                                                           | HIGH        | UC Tech News article on UCSF Health AI scribe rollout |
+| Initial scope          | 100 ambulatory + pediatric ED physicians (Oakland and Mission Bay) at first; expanded to 575+ by early 2025; ~800 of 2,000 ambulatory providers using AI scribe by 2025 (~40%)  | HIGH/MEDIUM | UC Tech News + Axios                                  |
+| Integration            | Ambience integrated into Epic via SMART on FHIR; runs on UCSF Versa platform                                                                                                    | MEDIUM      | Multiple sources                                      |
+| Physician obligation   | "Physicians will still need to carefully read and edit the draft note before signing"                                                                                           | HIGH        | UC Tech News (direct quote)                           |
+| **Versa**              | UCSF institutional generative AI platform; HIPAA compliant; **launched August 2023**; approved for UCSF data including PHI; used at UCSF Health sites for patient-care activity | HIGH        | it.ucsf.edu Versa news + UC Health                    |
+| Versa models           | OpenAI through Azure + Anthropic through AWS Bedrock; "model-agnostic"                                                                                                          | MEDIUM      | UC Tech News on Versa Tiger Team award                |
+| Versa API access       | By request after 10-min training; ucsf.edu account + UCSF network/VPN; $200/mo IT credit                                                                                        | HIGH        | AI@UCSF                                               |
+| **ChatGPT Enterprise** | Launching **early 2026** to replace Versa Chat (~9,000 users migrating). GPT-5 underneath. Versa API continues to provide multi-vendor access (AWS/Azure/Anthropic/OpenAI).     | HIGH        | UCSF Chancellor's office announcement                 |
+| **Dragon Medical One** | Long-deployed at UCSF for dictation                                                                                                                                             | MEDIUM      | Industry-standard at academic centers                 |
+| **HIPAC**              | UCSF-built "Health IT Platform for Advanced Computing" — separate from Versa, for AI compute                                                                                    | MEDIUM      | HCI Innovation Group                                  |
 
 **Key personnel:**
+
 - **Julia Adler-Milstein**, PhD — Founding Chief, Division of Clinical Informatics and Digital Transformation; Director, Center for Clinical Informatics and Improvement Research. (HIGH — HCI Innovation Group, AI@UCSF)
 - **Tom Chi**, MD — Associate Chair for Clinical Affairs in Urology; quoted on Ambience rollout. (HIGH — UC Tech News)
 - **Health AI Oversight Committee** — formal review body for any AI tool deployment touching UCSF Health patient care. (HIGH — AI@UCSF)
@@ -131,12 +133,12 @@ mode pre-approval.
 
 ### 3a. Data Classification (P1–P4) — UCSF Policy 650-16 Addendum F
 
-| Level | Description | Where clinical notes fit |
-|---|---|---|
-| P4 | Highest restriction; PHI, HIPAA, CMIA-protected | **Clinical notes are P4.** |
-| P3 | High; de-identified clinical data, sensitive admin data | De-identified note text |
-| P2 | Internal-only |  |
-| P1 | Public/low |  |
+| Level | Description                                             | Where clinical notes fit   |
+| ----- | ------------------------------------------------------- | -------------------------- |
+| P4    | Highest restriction; PHI, HIPAA, CMIA-protected         | **Clinical notes are P4.** |
+| P3    | High; de-identified clinical data, sensitive admin data | De-identified note text    |
+| P2    | Internal-only                                           |                            |
+| P1    | Public/low                                              |                            |
 
 **Hard rule:** P3 and P4 cannot be shared with commercial entities. (HIGH — UCSF Data Classification Standard.) Routing any APeX clinical text to `api.anthropic.com` is a P4-on-commercial-platform violation.
 
@@ -211,14 +213,14 @@ The UCSF GME Housestaff Handbook (`meded.ucsf.edu/.../gme-policies-housestaff-ha
 The UCSF dotphrase list (`edrive.ucsf.edu/dotphrase-list`) returned only **6
 dotphrases** publicly:
 
-| Dotphrase | Purpose | Source |
-|---|---|---|
-| `.ednaltrexone` | Discharge instructions for PO/IM Naltrexone with follow-up | edrive.ucsf.edu (HIGH) |
-| `.wraparoundDCI` | DC instructions for victims of violent crime ≥10 yo | edrive.ucsf.edu (HIGH) |
-| `.EDDCI[resource name]Language` | Patient handout for community resources (parameterized) | edrive.ucsf.edu (HIGH) |
-| `.EDDCILINKAGECENTERlanguage` | Tenderloin Linkage Center info | edrive.ucsf.edu (HIGH) |
-| `.EDDCIbupedinitiation` | Buprenorphine ED Initiation discharge phrase | edrive.ucsf.edu (HIGH) |
-| `.EDDCIbuphomestart` | Buprenorphine Home Start discharge phrase | edrive.ucsf.edu (HIGH) |
+| Dotphrase                       | Purpose                                                    | Source                 |
+| ------------------------------- | ---------------------------------------------------------- | ---------------------- |
+| `.ednaltrexone`                 | Discharge instructions for PO/IM Naltrexone with follow-up | edrive.ucsf.edu (HIGH) |
+| `.wraparoundDCI`                | DC instructions for victims of violent crime ≥10 yo        | edrive.ucsf.edu (HIGH) |
+| `.EDDCI[resource name]Language` | Patient handout for community resources (parameterized)    | edrive.ucsf.edu (HIGH) |
+| `.EDDCILINKAGECENTERlanguage`   | Tenderloin Linkage Center info                             | edrive.ucsf.edu (HIGH) |
+| `.EDDCIbupedinitiation`         | Buprenorphine ED Initiation discharge phrase               | edrive.ucsf.edu (HIGH) |
+| `.EDDCIbuphomestart`            | Buprenorphine Home Start discharge phrase                  | edrive.ucsf.edu (HIGH) |
 
 Pattern: `.ED***` are ED-specific; `.EDDCI` are ED Discharge Care Instructions.
 
@@ -228,7 +230,7 @@ Pattern: `.ED***` are ED-specific; `.EDDCI` are ED Discharge Care Instructions.
 > `.ucsfattest`, `.UCSFATTESTATION`, but none are verified.**
 
 **Hard rule for the AI assistant code:** Do not auto-suggest UCSF dotphrases
-by name. Suggest the *concept* ("your institution's attending attestation
+by name. Suggest the _concept_ ("your institution's attending attestation
 phrase") and let the clinician type the actual name.
 
 ---
@@ -261,40 +263,43 @@ These bind the autonomous-action gate in `prohibitedActions.ts` and the
 runtime safety-level checks in `apex.ts` / `ehrWorkflow.ts`.
 
 ### 6a. NEVER autonomously
-| # | Action | Reason | Source |
-|---|---|---|---|
-| 1 | Sign a clinical note | Legal signature must be the clinician's; CMS/Joint Commission requires personal signature | CMS, generic |
-| 2 | Sign an order (any) | Same | CMS, generic |
-| 3 | Submit a controlled-substance order | DEA EPCS requires two-factor at-the-moment-of-signature; California EPCS mandate | DEA EPCS, CA AB 2789 (HIGH) |
-| 4 | Bypass a BPA without clinician click | Clinical decision support is regulator-protected | Joint Commission |
-| 5 | Modify allergies, problem list, med list, or code status | These cause downstream care decisions | UCSF safe-care principle |
-| 6 | Override an interaction or allergy alert | Same | Same |
-| 7 | Send PHI to commercial AI APIs (anthropic.com, openai.com, etc.) | UCSF AI Guidance prohibits | AI@UCSF (HIGH) |
-| 8 | Document on behalf of an attending without their explicit review | CMS Teaching Physician rule requires personal participation | CMS (HIGH) |
-| 9 | Sign a teaching-physician attestation | Attending must personally see/examine and personally attest | CMS (HIGH) |
-| 10 | Insert a note about copy-forward without disclosure | UCSF compliance posture (TODO confirm exact policy) | TODO |
-| 11 | Document AMA, capacity, code-status changes, or psychiatric risk language autonomously | High-stakes documentation | Generic safety principle |
-| 12 | Use a patient's MyChart message as basis for a draft without the patient's encounter context | Risk of out-of-context documentation | Generic |
+
+| #   | Action                                                                                       | Reason                                                                                    | Source                      |
+| --- | -------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------- | --------------------------- |
+| 1   | Sign a clinical note                                                                         | Legal signature must be the clinician's; CMS/Joint Commission requires personal signature | CMS, generic                |
+| 2   | Sign an order (any)                                                                          | Same                                                                                      | CMS, generic                |
+| 3   | Submit a controlled-substance order                                                          | DEA EPCS requires two-factor at-the-moment-of-signature; California EPCS mandate          | DEA EPCS, CA AB 2789 (HIGH) |
+| 4   | Bypass a BPA without clinician click                                                         | Clinical decision support is regulator-protected                                          | Joint Commission            |
+| 5   | Modify allergies, problem list, med list, or code status                                     | These cause downstream care decisions                                                     | UCSF safe-care principle    |
+| 6   | Override an interaction or allergy alert                                                     | Same                                                                                      | Same                        |
+| 7   | Send PHI to commercial AI APIs (anthropic.com, openai.com, etc.)                             | UCSF AI Guidance prohibits                                                                | AI@UCSF (HIGH)              |
+| 8   | Document on behalf of an attending without their explicit review                             | CMS Teaching Physician rule requires personal participation                               | CMS (HIGH)                  |
+| 9   | Sign a teaching-physician attestation                                                        | Attending must personally see/examine and personally attest                               | CMS (HIGH)                  |
+| 10  | Insert a note about copy-forward without disclosure                                          | UCSF compliance posture (TODO confirm exact policy)                                       | TODO                        |
+| 11  | Document AMA, capacity, code-status changes, or psychiatric risk language autonomously       | High-stakes documentation                                                                 | Generic safety principle    |
+| 12  | Use a patient's MyChart message as basis for a draft without the patient's encounter context | Risk of out-of-context documentation                                                      | Generic                     |
 
 ### 6b. ALWAYS require explicit clinician click
-| # | Action |
-|---|---|
-| 1 | Insert any drafted text into APeX (even into editor — the agent's role is to *propose* in its own panel, clinician copies/types into APeX) |
-| 2 | Capture from clipboard (must be user-initiated) |
-| 3 | Apply a SmartPhrase / dotphrase by name |
-| 4 | Acknowledge a BPA, advisory, or alert |
-| 5 | Select a problem from the problem list |
-| 6 | Choose between attestation alternatives (full re-document vs. resident-note attestation) |
-| 7 | Mark a note as "ready for attending" |
+
+| #   | Action                                                                                                                                     |
+| --- | ------------------------------------------------------------------------------------------------------------------------------------------ |
+| 1   | Insert any drafted text into APeX (even into editor — the agent's role is to _propose_ in its own panel, clinician copies/types into APeX) |
+| 2   | Capture from clipboard (must be user-initiated)                                                                                            |
+| 3   | Apply a SmartPhrase / dotphrase by name                                                                                                    |
+| 4   | Acknowledge a BPA, advisory, or alert                                                                                                      |
+| 5   | Select a problem from the problem list                                                                                                     |
+| 6   | Choose between attestation alternatives (full re-document vs. resident-note attestation)                                                   |
+| 7   | Mark a note as "ready for attending"                                                                                                       |
 
 ### 6c. ALWAYS log
-| # | Item |
-|---|---|
-| 1 | Every clipboard read (timestamped, byte length, hash) |
-| 2 | Every screen capture (timestamped, region) |
-| 3 | Every LLM call (model, route — must be Versa, prompt hash, response hash, latency) |
-| 4 | Every action-trace entry with `executed | paused_for_clinician | blocked | observed` |
-| 5 | Every PHI-redaction event |
+
+| #   | Item                                                                               |
+| --- | ---------------------------------------------------------------------------------- | -------------------- | ------- | --------- |
+| 1   | Every clipboard read (timestamped, byte length, hash)                              |
+| 2   | Every screen capture (timestamped, region)                                         |
+| 3   | Every LLM call (model, route — must be Versa, prompt hash, response hash, latency) |
+| 4   | Every action-trace entry with `executed                                            | paused_for_clinician | blocked | observed` |
+| 5   | Every PHI-redaction event                                                          |
 
 (All of these already exist scaffolded in `clinical/logger.ts` and
 `clinical/workflowEngine.ts`. The Versa-route field needs adding.)
@@ -309,6 +314,7 @@ addition.
 ### 7a. Two attestation modes (CMS-compliant)
 
 **Mode A — Reference-resident-note attestation:**
+
 - Attending reads resident's note.
 - Attending agrees + adds attestation block.
 - The attestation block must include:
@@ -323,6 +329,7 @@ addition.
   and plan as documented except as noted below."
 
 **Mode B — Independent attending note:**
+
 - Attending writes their own H&P / progress / consult / DC summary.
 - Resident's note remains separate.
 - Attending's note must independently satisfy E&M documentation requirements.
@@ -420,6 +427,7 @@ The current codebase already has solid scaffolding. The corrections below
 are scoped to specific files.
 
 ### 10a. `src/main/clinical/apex.ts`
+
 - Update `APEX_TARGETS.patientWorkspace.textAnchors` to include verified
   Storyboard anchors: `["Storyboard", "MRN", "DOB", "Code Status", "Allergies", "Care Team"]`.
 - Add new APEX_TARGETS for: `storyboardLeftRail`, `attestationBlock`,
@@ -427,17 +435,20 @@ are scoped to specific files.
 - Add the attestation walkthrough actions (see §7c).
 
 ### 10b. `src/main/clinical/prohibitedActions.ts`
+
 - Add patterns for attestation/teaching-physician actions (see §7c).
 - Add explicit pattern for "send to commercial AI": detect any code path
   that constructs an Anthropic client without our Versa wrapper.
 
 ### 10c. NEW `src/main/clinical/attestation.ts`
+
 - CMS attestation language templates (Mode A + Mode B).
 - Validator: ensures the drafted attestation includes the four required
   CMS elements (saw/examined, key portions, discussed with resident, agree
   or note exceptions).
 
 ### 10d. `src/main/clinical/drafter.ts`
+
 - Replace direct `@anthropic-ai/sdk` Anthropic client with a Versa-routed
   client. Two implementations:
   - `versaAnthropicClient(opts)` — pointed at UCSF Versa's Anthropic-via-Bedrock
@@ -446,27 +457,32 @@ are scoped to specific files.
 - Hard refusal in non-Versa mode if any source is marked `containsPhi=true`.
 
 ### 10e. NEW `src/main/clinical/ucsfAiPolicy.ts`
+
 - Pre-flight gate: refuse to call any LLM if `process.env.UCSF_AI_ROUTE !== "versa"` and `containsPhi(bundle)`.
 - Audit log entry on every call: route, model, prompt hash, response hash.
 - Health AI Oversight readiness flag: `ENV_UCSF_HEALTH_AI_OVERSIGHT_APPROVED=false` by default; refuse production-mode operation against PHI until set.
 
 ### 10f. `src/main/clinical/types.ts`
+
 - Add `containsPhi: boolean` to `ClinicalContextBundle`.
 - Add `aiRoute: "versa" | "mock" | "blocked"` to `DraftNote.generator`.
 - Add `attestationMode: "reference_resident" | "independent"` to `DraftNote`.
 
 ### 10g. NEW `src/main/clinical/californiaPrescribing.ts`
+
 - Detect controlled-substance order in workflow → require:
   - CURES check evidence (must be within 24h or previous business day).
   - EPCS-compliant signing path.
   - Block any non-electronic prescription path.
 
 ### 10h. `src/renderer/clinical/SafetyGates.tsx`
+
 - Surface the new gates: "PHI route: Versa (approved) / commercial (blocked)",
   "Health AI Oversight Committee status: pending / approved",
   "CMS attestation elements: 4/4 present / missing X".
 
 ### 10i. `docs/UCSF_APEX_COMPLIANCE.md` (NEW)
+
 - Mirror this synthesis as a doc that ships with the app.
 - Pre-deploy checklist for UCSF Health AI Oversight Committee submission.
 
@@ -486,6 +502,7 @@ are scoped to specific files.
 ## Sources (URLs verified during this research pass)
 
 ### UCSF official
+
 - AI@UCSF AI Guidance: https://ai.ucsf.edu/ucsf-ai-guidance
 - AI@UCSF Versa landing: https://ai.ucsf.edu/platforms-tools-and-resources/ucsf-versa
 - AI@UCSF Versa pricing: https://ai.ucsf.edu/versa-chat-and-api/versa-pricing
@@ -510,6 +527,7 @@ are scoped to specific files.
 - Step 1.3 Data Classification: https://data.ucsf.edu/ssa/step-13-understand-ucsf-data-classification-types-p1-p2-p3-and-p4
 
 ### Federal / state regulatory
+
 - CMS Guidelines for Teaching Physicians, Interns & Residents: https://www.cms.gov/files/document/guidelines-teaching-physicians-interns-and-residents.pdf
 - CMS Medicare Physician Fee Schedule Final Rule CY 2025: https://www.cms.gov/files/document/mm13887-medicare-physician-fee-schedule-final-rule-summary-cy-2025.pdf
 - ACEP Teaching Physician Guidelines FAQ: https://www.acep.org/administration/reimbursement/reimbursement-faqs/teaching-physician-guidelines-faq
@@ -521,6 +539,7 @@ are scoped to specific files.
 - California Medical Association EPCS FAQ: https://www.capphysicians.com/sites/default/files/CMA%20Mandatory%20eRx%20FAQ.pdf
 
 ### Industry / Epic context
+
 - Healthcare Innovation Group on UCSF AI strategy: https://www.hcinnovationgroup.com/analytics-ai/artifical-intelligence-machine-learning/article/53099834/how-ucsf-health-is-thinking-about-scalable-trustworthy-ai
 - Axios on health-system AI scribes: https://www.axios.com/pro/health-tech-deals/2025/02/03/health-systems-see-scribes-as-real-ai-revolution
 - Whatfix Epic Hyperdrive Migration: https://whatfix.com/blog/epic-hyperdrive-migration/
@@ -531,6 +550,7 @@ are scoped to specific files.
 - AWS Bedrock Anthropic models: https://aws.amazon.com/bedrock/anthropic/
 
 ### Behind UCSF MyAccess / SSO (not retrievable in this pass; user must verify on live APeX)
+
 - `myapex.ucsf.edu` — MyAPeX Knowledge Bank (the canonical tip-sheet repo)
 - `apexhub.ucsf.edu` — APeX Hub
 - `meded.ucsf.edu/prospective-residents-and-fellows/gme-policies-housestaff-handbook` (403)

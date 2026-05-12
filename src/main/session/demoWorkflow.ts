@@ -112,3 +112,26 @@ export function createControlledDemoWorkflow(window: BrowserWindow | null): {
     ],
   };
 }
+
+import fs from "fs";
+import path from "path";
+import { safeLog } from "../logger";
+
+export function getDemoWorkflow() {
+  const specterMode = process.env.SPECTER_MODE || "ghostwiki";
+  if (specterMode === "ghostwiki") {
+    try {
+      const p = path.join(
+        process.cwd(),
+        "demo-workflows/event-recap/graph.json",
+      );
+      if (fs.existsSync(p)) {
+        const data = JSON.parse(fs.readFileSync(p, "utf-8"));
+        return data;
+      }
+    } catch (e) {
+      safeLog("Failed to load ghostwiki demo graph", e);
+    }
+  }
+  return null;
+}

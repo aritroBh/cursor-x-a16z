@@ -6,6 +6,9 @@ import { WalkthroughGuide } from "../overlay/WalkthroughGuide";
 import { SpecBuddy } from "../overlay/SpecBuddy";
 import { ModeToggle } from "../overlay/ModeToggle";
 import { SessionPanel } from "../overlay/SessionPanel";
+
+import { GhostWikiPanel } from "../overlay/GhostWikiPanel";
+
 import { UltraReplyBubble, UltraState } from "../overlay/UltraReplyBubble";
 import { TargetPreviewGhost } from "../overlay/TargetPreviewGhost";
 import type {
@@ -15,7 +18,7 @@ import type {
   SpecMood,
 } from "../../main/session/types";
 
-type SpecterMode = "silent" | "ultra";
+type SpecterMode = "silent" | "ultra" | "ghostwiki";
 type ReplayState = "idle" | "running" | "paused";
 type ReplayMode = "walkthrough" | "auto" | null;
 type AutomationMode = "auto" | "mirror" | "calibration" | "agent";
@@ -136,11 +139,7 @@ function isNoteHtmlCompilationIntent(text: string): boolean {
     /\b(copy|compile|generate|open|capture|export|summari[sz]e|synthesi[sz]e|draft)\b/.test(
       normalized,
     );
-  return (
-    asksForNotes &&
-    asksForOutput &&
-    asksForAgentAction
-  );
+  return asksForNotes && asksForOutput && asksForAgentAction;
 }
 
 async function confirmAutomationGate(
@@ -3442,6 +3441,9 @@ const OverlayApp: React.FC = () => {
                   )}
                 </div>
               )}
+
+              {mode === "ghostwiki" && <GhostWikiPanel />}
+
               {lastNodeId && !showWorkflowCard && (
                 <SessionPanel
                   intent={intent}

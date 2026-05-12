@@ -1,8 +1,5 @@
 import { EventEmitter } from "events";
-import {
-  buildTransitions,
-  compileEhrWorkflow,
-} from "./ehrWorkflow";
+import { buildTransitions, compileEhrWorkflow } from "./ehrWorkflow";
 import {
   assertNotProhibited,
   ClinicalSafetyError,
@@ -92,7 +89,10 @@ export class WorkflowEngine extends EventEmitter {
         if (err instanceof ClinicalSafetyError) {
           clinicalLog("safety gate refused autonomous action", { id: a.id });
         } else {
-          clinicalError("unexpected error in safety gate", { id: a.id, err: String(err) });
+          clinicalError("unexpected error in safety gate", {
+            id: a.id,
+            err: String(err),
+          });
         }
       }
       if (options.abortOnBlocked) {

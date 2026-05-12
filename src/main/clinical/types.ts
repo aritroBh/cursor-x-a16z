@@ -140,7 +140,9 @@ export interface AttestationElements {
   agree_with_resident_or_noted_exceptions: boolean;
 }
 
-export type AttestationMode = "reference_resident_note" | "independent_attending_note";
+export type AttestationMode =
+  | "reference_resident_note"
+  | "independent_attending_note";
 
 export interface AttestationDraft {
   mode: AttestationMode;

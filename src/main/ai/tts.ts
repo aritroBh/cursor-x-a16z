@@ -81,7 +81,12 @@ async function speakOpenAI(
 
     const timeoutPromise = new Promise<never>((_, reject) =>
       setTimeout(
-        () => reject(new Error(`OpenAI TTS timed out after ${PROVIDER_TIMEOUT_MS / 1000}s`)),
+        () =>
+          reject(
+            new Error(
+              `OpenAI TTS timed out after ${PROVIDER_TIMEOUT_MS / 1000}s`,
+            ),
+          ),
         PROVIDER_TIMEOUT_MS,
       ),
     );
@@ -141,7 +146,9 @@ export async function speak(text: string): Promise<SpeakResult> {
       request = new AbortController();
       activeRequest = request;
       timeoutId = setTimeout(() => {
-        safeWarn(`[TTS] ElevenLabs timed out after ${PROVIDER_TIMEOUT_MS / 1000}s`);
+        safeWarn(
+          `[TTS] ElevenLabs timed out after ${PROVIDER_TIMEOUT_MS / 1000}s`,
+        );
         request!.abort();
       }, PROVIDER_TIMEOUT_MS);
 
@@ -212,8 +219,7 @@ export async function speak(text: string): Promise<SpeakResult> {
   if (openaiKey) {
     safeLog("[TTS] ElevenLabs failed or skipped; trying OpenAI TTS fallback");
     const result = await speakOpenAI(text, openaiKey);
-    if (result.ok)
-      return { success: true, providerUsed: "openai", failures };
+    if (result.ok) return { success: true, providerUsed: "openai", failures };
     failures.openai = result.reason;
   }
 

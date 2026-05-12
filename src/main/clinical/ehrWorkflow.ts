@@ -1,4 +1,9 @@
-import type { EhrAction, EhrWorkflowState, UiTarget, WorkflowTransition } from "./types";
+import type {
+  EhrAction,
+  EhrWorkflowState,
+  UiTarget,
+  WorkflowTransition,
+} from "./types";
 
 export const EHR_TARGETS: Record<string, UiTarget> = {
   patientChart: {
@@ -388,7 +393,8 @@ export function compileEhrWorkflow(): EhrAction[] {
       phase: "order_entry",
       action: "handle_advisory",
       semanticTarget: EHR_TARGETS.alternativeAdvisory,
-      reason: "Acknowledge shortage/alternative guidance — never bypass autonomously",
+      reason:
+        "Acknowledge shortage/alternative guidance — never bypass autonomously",
       preconditions: ["medication_selected"],
       postconditions: ["advisory_acknowledged"],
       safetyLevel: "clinician_confirmed",

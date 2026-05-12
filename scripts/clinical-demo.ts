@@ -20,13 +20,7 @@ import type {
   EhrAction,
 } from "../src/main/clinical/types";
 
-const FIXTURES_DIR = path.join(
-  __dirname,
-  "..",
-  "test",
-  "fixtures",
-  "clinical",
-);
+const FIXTURES_DIR = path.join(__dirname, "..", "test", "fixtures", "clinical");
 
 interface FixtureSpec {
   file: string;

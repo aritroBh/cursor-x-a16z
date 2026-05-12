@@ -17,7 +17,7 @@
 > phrasings most likely to surface real videos.
 >
 > No videos were watched. All "key content" annotations describe what the video
-> *should* contain based on its title and channel, not transcript-verified content.
+> _should_ contain based on its title and channel, not transcript-verified content.
 
 ---
 
@@ -28,14 +28,14 @@ of the actual UCSF instance are **rare** — most UCSF training material is gate
 behind the UCSF Learning Center / MyAccess SSO. Below are the leads most likely
 to surface real public footage.
 
-| Title (search lead) | URL pattern | Channel | Duration | Public? | Key content (expected) |
-|---|---|---|---|---|---|
-| UCSF APeX intro for new users | search: `site:youtube.com "UCSF APeX"` | UCSF channels | varies | mixed | Login, Storyboard, In Basket overview |
-| UCSF APeX Storyboard demo | search: `"UCSF APeX" Storyboard` | UCSF Health / IT Field Services | ~5 min | varies | Patient header sidebar, navigation rails |
-| UCSF Health IT — APeX onboarding | https://www.youtube.com/@UCSFHealth | UCSF Health (official) [VERIFIED-PATTERN] | varies | public | Channel exists; APeX-specific content sparse |
-| UCSF — IT Field Services APeX videos | UCSF IT internal portal | UCSF IT (gated) | varies | **MyAccess required** | Authoritative training but **not public** |
-| UCSF Office of Medical Education APeX intro | https://meded.ucsf.edu/ | UCSF Med Ed | varies | mixed | Sometimes embeds Vimeo links to APeX intro |
-| UCSF GME intern orientation Epic intro | search: `UCSF GME intern orientation Epic` | UCSF GME / residency programs | varies | mostly internal | Real APeX shown but usually behind SSO |
+| Title (search lead)                         | URL pattern                                | Channel                                   | Duration | Public?               | Key content (expected)                       |
+| ------------------------------------------- | ------------------------------------------ | ----------------------------------------- | -------- | --------------------- | -------------------------------------------- |
+| UCSF APeX intro for new users               | search: `site:youtube.com "UCSF APeX"`     | UCSF channels                             | varies   | mixed                 | Login, Storyboard, In Basket overview        |
+| UCSF APeX Storyboard demo                   | search: `"UCSF APeX" Storyboard`           | UCSF Health / IT Field Services           | ~5 min   | varies                | Patient header sidebar, navigation rails     |
+| UCSF Health IT — APeX onboarding            | https://www.youtube.com/@UCSFHealth        | UCSF Health (official) [VERIFIED-PATTERN] | varies   | public                | Channel exists; APeX-specific content sparse |
+| UCSF — IT Field Services APeX videos        | UCSF IT internal portal                    | UCSF IT (gated)                           | varies   | **MyAccess required** | Authoritative training but **not public**    |
+| UCSF Office of Medical Education APeX intro | https://meded.ucsf.edu/                    | UCSF Med Ed                               | varies   | mixed                 | Sometimes embeds Vimeo links to APeX intro   |
+| UCSF GME intern orientation Epic intro      | search: `UCSF GME intern orientation Epic` | UCSF GME / residency programs             | varies   | mostly internal       | Real APeX shown but usually behind SSO       |
 
 **Reality check:** UCSF treats APeX training content as PHI-adjacent and most of
 the polished walkthroughs live in the UCSF Learning Center (`learningcenter.ucsf.edu`)
@@ -65,18 +65,18 @@ and NoteWriter level** — Hyperdrive is just a Chromium-based shell replacing
 the older WPF/Win32 Hyperspace shell. UI element positions, names, and step
 sequences transfer cleanly. These are the most useful public sources.
 
-| Title (search lead) | URL pattern | Channel | Duration | Public? | Key content (expected) |
-|---|---|---|---|---|---|
-| Epic EHR Tutorial - Beginners | search: `Epic EHR tutorial beginners` | various MD-creator channels | 10–30 min | public | Full chart review, problem list, orders |
-| Epic Hyperspace Walkthrough | search: `Epic Hyperspace walkthrough` | hospital training channels | varies | mixed | Workspace tabs, activity tabs, chart review |
-| Epic NoteWriter / SmartPhrase tutorial | search: `Epic SmartPhrase NoteWriter tutorial` | physician educators | 5–15 min | public | `.dotphrase` insertion, SmartList prompts, NoteWriter pane |
-| Epic Chart Review filters | search: `Epic chart review filters tutorial` | physician educators | 5–10 min | public | Encounter tab, Notes tab, Labs tab, filter chips |
-| Epic In Basket tutorial | search: `Epic In Basket physician tutorial` | physician educators | 5–15 min | public | Folders, message routing, Results, Pt Calls |
-| Epic attestation tutorial | search: `Epic attending attestation note` | physician educators | 3–10 min | public | Cosign/attestation workflow, attending billing macros |
-| Epic Hyperdrive vs Hyperspace | search: `Epic Hyperdrive vs Hyperspace` | Epic blog / Becker's | varies | public | Visual differences, what changed in shell |
-| Dike Drummond / The Happy MD — Epic tips | https://www.youtube.com/@thehappymd | The Happy MD | varies | public | Physician-focused Epic productivity tips |
-| FlashMD Epic shortcuts | search: `FlashMD Epic` | FlashMD | varies | public | Short Epic-specific productivity videos |
-| Health IT Tutor — Epic | search: `Health IT Tutor Epic` | Health IT Tutor (YouTube) | varies | public | Polished Epic build/training content |
+| Title (search lead)                      | URL pattern                                    | Channel                     | Duration  | Public? | Key content (expected)                                     |
+| ---------------------------------------- | ---------------------------------------------- | --------------------------- | --------- | ------- | ---------------------------------------------------------- |
+| Epic EHR Tutorial - Beginners            | search: `Epic EHR tutorial beginners`          | various MD-creator channels | 10–30 min | public  | Full chart review, problem list, orders                    |
+| Epic Hyperspace Walkthrough              | search: `Epic Hyperspace walkthrough`          | hospital training channels  | varies    | mixed   | Workspace tabs, activity tabs, chart review                |
+| Epic NoteWriter / SmartPhrase tutorial   | search: `Epic SmartPhrase NoteWriter tutorial` | physician educators         | 5–15 min  | public  | `.dotphrase` insertion, SmartList prompts, NoteWriter pane |
+| Epic Chart Review filters                | search: `Epic chart review filters tutorial`   | physician educators         | 5–10 min  | public  | Encounter tab, Notes tab, Labs tab, filter chips           |
+| Epic In Basket tutorial                  | search: `Epic In Basket physician tutorial`    | physician educators         | 5–15 min  | public  | Folders, message routing, Results, Pt Calls                |
+| Epic attestation tutorial                | search: `Epic attending attestation note`      | physician educators         | 3–10 min  | public  | Cosign/attestation workflow, attending billing macros      |
+| Epic Hyperdrive vs Hyperspace            | search: `Epic Hyperdrive vs Hyperspace`        | Epic blog / Becker's        | varies    | public  | Visual differences, what changed in shell                  |
+| Dike Drummond / The Happy MD — Epic tips | https://www.youtube.com/@thehappymd            | The Happy MD                | varies    | public  | Physician-focused Epic productivity tips                   |
+| FlashMD Epic shortcuts                   | search: `FlashMD Epic`                         | FlashMD                     | varies    | public  | Short Epic-specific productivity videos                    |
+| Health IT Tutor — Epic                   | search: `Health IT Tutor Epic`                 | Health IT Tutor (YouTube)   | varies    | public  | Polished Epic build/training content                       |
 
 ### Particularly useful generic Epic channels [VERIFIED-PATTERN]
 
@@ -95,18 +95,18 @@ sequences transfer cleanly. These are the most useful public sources.
 
 Stanford Health Care and Stanford Children's both run Epic. Notable leads:
 
-| Title (lead) | URL pattern | Notes |
-|---|---|---|
-| Stanford Medicine — Epic resident orientation | search: `Stanford Epic resident orientation` | Some publicly listed |
-| Stanford School of Medicine training videos | https://www.youtube.com/@StanfordMed | [VERIFIED-PATTERN] real channel |
+| Title (lead)                                   | URL pattern                                       | Notes                                    |
+| ---------------------------------------------- | ------------------------------------------------- | ---------------------------------------- |
+| Stanford Medicine — Epic resident orientation  | search: `Stanford Epic resident orientation`      | Some publicly listed                     |
+| Stanford School of Medicine training videos    | https://www.youtube.com/@StanfordMed              | [VERIFIED-PATTERN] real channel          |
 | Stanford CERC / SoM clinical informatics talks | search: `Stanford clinical informatics Epic talk` | Often have Epic UI screenshots in slides |
 
 ### UCLA-specific Epic videos (transferable)
 
-| Title (lead) | URL pattern | Notes |
-|---|---|---|
+| Title (lead)                     | URL pattern                              | Notes                                                          |
+| -------------------------------- | ---------------------------------------- | -------------------------------------------------------------- |
 | UCLA Health — CareConnect (Epic) | search: `UCLA CareConnect Epic tutorial` | UCLA's Epic is branded "CareConnect"; same UI patterns as APeX |
-| UCLA Health YouTube | https://www.youtube.com/@UCLAHealth | [VERIFIED-PATTERN] real channel |
+| UCLA Health YouTube              | https://www.youtube.com/@UCLAHealth      | [VERIFIED-PATTERN] real channel                                |
 
 ---
 
@@ -175,21 +175,22 @@ Residents-only SharePoint). Public exceptions:
 UCSF deployed **Abridge** for ambient AI scribing in 2024. Vendor demos are
 the most polished public video sources showing **APeX with the scribe overlay**.
 
-| Vendor | URL | Public? | Key content |
-|---|---|---|---|
-| Abridge | https://www.abridge.com | public marketing | Demos show Epic chart open, ambient capture panel docked. UCSF case study available. [VERIFIED-PATTERN] real company site. |
-| Abridge — UCSF case study | https://www.abridge.com/customer-stories | public | UCSF rollout details, may include video |
-| Abridge YouTube | https://www.youtube.com/@abridge | [VERIFIED-PATTERN] | Product demo videos showing Epic side panel |
-| Nuance DAX (Microsoft) | https://www.nuance.com/healthcare/dragon-ambient-experience.html | public | DAX Copilot demos with Epic. Stanford uses DAX — high relevance for "araxstanford" |
-| Nuance DAX YouTube | https://www.youtube.com/@nuancecommunications | [VERIFIED-PATTERN] | Multiple Epic-integrated demos |
-| Suki AI | https://www.suki.ai | public | Ambient scribe. Demos include Epic. |
-| Suki YouTube | https://www.youtube.com/@SukiAI | [VERIFIED-PATTERN] | Multiple Epic demo videos |
-| Ambience Healthcare | https://www.ambiencehealthcare.com | public | Another ambient scribe; UCSF has piloted multiple |
-| DeepScribe | https://www.deepscribe.ai | public | Demos sometimes show Epic |
-| Augmedix | https://www.augmedix.com | public | Demos show Epic |
-| Epic Cosmos / MyChart Bedside | epic.com — gated | mixed | Some public demos at HIMSS |
+| Vendor                        | URL                                                              | Public?            | Key content                                                                                                                |
+| ----------------------------- | ---------------------------------------------------------------- | ------------------ | -------------------------------------------------------------------------------------------------------------------------- |
+| Abridge                       | https://www.abridge.com                                          | public marketing   | Demos show Epic chart open, ambient capture panel docked. UCSF case study available. [VERIFIED-PATTERN] real company site. |
+| Abridge — UCSF case study     | https://www.abridge.com/customer-stories                         | public             | UCSF rollout details, may include video                                                                                    |
+| Abridge YouTube               | https://www.youtube.com/@abridge                                 | [VERIFIED-PATTERN] | Product demo videos showing Epic side panel                                                                                |
+| Nuance DAX (Microsoft)        | https://www.nuance.com/healthcare/dragon-ambient-experience.html | public             | DAX Copilot demos with Epic. Stanford uses DAX — high relevance for "araxstanford"                                         |
+| Nuance DAX YouTube            | https://www.youtube.com/@nuancecommunications                    | [VERIFIED-PATTERN] | Multiple Epic-integrated demos                                                                                             |
+| Suki AI                       | https://www.suki.ai                                              | public             | Ambient scribe. Demos include Epic.                                                                                        |
+| Suki YouTube                  | https://www.youtube.com/@SukiAI                                  | [VERIFIED-PATTERN] | Multiple Epic demo videos                                                                                                  |
+| Ambience Healthcare           | https://www.ambiencehealthcare.com                               | public             | Another ambient scribe; UCSF has piloted multiple                                                                          |
+| DeepScribe                    | https://www.deepscribe.ai                                        | public             | Demos sometimes show Epic                                                                                                  |
+| Augmedix                      | https://www.augmedix.com                                         | public             | Demos show Epic                                                                                                            |
+| Epic Cosmos / MyChart Bedside | epic.com — gated                                                 | mixed              | Some public demos at HIMSS                                                                                                 |
 
 **Highest priority for UCSF UI ground-truth:**
+
 1. Abridge demos (UCSF customer, shown in their own materials).
 2. Nuance DAX demos (Stanford customer — relevant to user's `araxstanford` context).
 3. Microsoft Build / Ignite keynotes featuring DAX + Epic (public, polished).
@@ -264,7 +265,7 @@ Image-based ground truth (often equally useful as video for vision training).
      scribe.
 
 5. **Bonus — UI label vocabulary**
-   - Skim Wachter's *The Digital Doctor* (2015) Chapter 5–7. Pages with
+   - Skim Wachter's _The Digital Doctor_ (2015) Chapter 5–7. Pages with
      APeX screenshots are gold for UI element naming conventions.
 
 **Estimated total: ~2 hours to build a solid mental model of what
@@ -328,6 +329,7 @@ Since automated search was not possible in this session, the user should
 run these queries directly. Listed in priority order.
 
 ### Tier 1 — UCSF APeX direct
+
 ```
 "UCSF APeX" tutorial             # YouTube
 "UCSF APeX" walkthrough          # YouTube
@@ -338,6 +340,7 @@ site:youtube.com "UCSF" Epic     # Google
 ```
 
 ### Tier 2 — Wachter / Cucina / UCSF informatics talks
+
 ```
 "Bob Wachter" "Digital Doctor" keynote
 "Russ Cucina" CMIO talk
@@ -346,6 +349,7 @@ UCSF CMIO Epic HIMSS
 ```
 
 ### Tier 3 — Generic Epic with high transfer
+
 ```
 Epic chart review tutorial physician
 Epic NoteWriter SmartPhrase tutorial
@@ -356,6 +360,7 @@ Epic Storyboard tutorial
 ```
 
 ### Tier 4 — Vendor demos
+
 ```
 Abridge Epic demo UCSF
 Nuance DAX Copilot Epic demo
@@ -364,6 +369,7 @@ Ambience Healthcare Epic demo
 ```
 
 ### Tier 5 — Stanford / UCLA / Penn / Hopkins (transferable)
+
 ```
 Stanford Epic resident orientation
 UCLA CareConnect Epic tutorial
@@ -372,6 +378,7 @@ Johns Hopkins Epic resident
 ```
 
 ### Tier 6 — Reddit / X / TikTok candid
+
 ```
 reddit.com/r/medicine APeX
 reddit.com/r/Residency Epic UCSF
@@ -406,7 +413,7 @@ TikTok #EpicEHR
 - JAMIA — https://academic.oup.com/jamia
 - NEJM Catalyst — https://catalyst.nejm.org
 - Health Affairs — https://www.healthaffairs.org
-- Bob Wachter — *The Digital Doctor* (McGraw Hill, 2015) — book containing
+- Bob Wachter — _The Digital Doctor_ (McGraw Hill, 2015) — book containing
   real circa-2014 APeX screenshots from UCSF.
 - Reddit — r/medicine, r/Residency, r/Epic
 - Epic Systems Corp — https://www.epic.com (most training gated to UserWeb;

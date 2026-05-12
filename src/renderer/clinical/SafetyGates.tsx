@@ -33,7 +33,10 @@ export function SafetyGates({
         </ul>
       </Section>
 
-      <Section title={`Workflow steps marked prohibited (${prohibitedActions.length})`} tone="danger">
+      <Section
+        title={`Workflow steps marked prohibited (${prohibitedActions.length})`}
+        tone="danger"
+      >
         <ul style={styles.list}>
           {prohibitedActions.map((a) => (
             <li key={a.id} style={styles.gateItem}>
@@ -67,10 +70,30 @@ export function SafetyGates({
       {dryRun ? (
         <Section title="Last dry-run outcome" tone="info">
           <div style={styles.gridRow}>
-            <Stat label="executed" value={dryRun.trace.filter((t) => t.outcome === "executed").length} accent="#34d399" />
-            <Stat label="observed" value={dryRun.trace.filter((t) => t.outcome === "observed").length} accent="#22d3ee" />
-            <Stat label="paused" value={dryRun.paused.length} accent="#fbbf24" />
-            <Stat label="blocked" value={dryRun.blocked.length} accent="#fb7185" />
+            <Stat
+              label="executed"
+              value={
+                dryRun.trace.filter((t) => t.outcome === "executed").length
+              }
+              accent="#34d399"
+            />
+            <Stat
+              label="observed"
+              value={
+                dryRun.trace.filter((t) => t.outcome === "observed").length
+              }
+              accent="#22d3ee"
+            />
+            <Stat
+              label="paused"
+              value={dryRun.paused.length}
+              accent="#fbbf24"
+            />
+            <Stat
+              label="blocked"
+              value={dryRun.blocked.length}
+              accent="#fb7185"
+            />
           </div>
           {dryRun.errors.length > 0 ? (
             <div style={{ color: "#fb7185", fontSize: 12, marginTop: 8 }}>
@@ -102,7 +125,15 @@ function Section({
   );
 }
 
-function Stat({ label, value, accent }: { label: string; value: number; accent: string }) {
+function Stat({
+  label,
+  value,
+  accent,
+}: {
+  label: string;
+  value: number;
+  accent: string;
+}) {
   return (
     <div style={styles.statBox}>
       <div style={{ ...styles.statValue, color: accent }}>{value}</div>

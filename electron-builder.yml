@@ -3,20 +3,20 @@ productName: Specter
 directories:
   buildResources: resources
 files:
-  - '!**/.vscode/*'
-  - '!src/*'
-  - '!electron.vite.config.{js,ts,mjs,cjs}'
-  - '!{.eslintignore,.eslintrc.cjs,.prettierignore,.prettierrc.yaml,dev-app-update.yml,CHANGELOG.md,RELEASES.md}'
-  - '!{.env,.env.*,.npmrc,pnpm-lock.yaml}'
-  - '!{tsconfig.json,tsconfig.*}'
-  - '!{README.md,tailwind.config.js,postcss.config.js}'
+  - "!**/.vscode/*"
+  - "!src/*"
+  - "!electron.vite.config.{js,ts,mjs,cjs}"
+  - "!{.eslintignore,.eslintrc.cjs,.prettierignore,.prettierrc.yaml,dev-app-update.yml,CHANGELOG.md,RELEASES.md}"
+  - "!{.env,.env.*,.npmrc,pnpm-lock.yaml}"
+  - "!{tsconfig.json,tsconfig.*}"
+  - "!{README.md,tailwind.config.js,postcss.config.js}"
 extraResources:
   - from: resources/native
     to: native
     filter:
-      - '**/*'
+      - "**/*"
       # Exclude dev-only compiled macOS binary; production compiles on first run.
-      - '!build/**'
+      - "!build/**"
 asarUnpack:
   - resources/**
   - node_modules/@nut-tree/**

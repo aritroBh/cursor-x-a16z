@@ -46,7 +46,8 @@ export function captureFromClipboard(
   }
   const source = createSourceNote(buildInput(text, meta));
   const { deduped } = addSource(bundle, source);
-  bundle.captureMethod = bundle.captureMethod === "mixed" ? "mixed" : "clipboard";
+  bundle.captureMethod =
+    bundle.captureMethod === "mixed" ? "mixed" : "clipboard";
   clinicalLog("captureFromClipboard", {
     sourceId: source.id,
     deduped,

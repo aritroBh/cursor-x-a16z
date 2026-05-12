@@ -68,7 +68,8 @@ To work offline or avoid API costs during UI development:
 ```env
 VISION_PROVIDER=mock
 ```
-*Note: The mock provider is blocked in production unless `DEMO_MODE=true` is set.*
+
+_Note: The mock provider is blocked in production unless `DEMO_MODE=true` is set._
 
 ### Test Scripts
 

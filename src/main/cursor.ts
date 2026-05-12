@@ -12,7 +12,10 @@ import {
 const DEFAULT_MOVE_DURATION_MS = 650;
 
 class CursorGuardrailError extends Error {
-  constructor(message: string, readonly diagnostics: Record<string, unknown>) {
+  constructor(
+    message: string,
+    readonly diagnostics: Record<string, unknown>,
+  ) {
     super(message);
     this.name = "CursorGuardrailError";
   }
@@ -205,10 +208,10 @@ export async function clickRealMouse(
         });
         return;
       }
-      safeWarn(
-        "[AUTO_REAL_MOUSE] Ara click rejected; falling back to nut-js",
-        { x, y },
-      );
+      safeWarn("[AUTO_REAL_MOUSE] Ara click rejected; falling back to nut-js", {
+        x,
+        y,
+      });
     } catch (err) {
       // Guardrail failures must NOT fall back — that would let a bad click
       // through via nut-js after we already rejected the coordinates.

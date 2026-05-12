@@ -286,7 +286,8 @@ export function compileApexAttendingAttestationWalkthrough(): EhrAction[] {
       phase: APEX_ATTEST_PHASE,
       action: "observe",
       semanticTarget: APEX_TARGETS.chartReviewNotePreview,
-      reason: "Attending must personally read the resident's documentation before attesting",
+      reason:
+        "Attending must personally read the resident's documentation before attesting",
       preconditions: ["resident_note_open"],
       postconditions: ["resident_note_reviewed"],
       safetyLevel: "read_only",
@@ -297,7 +298,8 @@ export function compileApexAttendingAttestationWalkthrough(): EhrAction[] {
       phase: APEX_ATTEST_PHASE,
       action: "confirm_modal",
       semanticTarget: APEX_TARGETS.attestationBlock,
-      reason: "Clinician selects reference-resident-note vs. independent attending note",
+      reason:
+        "Clinician selects reference-resident-note vs. independent attending note",
       preconditions: ["resident_note_reviewed"],
       postconditions: ["attestation_mode_chosen"],
       safetyLevel: "clinician_confirmed",
@@ -325,7 +327,8 @@ export function compileApexAttendingAttestationWalkthrough(): EhrAction[] {
       phase: APEX_ATTEST_PHASE,
       action: "wait_for_ui",
       semanticTarget: APEX_TARGETS.attestationBlock,
-      reason: "Clinician copies/types the verified attestation block into APeX themselves",
+      reason:
+        "Clinician copies/types the verified attestation block into APeX themselves",
       preconditions: ["attestation_drafted"],
       postconditions: ["attestation_inserted_by_clinician"],
       safetyLevel: "clinician_confirmed",

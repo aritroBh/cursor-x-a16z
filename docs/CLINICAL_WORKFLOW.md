@@ -93,11 +93,11 @@ draft, reset.
 
 ## Capture sources
 
-| Source         | Module                                    |
-|----------------|-------------------------------------------|
-| Clipboard      | `clinical/capture.ts → captureFromClipboard` |
-| Manual paste   | `clinical/capture.ts → captureManualPaste` |
-| Vision/OCR     | `clinical/capture.ts → captureFromVision` (uses existing vision provider) |
+| Source       | Module                                                                    |
+| ------------ | ------------------------------------------------------------------------- |
+| Clipboard    | `clinical/capture.ts → captureFromClipboard`                              |
+| Manual paste | `clinical/capture.ts → captureManualPaste`                                |
+| Vision/OCR   | `clinical/capture.ts → captureFromVision` (uses existing vision provider) |
 
 All captures dedupe by sha256(content) before being added to the bundle.
 
@@ -160,23 +160,23 @@ event `replay:clinical-blocked` is emitted.
 
 ## Acceptance checklist
 
-| Item                                                       | Status |
-|------------------------------------------------------------|--------|
-| Workflow model present                                     | ✓ |
-| Each click action represented semantically                 | ✓ |
-| Not coordinate-only                                        | ✓ |
-| Multi-note context bundle                                  | ✓ |
-| Source-grounded draft note                                 | ✓ |
-| Raw source text preserved                                  | ✓ |
-| Dedup of repeated note text                                | ✓ |
-| `[Not found in provided notes]` discipline                 | ✓ |
-| Source map for generated claims                            | ✓ |
-| Order-entry phase recognized                               | ✓ |
-| Pause before note signing                                  | ✓ |
-| Pause before medication order signing                      | ✓ |
-| Dry-run replay mode                                        | ✓ |
-| Tests for safety-critical paths                            | ✓ |
-| UI shows state, sources, draft, safety gates               | ✓ |
-| Existing patterns preserved                                | ✓ |
-| No happy-path-only demo logic                              | ✓ |
-| No PHI logged by default                                   | ✓ |
+| Item                                         | Status |
+| -------------------------------------------- | ------ |
+| Workflow model present                       | ✓      |
+| Each click action represented semantically   | ✓      |
+| Not coordinate-only                          | ✓      |
+| Multi-note context bundle                    | ✓      |
+| Source-grounded draft note                   | ✓      |
+| Raw source text preserved                    | ✓      |
+| Dedup of repeated note text                  | ✓      |
+| `[Not found in provided notes]` discipline   | ✓      |
+| Source map for generated claims              | ✓      |
+| Order-entry phase recognized                 | ✓      |
+| Pause before note signing                    | ✓      |
+| Pause before medication order signing        | ✓      |
+| Dry-run replay mode                          | ✓      |
+| Tests for safety-critical paths              | ✓      |
+| UI shows state, sources, draft, safety gates | ✓      |
+| Existing patterns preserved                  | ✓      |
+| No happy-path-only demo logic                | ✓      |
+| No PHI logged by default                     | ✓      |

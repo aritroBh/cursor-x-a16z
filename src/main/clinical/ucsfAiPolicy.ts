@@ -36,7 +36,9 @@ export class UcsfAiPolicyError extends Error {
   }
 }
 
-export function loadUcsfAiPolicyFromEnv(env: NodeJS.ProcessEnv = process.env): UcsfAiPolicyConfig {
+export function loadUcsfAiPolicyFromEnv(
+  env: NodeJS.ProcessEnv = process.env,
+): UcsfAiPolicyConfig {
   const requested = (env.UCSF_AI_ROUTE || "").toLowerCase();
   const route: AiRoute =
     requested === "ucsf_versa" || requested === "versa"
@@ -134,7 +136,11 @@ export function preflightCheck(input: PreflightInput): PreflightResult {
         warnings,
       };
     }
-    if (bundle.institution && bundle.institution !== "synthetic" && bundle.institution !== "non_ucsf") {
+    if (
+      bundle.institution &&
+      bundle.institution !== "synthetic" &&
+      bundle.institution !== "non_ucsf"
+    ) {
       warnings.push(
         `Institution=${bundle.institution} on commercial route; verify content is genuinely non-PHI.`,
       );

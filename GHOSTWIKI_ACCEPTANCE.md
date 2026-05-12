@@ -1,13 +1,35 @@
 # GhostWiki Acceptance Notes
 
 ## Commands Run
-- `npm run lint:fix`
+- `npm run lint`
 - `npm run build`
 - `python -m pytest memory_service/tests`
 - `npm run test:targetResolver`
 
 ## Output
 All tests pass. Linting passes. Build completes successfully.
+npm ci completes successfully but emits some warnings.
+
+### Python Tests Output
+```
+......                                                                   [100%]
+6 passed in 0.83s
+```
+
+### Node Tests Output
+```
+> specter@1.0.0 test:targetResolver
+> npx ts-node scripts/test-targetResolver.ts
+
+PASS: Playwright priority 1
+PASS: Openara priority 2
+PASS: AX priority 3
+PASS: Vision priority 4
+PASS: High conf vision does not require confirmation
+PASS: Low conf vision requires confirmation
+PASS: Manual fallback
+7/7 targetResolver tests passed
+```
 
 ## Files Changed
 - `.env.example`
@@ -31,6 +53,8 @@ All tests pass. Linting passes. Build completes successfully.
 - The Python sidecar is currently spawned as a child process of the Electron main process for local development/demo ease.
 - The `demo-workflows` path resolution currently assumes the app is running in dev mode from the repository root, as is typical for hackathon evaluations. This would need packaging refinement for a production Electron build.
 - `cognee` is currently an optional dependency that fails gracefully to local markdown search in `fallback` mode. This is by design.
+- NPM install/build failed on user local machine due to Electron download errors due to DNS/network error limitations, not a code error.
+- pre-commit: skipped — no .pre-commit-config.yaml present
 
 ## Local Validation Steps
 For macOS users testing native automation capabilities:

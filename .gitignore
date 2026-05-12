@@ -11,3 +11,5 @@ build/
 logs/
 *.log
 test_output.txt
+memory_service/__pycache__/
+memory_service/tests/__pycache__/

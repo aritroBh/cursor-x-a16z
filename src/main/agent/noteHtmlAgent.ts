@@ -1,7 +1,11 @@
 import { app } from "electron";
 import { mkdir, writeFile } from "fs/promises";
 import { join } from "path";
-import { clipboard as nutClipboard, keyboard, Key } from "@nut-tree-fork/nut-js";
+import {
+  clipboard as nutClipboard,
+  keyboard,
+  Key,
+} from "@nut-tree-fork/nut-js";
 
 import { captureScreenBase64 } from "../capture";
 import { clickRealMouse } from "../cursor";
@@ -265,9 +269,10 @@ function looksLikeCopiedNote(text: string): boolean {
   );
 }
 
-async function copyFromFocusedPane(
-  focusPoint: { x: number; y: number },
-): Promise<string> {
+async function copyFromFocusedPane(focusPoint: {
+  x: number;
+  y: number;
+}): Promise<string> {
   await nutClipboard.setContent("");
   await clickRealMouse(focusPoint.x, focusPoint.y, 180);
   await delay(140);
@@ -404,13 +409,14 @@ function fallbackHpiFromNotes(notes: CapturedNote[]): HpiSynthesis {
 async function synthesizeHpi(notes: CapturedNote[]): Promise<HpiSynthesis> {
   const client = createAnthropicClient();
   if (!client) {
-    safeWarn("[NOTE_HTML_AGENT] Anthropic client unavailable for HPI synthesis");
+    safeWarn(
+      "[NOTE_HTML_AGENT] Anthropic client unavailable for HPI synthesis",
+    );
     return fallbackHpiFromNotes(notes);
   }
 
   const payload = {
-    task:
-      "Synthesize one HPI from Epic notes that the desktop agent copied after opening each note.",
+    task: "Synthesize one HPI from Epic notes that the desktop agent copied after opening each note.",
     sourceNotes: notes.map((note, index) => ({
       noteNumber: index + 1,
       title: note.title,
@@ -617,7 +623,11 @@ async function writeNotesHtml(
   hpiPath: string;
   rawNotePaths: string[];
 }> {
-  const outputDir = join(app.getPath("documents"), "Specter", "Generated Notes");
+  const outputDir = join(
+    app.getPath("documents"),
+    "Specter",
+    "Generated Notes",
+  );
   const slug = timestampSlug();
   const rawDir = join(outputDir, `raw-${slug}`);
   await mkdir(rawDir, { recursive: true });

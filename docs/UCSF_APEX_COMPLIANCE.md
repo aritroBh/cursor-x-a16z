@@ -25,12 +25,12 @@ before this app can ingest real patient text from APeX.
 
 The drafter selects an LLM route via `UCSF_AI_ROUTE`:
 
-| `UCSF_AI_ROUTE` value | Route | PHI permitted? |
-|---|---|---|
-| `ucsf_versa` | UCSF Versa API → Anthropic Claude on AWS Bedrock | Yes (when bundle is PHI and Health-AI-Oversight-approved) |
-| `anthropic_direct` | api.anthropic.com (commercial) | **No** — refused if `bundle.containsPhi === true` |
-| `mock` (default) | Source-grounded fixture fallback (offline) | N/A — no LLM call |
-| `blocked` | Refuse all LLM calls | N/A |
+| `UCSF_AI_ROUTE` value | Route                                            | PHI permitted?                                            |
+| --------------------- | ------------------------------------------------ | --------------------------------------------------------- |
+| `ucsf_versa`          | UCSF Versa API → Anthropic Claude on AWS Bedrock | Yes (when bundle is PHI and Health-AI-Oversight-approved) |
+| `anthropic_direct`    | api.anthropic.com (commercial)                   | **No** — refused if `bundle.containsPhi === true`         |
+| `mock` (default)      | Source-grounded fixture fallback (offline)       | N/A — no LLM call                                         |
+| `blocked`             | Refuse all LLM calls                             | N/A                                                       |
 
 `anthropic_direct` additionally requires `UCSF_ALLOW_ANTHROPIC_DIRECT_FOR_SYNTHETIC=true`
 and a non-PHI bundle, intended only for development with synthetic fixtures.
@@ -107,6 +107,7 @@ Sample CMS-acceptable language (encoded in `draftReferenceResidentAttestation`):
 > and plan as documented except as noted [...]"
 
 **The agent never signs.** The clinician must:
+
 1. Read and verify the drafted attestation block in our panel.
 2. Copy/paste (or retype) into APeX's NoteWriter themselves.
 3. Personally hit Sign in APeX.
@@ -120,18 +121,18 @@ Sample CMS-acceptable language (encoded in `draftReferenceResidentAttestation`):
 Before this app is used by any UCSF Health attending against real APeX content:
 
 1. [ ] Submit to UCSF Health AI Oversight Committee for review
-   (`https://ai.ucsf.edu/oversight`).
+       (`https://ai.ucsf.edu/oversight`).
 2. [ ] Request UCSF Versa API access (`https://ai.ucsf.edu/contact/versa-support`).
 3. [ ] Complete UCSF AI training (10-min online course required for Versa).
 4. [ ] Confirm BAA / data-handling agreement with UCSF IT covers app's
-   collection of clipboard / screen capture data.
+       collection of clipboard / screen capture data.
 5. [ ] Run app with `UCSF_AI_ROUTE=ucsf_versa` and `UCSF_HEALTH_AI_OVERSIGHT_APPROVED=true`.
 6. [ ] Verify audit log surface in `SafetyGates` shows route, model, prompt
-   hash, and clinician identity for every LLM call.
+       hash, and clinician identity for every LLM call.
 7. [ ] Validate no commercial-AI endpoint is reachable from the app's main
-   process when `UCSF_AI_ROUTE=ucsf_versa`.
+       process when `UCSF_AI_ROUTE=ucsf_versa`.
 8. [ ] Run the attestation module's 4-element validator against every drafted
-   attestation block; refuse to display a draft missing any element.
+       attestation block; refuse to display a draft missing any element.
 
 Until **all** of these are checked, operate in `mock` mode with synthetic
 fixtures only.

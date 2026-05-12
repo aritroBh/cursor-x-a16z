@@ -41,9 +41,10 @@ function redact(value: unknown): unknown {
 }
 
 function emit(level: LogLevel, message: string, data?: unknown): void {
-  const payload = data === undefined ? "" : JSON.stringify(
-    phiLoggingEnabled() ? data : redact(data),
-  );
+  const payload =
+    data === undefined
+      ? ""
+      : JSON.stringify(phiLoggingEnabled() ? data : redact(data));
   const line = `[CLINICAL] ${message}${payload ? " " + payload : ""}`;
   if (level === "warn") {
     console.warn(line);

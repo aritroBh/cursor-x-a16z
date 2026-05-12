@@ -92,13 +92,9 @@ export const TargetPreviewGhost: React.FC<TargetPreviewGhostProps> = ({
   if (!active || !target) return null;
 
   const percentX =
-    phase === "enter" || phase === "reset"
-      ? startPosRef.current.x
-      : target.x;
+    phase === "enter" || phase === "reset" ? startPosRef.current.x : target.x;
   const percentY =
-    phase === "enter" || phase === "reset"
-      ? startPosRef.current.y
-      : target.y;
+    phase === "enter" || phase === "reset" ? startPosRef.current.y : target.y;
 
   const isTraveling = phase === "travel";
   const isArrived = phase === "arrived";

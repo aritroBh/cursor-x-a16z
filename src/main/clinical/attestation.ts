@@ -125,7 +125,9 @@ export function draftIndependentAttendingNoteHeader(
   };
 }
 
-export function draftAttestation(input: AttestationDraftInput): AttestationDraft {
+export function draftAttestation(
+  input: AttestationDraftInput,
+): AttestationDraft {
   if (input.mode === "reference_resident_note") {
     return draftReferenceResidentAttestation(input);
   }
@@ -144,7 +146,9 @@ export function validateAttestation(
   const missing = missingAttestationElements(draft.elements_present);
   const warnings = [...draft.warnings];
   if (/\[ATTENDING NAME\]/i.test(draft.body)) {
-    warnings.push("Body still contains placeholder [ATTENDING NAME]; clinician must replace before signing.");
+    warnings.push(
+      "Body still contains placeholder [ATTENDING NAME]; clinician must replace before signing.",
+    );
   }
   return {
     ok: missing.length === 0,
@@ -154,6 +158,7 @@ export function validateAttestation(
 }
 
 export function looksLikeResidentNote(note: ClinicalSourceNote): boolean {
-  const haystack = `${note.author || ""} ${note.noteType || ""} ${note.service || ""}`.toLowerCase();
+  const haystack =
+    `${note.author || ""} ${note.noteType || ""} ${note.service || ""}`.toLowerCase();
   return /\bresident|fellow|intern|pgy[- ]?\d|house\s*staff\b/.test(haystack);
 }

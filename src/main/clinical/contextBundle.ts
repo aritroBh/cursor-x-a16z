@@ -6,7 +6,10 @@ import type {
 } from "./types";
 
 function normalizeWhitespace(text: string): string {
-  return text.replace(/\r\n/g, "\n").replace(/[ \t]+\n/g, "\n").trim();
+  return text
+    .replace(/\r\n/g, "\n")
+    .replace(/[ \t]+\n/g, "\n")
+    .trim();
 }
 
 export function hashContent(text: string): string {
@@ -109,7 +112,9 @@ export function addSource(
   bundle: ClinicalContextBundle,
   source: ClinicalSourceNote,
 ): { bundle: ClinicalContextBundle; deduped: boolean } {
-  const existing = bundle.sources.find((s) => s.contentHash === source.contentHash);
+  const existing = bundle.sources.find(
+    (s) => s.contentHash === source.contentHash,
+  );
   if (existing) {
     return { bundle, deduped: true };
   }

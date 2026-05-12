@@ -567,7 +567,9 @@ async function main() {
   check(
     mainIndex.includes("[REAL_APP_WALKTHROUGH] confirmed target") &&
       overlayAppBody.includes("[REAL_APP_WALKTHROUGH] confirmed target") &&
-      overlayAppBody.includes("[REAL_APP_WALKTHROUGH] start from preview target"),
+      overlayAppBody.includes(
+        "[REAL_APP_WALKTHROUGH] start from preview target",
+      ),
     "walkthrough start logs the confirmed real-app target and preview target",
   );
   check(
@@ -576,7 +578,7 @@ async function main() {
   );
   check(
     targetPreviewGhost.includes('pointerEvents: "none"') &&
-      targetPreviewGhost.includes("position: \"fixed\"") &&
+      targetPreviewGhost.includes('position: "fixed"') &&
       targetPreviewGhost.includes("9999"),
     "TargetPreviewGhost uses pointer-events: none and fixed positioning",
   );

@@ -9,8 +9,8 @@ export function CapturedSources({
   if (!bundle || bundle.sources.length === 0) {
     return (
       <div style={{ padding: 24, color: "#71717a", fontSize: 13 }}>
-        No sources captured. Click <strong>Load 5 fixtures</strong> or copy
-        text from a note in your EHR and click <strong>Capture clipboard</strong>.
+        No sources captured. Click <strong>Load 5 fixtures</strong> or copy text
+        from a note in your EHR and click <strong>Capture clipboard</strong>.
       </div>
     );
   }
@@ -35,8 +35,12 @@ export function CapturedSources({
               <span style={styles.hash}>hash {s.contentHash}</span>
             </div>
             <div style={styles.metaRow}>
-              {s.author ? <span style={styles.meta}>author: {s.author}</span> : null}
-              {s.service ? <span style={styles.meta}>service: {s.service}</span> : null}
+              {s.author ? (
+                <span style={styles.meta}>author: {s.author}</span>
+              ) : null}
+              {s.service ? (
+                <span style={styles.meta}>service: {s.service}</span>
+              ) : null}
               {s.sourceScreen ? (
                 <span style={styles.meta}>screen: {s.sourceScreen}</span>
               ) : null}
@@ -46,7 +50,9 @@ export function CapturedSources({
                   color: s.hasSections ? "#34d399" : "#fbbf24",
                 }}
               >
-                {s.hasSections ? "✓ sections extracted" : "⚠ no sections matched"}
+                {s.hasSections
+                  ? "✓ sections extracted"
+                  : "⚠ no sections matched"}
               </span>
             </div>
             <pre style={styles.preview}>{s.rawTextPreview}</pre>

@@ -192,6 +192,24 @@ const api = {
 
   // Demo
   prepareControlledDemo: () => ipcRenderer.invoke("demo:controlledWorkflow"),
+
+  // GhostWiki
+  ghostwikiIngestSession: (sessionId: string, appName: string) =>
+    ipcRenderer.invoke("ghostwiki:ingest-current-session", sessionId, appName),
+  ghostwikiQuery: (
+    query: string,
+    sourceSessionId?: string,
+    feedbackType?: string,
+    feedbackDetails?: string,
+  ) =>
+    ipcRenderer.invoke(
+      "ghostwiki:query",
+      query,
+      sourceSessionId,
+      feedbackType,
+      feedbackDetails,
+    ),
+  ghostwikiLint: () => ipcRenderer.invoke("ghostwiki:lint"),
 };
 
 // Expose only the overlay-specific IPC facade.

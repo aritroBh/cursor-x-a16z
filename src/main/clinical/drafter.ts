@@ -90,11 +90,13 @@ function buildFallbackDraft(
     assessment_and_plan: NOT_FOUND,
   };
 
-  const fields: Array<[
-    keyof DraftNoteBody,
-    keyof NonNullable<ClinicalSourceNote["extractedSections"]>,
-    string,
-  ]> = [
+  const fields: Array<
+    [
+      keyof DraftNoteBody,
+      keyof NonNullable<ClinicalSourceNote["extractedSections"]>,
+      string,
+    ]
+  > = [
     ["chief_complaint", "chiefComplaint", "Chief complaint"],
     ["hpi", "hpi", "HPI"],
     ["past_medical_history", "pmh", "PMH"],
@@ -166,7 +168,9 @@ function coerceStringArray(value: unknown): string[] {
 function coerceSourceMap(value: unknown): SourceMapEntry[] {
   if (!Array.isArray(value)) return [];
   return value
-    .filter((v): v is Record<string, unknown> => Boolean(v && typeof v === "object"))
+    .filter((v): v is Record<string, unknown> =>
+      Boolean(v && typeof v === "object"),
+    )
     .map((entry) => ({
       claim: typeof entry.claim === "string" ? entry.claim : "",
       source_ids: coerceStringArray(entry.source_ids),
@@ -175,7 +179,10 @@ function coerceSourceMap(value: unknown): SourceMapEntry[] {
 }
 
 function coerceDraftBody(value: unknown): DraftNoteBody {
-  const v = (value && typeof value === "object" ? value : {}) as Record<string, unknown>;
+  const v = (value && typeof value === "object" ? value : {}) as Record<
+    string,
+    unknown
+  >;
   const get = (k: string): string =>
     typeof v[k] === "string" && (v[k] as string).trim().length > 0
       ? (v[k] as string)
@@ -196,7 +203,10 @@ function normalizeAnthropicDraft(
   raw: unknown,
   draftNoteType: string,
 ): DraftNote {
-  const obj = (raw && typeof raw === "object" ? raw : {}) as Record<string, unknown>;
+  const obj = (raw && typeof raw === "object" ? raw : {}) as Record<
+    string,
+    unknown
+  >;
   return {
     draft_note_type:
       typeof obj.draft_note_type === "string" && obj.draft_note_type.trim()
@@ -304,7 +314,9 @@ export async function generateDraftNote(
       ],
     });
     const text = response.content
-      .map((p) => (p.type === "text" && typeof p.text === "string" ? p.text : ""))
+      .map((p) =>
+        p.type === "text" && typeof p.text === "string" ? p.text : "",
+      )
       .join("\n");
     const parsed = extractJsonBlock(text);
     const normalized = normalizeAnthropicDraft(parsed, draftNoteType);
@@ -356,9 +368,7 @@ export function validateDraft(
   }
 
   if (
-    !draft.warnings.some((w) =>
-      /clinician.*verify|verify.*signing/i.test(w),
-    )
+    !draft.warnings.some((w) => /clinician.*verify|verify.*signing/i.test(w))
   ) {
     errors.push("missing clinician-verification warning");
   }

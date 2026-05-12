@@ -33,7 +33,9 @@ export function isOpenaraInstalled(): boolean {
 
 function runOpenara(args: string[], timeoutMs = 5000): Promise<OpenaraResult> {
   return new Promise((resolve) => {
-    const child = spawn(OPENARA_BIN, args, { stdio: ["ignore", "pipe", "pipe"] });
+    const child = spawn(OPENARA_BIN, args, {
+      stdio: ["ignore", "pipe", "pipe"],
+    });
     let stdout = "";
     let stderr = "";
     let settled = false;
@@ -251,12 +253,7 @@ export async function getAppState(
   }
 
   const result = await runOpenara(
-    [
-      "call",
-      "get_app_state",
-      "--args",
-      JSON.stringify({ app: targetApp }),
-    ],
+    ["call", "get_app_state", "--args", JSON.stringify({ app: targetApp })],
     8000,
   );
 

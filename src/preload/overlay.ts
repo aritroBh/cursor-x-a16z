@@ -12,6 +12,8 @@ function onIpc(
 
 // Custom APIs for renderer
 const api = {
+  getStartupMode: () => ipcRenderer.invoke("env:getStartupMode"),
+
   // Cursor
   moveRealMouse: (
     x: number,

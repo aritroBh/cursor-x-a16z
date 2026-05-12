@@ -83,16 +83,59 @@ export const GhostWikiPanel: React.FC = () => {
     setIsBusy(false);
   };
 
-  const handleFeedback = async (type: "correct" | "wrong" | "missing-step") => {
+  const [feedbackPrompt, setFeedbackPrompt] = useState<{
+    type: "correct" | "wrong" | "missing-step";
+  } | null>(null);
+  const [feedbackText, setFeedbackText] = useState("");
+
+  const handleRecord = async () => {
+    setIsBusy(true);
+    try {
+      await api.startRecording();
+    } catch (e) {
+      console.error(e);
+      alert("Demo recording loaded / Record not fully implemented yet");
+    }
+    setIsBusy(false);
+  };
+
+  const handleCompileWiki = async () => {
+    setIsBusy(true);
+    try {
+      await api.ghostwikiIngestSession("event-recap-session-1", "Specter");
+      alert("Wiki compiled successfully");
+    } catch (e) {
+      console.error(e);
+    }
+    setIsBusy(false);
+  };
+
+  const handleReplay = async () => {
+    setIsBusy(true);
+    try {
+      await api.autoExecute();
+    } catch (e) {
+      console.error(e);
+      alert("Replay not implemented yet");
+    }
+    setIsBusy(false);
+  };
+
+  const submitFeedback = async () => {
+    if (!feedbackPrompt || !feedbackText) return;
     setIsBusy(true);
     try {
       await api.ghostwikiQuery(
-        "",
+        queryInput, // pass the original query string
         "event-recap-session-1",
-        type,
-        `User marked as ${type}`,
+        feedbackPrompt.type,
+        feedbackText,
       );
       alert("Feedback recorded and re-ingested.");
+      setFeedbackPrompt(null);
+      setFeedbackText("");
+      // Rerun original query to show updated answer
+      await handleQuery();
     } catch (e) {
       console.error(e);
     }
@@ -149,10 +192,10 @@ export const GhostWikiPanel: React.FC = () => {
           marginBottom: "12px",
         }}
       >
-        <button onClick={() => {}} disabled={isBusy} style={btnStyle}>
-          Record
+        <button onClick={handleRecord} disabled={isBusy} style={btnStyle}>
+          Demo recording loaded
         </button>
-        <button onClick={() => {}} disabled={isBusy} style={btnStyle}>
+        <button onClick={handleCompileWiki} disabled={isBusy} style={btnStyle}>
           Compile Wiki
         </button>
         <button onClick={handleIngest} disabled={isBusy} style={btnStyle}>
@@ -161,8 +204,12 @@ export const GhostWikiPanel: React.FC = () => {
         <button onClick={handleLint} disabled={isBusy} style={btnStyle}>
           Lint
         </button>
-        <button onClick={() => {}} disabled={isBusy} style={btnStyle}>
-          Replay
+        <button
+          onClick={handleReplay}
+          disabled={true}
+          style={{ ...btnStyle, opacity: 0.5 }}
+        >
+          Replay not implemented yet
         </button>
       </div>
 
@@ -225,24 +272,73 @@ export const GhostWikiPanel: React.FC = () => {
 
           <div style={{ display: "flex", gap: "8px", marginTop: "8px" }}>
             <button
-              onClick={() => handleFeedback("correct")}
+              onClick={() => setFeedbackPrompt({ type: "correct" })}
               style={{ ...fbBtnStyle, color: "#30d158" }}
             >
               Correct
             </button>
             <button
-              onClick={() => handleFeedback("wrong")}
+              onClick={() => setFeedbackPrompt({ type: "wrong" })}
               style={{ ...fbBtnStyle, color: "#ff453a" }}
             >
               Wrong
             </button>
             <button
-              onClick={() => handleFeedback("missing-step")}
+              onClick={() => setFeedbackPrompt({ type: "missing-step" })}
               style={{ ...fbBtnStyle, color: "#ffcc00" }}
             >
               Missing Step
             </button>
           </div>
+
+          {feedbackPrompt && (
+            <div
+              style={{
+                marginTop: "12px",
+                display: "flex",
+                flexDirection: "column",
+                gap: "8px",
+              }}
+            >
+              <div style={{ fontSize: "12px", fontWeight: "bold" }}>
+                Provide correction for {feedbackPrompt.type}:
+              </div>
+              <textarea
+                value={feedbackText}
+                onChange={(e) => setFeedbackText(e.target.value)}
+                rows={3}
+                style={{
+                  width: "100%",
+                  padding: "6px",
+                  borderRadius: "4px",
+                  border: "1px solid #444",
+                  background: "#222",
+                  color: "white",
+                  fontSize: "12px",
+                }}
+                placeholder="What should it be?"
+              />
+              <div style={{ display: "flex", gap: "8px" }}>
+                <button
+                  onClick={submitFeedback}
+                  disabled={isBusy || !feedbackText}
+                  style={{ ...btnStyle, background: "#0a84ff", flex: 1 }}
+                >
+                  Submit Feedback
+                </button>
+                <button
+                  onClick={() => {
+                    setFeedbackPrompt(null);
+                    setFeedbackText("");
+                  }}
+                  disabled={isBusy}
+                  style={{ ...btnStyle, flex: 1 }}
+                >
+                  Cancel
+                </button>
+              </div>
+            </div>
+          )}
         </div>
       )}
     </div>

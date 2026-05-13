@@ -136,15 +136,7 @@ async function runTests() {
     return ee;
   });
 
-  // Temporarily monkey patch default timeout
-  const scriptContent = require("fs").readFileSync(
-    "src/main/automation/peekabooAdapter.ts",
-    "utf8",
-  );
-  require("fs").writeFileSync(
-    "src/main/automation/peekabooAdapter.ts",
-    scriptContent.replace("10000", "100"),
-  );
+  process.env.PEEKABOO_TIMEOUT_MS = "100";
   // Re-import to pick up timeout change
   delete require.cache[
     require.resolve("../src/main/automation/peekabooAdapter")
@@ -157,11 +149,7 @@ async function runTests() {
     "Timeout handled",
   );
 
-  // Revert timeout patch
-  require("fs").writeFileSync(
-    "src/main/automation/peekabooAdapter.ts",
-    scriptContent,
-  );
+  delete process.env.PEEKABOO_TIMEOUT_MS;
 
   // 7. Nonzero exit
   mockSpawn(() => {

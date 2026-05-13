@@ -217,7 +217,7 @@ export const GhostWikiPanel: React.FC = () => {
     setIsBusy(true);
 
     // 1. Compile
-    addLog("Demo: Compiling Wiki...");
+    addLog("Demo: Compiling + Ingesting Wiki...");
     try {
       await api.ghostwikiIngestSession("event-recap-session-1", "Specter");
       updateLastLog("pass");
@@ -253,8 +253,24 @@ export const GhostWikiPanel: React.FC = () => {
     const demoQuery = "How do I create a calendar event from this event page?";
     setQueryInput(demoQuery);
     addLog(`Demo: Querying "${demoQuery}"`);
+    let beforeAnswer = "";
     try {
       const res = await api.ghostwikiQuery(demoQuery);
+      beforeAnswer = res.answer;
+
+      const missingKeys = [
+        "Create Event",
+        "title",
+        "date",
+        "time",
+        "location",
+        "host",
+      ].filter((k) => !res.answer.includes(k));
+      if (missingKeys.length > 0)
+        throw new Error(`Query answer missing: ${missingKeys.join(", ")}`);
+      if (!res.sources || res.sources.length === 0)
+        throw new Error("Query sources missing or empty");
+
       setQueryResult(res);
       setStatus((s) => ({ ...s, mode: res.mode }));
       updateLastLog("pass");
@@ -269,10 +285,14 @@ export const GhostWikiPanel: React.FC = () => {
     addLog("Demo: Running Lint...");
     try {
       const res = await api.ghostwikiLint();
+      const numIssues = res.issues ? res.issues.length : 0;
+      if (numIssues === 0)
+        throw new Error("Lint issues expected but none found");
+
       setStatus((s) => ({
         ...s,
         mode: res.mode,
-        lintIssues: res.issues ? res.issues.length : 0,
+        lintIssues: numIssues,
       }));
       setLintResultIssues(res.issues || []);
       updateLastLog("pass");
@@ -286,7 +306,6 @@ export const GhostWikiPanel: React.FC = () => {
     // 5, 6 & 7. Correct, Re-ingest & Re-query
     addLog("Demo: Submitting Correction & Re-ingesting...");
     try {
-      const previousAnswer = queryResult?.answer;
       const correctionText = "It needs a success condition";
       const result = await api.ghostwikiQuery(
         demoQuery,
@@ -294,14 +313,19 @@ export const GhostWikiPanel: React.FC = () => {
         "missing-step",
         correctionText,
       );
+
+      if (!result.answer)
+        throw new Error("afterAnswer is missing in correction result");
+      const cPath =
+        result.correctionPath || "Correction file written; path unavailable";
+
       // Diff panel will catch the correction file if we have it in result
       setQueryResult(result);
       setMemoryDiff({
-        beforeAnswer: previousAnswer,
+        beforeAnswer: beforeAnswer,
         afterAnswer: result.answer,
         correctionText: correctionText,
-        correctionPath:
-          result.correctionPath || "Correction file written; path unavailable",
+        correctionPath: cPath,
         sources: result.sources,
       });
       setStatus((s) => ({ ...s, mode: result.mode }));
@@ -409,7 +433,7 @@ export const GhostWikiPanel: React.FC = () => {
           Demo recording already loaded
         </button>
         <button onClick={handleCompileWiki} disabled={isBusy} style={btnStyle}>
-          Compile Wiki
+          Compile + Ingest
         </button>
         <button onClick={handleIngest} disabled={isBusy} style={btnStyle}>
           Ingest

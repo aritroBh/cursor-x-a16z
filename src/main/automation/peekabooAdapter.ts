@@ -10,6 +10,14 @@ export interface PeekabooResult {
 
 const DEFAULT_TIMEOUT_MS = 10000;
 
+function getTimeoutMs(): number {
+  if (process.env.PEEKABOO_TIMEOUT_MS) {
+    const parsed = parseInt(process.env.PEEKABOO_TIMEOUT_MS, 10);
+    if (!isNaN(parsed)) return parsed;
+  }
+  return DEFAULT_TIMEOUT_MS;
+}
+
 export function isMac(): boolean {
   return os.platform() === "darwin";
 }
@@ -31,7 +39,7 @@ export async function isPeekabooAvailable(): Promise<boolean> {
 
 function executePeekabooCommand(
   args: string[],
-  timeoutMs: number = DEFAULT_TIMEOUT_MS,
+  timeoutMs: number = getTimeoutMs(),
 ): Promise<PeekabooResult> {
   return new Promise((resolve) => {
     if (!isMac()) {

@@ -108,4 +108,47 @@ except Exception as e:
     sys.exit(1)
 " || { cleanup; exit 1; }
 
+echo "Running backend/wiki-level self-improvement proof..."
+cat << 'EOF' > demo-workflows/event-recap/wiki/correction-e2e.md
+Feedback received: **missing-step**
+
+Correction Text: The workflow needs a success condition confirming the calendar event was saved.
+
+Reference: [[workflow-event-recap-session-1]]
+EOF
+
+echo "Calling /query after correction..."
+curl -s -X POST -H "Content-Type: application/json" -d "$QUERY_PAYLOAD" http://127.0.0.1:$MEMORY_SERVICE_PORT/query > query_response2.json
+python -c "
+import sys, json
+
+try:
+    with open('query_response2.json', 'r') as f:
+        data = json.load(f)
+    answer = data.get('answer', '').lower()
+    sources = data.get('sources', [])
+
+    if 'success condition' not in answer and 'calendar event was saved' not in answer:
+        print('FAIL: Answer does not include success condition correction')
+        sys.exit(1)
+
+    correction_found = False
+    for s in sources:
+        if 'correction' in s.get('title', '').lower() or 'correction' in s.get('content', '').lower():
+            correction_found = True
+            break
+
+    if not correction_found:
+        print('FAIL: Sources do not include correction page')
+        sys.exit(1)
+
+    print('PASS: Correction applied and verified in query output')
+except Exception as e:
+    print(f'FAIL: Python json parsing failed on second query: {e}')
+    sys.exit(1)
+" || { cleanup; exit 1; }
+
+# Remove the test correction to avoid polluting state for the UI demo later
+rm demo-workflows/event-recap/wiki/correction-e2e.md
+
 echo "All e2e tests PASSED!"

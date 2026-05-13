@@ -27,7 +27,7 @@ HEALTH_STATUS=$(curl -s -o /dev/null -w "%{http_code}" http://127.0.0.1:$MEMORY_
 if [ "$HEALTH_STATUS" != "200" ]; then
     echo "FAIL: Health check failed with status $HEALTH_STATUS"
     cleanup
-    return 1 2>/dev/null || true
+    exit 1
 fi
 echo "PASS: Health check"
 
@@ -36,7 +36,7 @@ INGEST_STATUS=$(curl -s -o /dev/null -w "%{http_code}" -X POST -H "Content-Type:
 if [ "$INGEST_STATUS" != "200" ]; then
     echo "FAIL: Ingest failed with status $INGEST_STATUS"
     cleanup
-    return 1 2>/dev/null || true
+    exit 1
 fi
 echo "PASS: Ingest"
 
@@ -57,6 +57,10 @@ try:
         print('FAIL: Sources are empty')
         sys.exit(1)
 
+    if 'no relevant information' in answer or 'no explicit steps' in answer:
+        print('FAIL: Answer is generic')
+        sys.exit(1)
+
     required_terms = ['create event', 'title', 'date', 'time', 'location', 'host']
     for term in required_terms:
         if term not in answer:
@@ -67,7 +71,7 @@ try:
 except Exception as e:
     print(f'FAIL: Python json parsing failed: {e}')
     sys.exit(1)
-" || { cleanup; return 1 2>/dev/null || true; }
+" || { cleanup; exit 1; }
 
 echo "Calling /lint..."
 curl -s -X POST -H "Content-Type: application/json" -d '{}' http://127.0.0.1:$MEMORY_SERVICE_PORT/lint > lint_response.json
@@ -78,6 +82,10 @@ try:
     with open('lint_response.json', 'r') as f:
         data = json.load(f)
     issues = data.get('issues', [])
+
+    if len(issues) == 0:
+        print('FAIL: Lint has no issues')
+        sys.exit(1)
 
     found_success_condition = False
     for issue in issues:
@@ -98,6 +106,6 @@ try:
 except Exception as e:
     print(f'FAIL: Python json parsing failed: {e}')
     sys.exit(1)
-" || { cleanup; return 1 2>/dev/null || true; }
+" || { cleanup; exit 1; }
 
 echo "All e2e tests PASSED!"

@@ -106,6 +106,7 @@ class WikiStore:
                 results.append({
                     "id": f,
                     "title": title,
+                    "path": slug,
                     "content": content[:1500] + "..." if len(content) > 1500 else content,
                     "score": score
                 })

@@ -27,7 +27,7 @@ HEALTH_STATUS=$(curl -s -o /dev/null -w "%{http_code}" http://127.0.0.1:$MEMORY_
 if [ "$HEALTH_STATUS" != "200" ]; then
     echo "FAIL: Health check failed with status $HEALTH_STATUS"
     cleanup
-    return 1 2>/dev/null || true
+    exit 1
 fi
 echo "PASS: Health check"
 
@@ -36,7 +36,7 @@ INGEST_STATUS=$(curl -s -o /dev/null -w "%{http_code}" -X POST -H "Content-Type:
 if [ "$INGEST_STATUS" != "200" ]; then
     echo "FAIL: Ingest failed with status $INGEST_STATUS"
     cleanup
-    return 1 2>/dev/null || true
+    exit 1
 fi
 echo "PASS: Ingest"
 
@@ -67,7 +67,7 @@ try:
 except Exception as e:
     print(f'FAIL: Python json parsing failed: {e}')
     sys.exit(1)
-" || { cleanup; return 1 2>/dev/null || true; }
+" || { cleanup; exit 1; }
 
 echo "Calling /lint..."
 curl -s -X POST -H "Content-Type: application/json" -d '{}' http://127.0.0.1:$MEMORY_SERVICE_PORT/lint > lint_response.json
@@ -98,6 +98,6 @@ try:
 except Exception as e:
     print(f'FAIL: Python json parsing failed: {e}')
     sys.exit(1)
-" || { cleanup; return 1 2>/dev/null || true; }
+" || { cleanup; exit 1; }
 
 echo "All e2e tests PASSED!"

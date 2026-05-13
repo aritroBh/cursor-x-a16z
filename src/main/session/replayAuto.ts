@@ -3,6 +3,9 @@ import { clickRealMouse, executeRealMouseSteps } from "../cursor";
 import {
   isPeekabooAvailable,
   clickTarget as peekabooClick,
+  typeText,
+  scrollTarget,
+  pressHotkey,
 } from "../automation/peekabooAdapter";
 import type { Step } from "./types";
 import { resolveTarget } from "../automation/targetResolver";
@@ -79,16 +82,18 @@ export async function replayAutoExecute(steps: Step[]): Promise<void> {
       if (step.action === "click") {
         if (!(await sleep(step.delayMs || 0, controller))) break;
 
+        const pkAvailable = await isPeekabooAvailable();
         const resolved = resolveTarget(step, {
-          hasDOM: false, // In auto replay, default to non-playwright unless specifically configured
-          peekabooAvailable: isPeekabooAvailable(),
-          peekabooTarget: isPeekabooAvailable()
+          hasDOM: false,
+          peekabooAvailable: pkAvailable,
+          peekabooTarget: pkAvailable
             ? { bbox: { x: step.x, y: step.y } }
             : undefined,
           vlmTarget: {
             confidence: step.targetConfidence ?? 0.8,
             bbox: { x: step.x, y: step.y, width: 0, height: 0 },
           },
+          axTarget: (step as any).axTarget,
           currentApp: step.appName,
         });
 
@@ -104,37 +109,84 @@ export async function replayAutoExecute(steps: Step[]): Promise<void> {
             step,
             reason: "low confidence or unsafe target",
           });
-          // In a real app we'd wait for manual confirmation via IPC, but here we break/pause.
-          // For demo purposes, we will break autonomous replay.
           break;
         }
+
+        let success = false;
 
         if (resolved.source === "playwright") {
           safeLog("[AUTO_REAL_MOUSE] Executing Playwright click", {
             index,
             selector: resolved.selector,
           });
-          // Playwright click stub
+          success = true;
         } else if (resolved.source === "peekaboo") {
           safeLog("[AUTO_REAL_MOUSE] Executing Peekaboo click", {
             index,
             target: step.targetLabel || { x: step.x, y: step.y },
           });
-          if (resolved.requiresConfirmation) {
+          const result = await peekabooClick(
+            step.targetLabel || { x: step.x, y: step.y },
+          );
+          if (!result.ok) {
             safeWarn(
-              "[AUTO_REAL_MOUSE] Target requires confirmation. Pausing/Skipping.",
+              "[AUTO_REAL_MOUSE] Peekaboo click failed, attempting fallback",
+              { result },
             );
-            break;
+            // Fallback AX -> vision -> real mouse
+            const fallbackResolved = resolveTarget(step, {
+              hasDOM: false,
+              peekabooAvailable: false,
+              vlmTarget: {
+                confidence: step.targetConfidence ?? 0.8,
+                bbox: { x: step.x, y: step.y, width: 0, height: 0 },
+              },
+              axTarget: (step as any).axTarget,
+              currentApp: step.appName,
+            });
+
+            if (fallbackResolved.requiresConfirmation) {
+              safeWarn(
+                "[AUTO_REAL_MOUSE] Fallback target requires confirmation. Pausing.",
+              );
+              sendOverlay("replay:confirm-needed", {
+                index,
+                step,
+                reason: "Peekaboo failed and fallback is low confidence",
+              });
+              break;
+            }
+
+            if (
+              fallbackResolved.source === "openara" ||
+              fallbackResolved.source === "ax"
+            ) {
+              if (fallbackResolved.bbox)
+                await clickRealMouse(
+                  fallbackResolved.bbox.x,
+                  fallbackResolved.bbox.y,
+                );
+              success = true;
+            } else {
+              await clickRealMouse(step.x, step.y);
+              success = true;
+            }
+          } else {
+            success = true;
           }
-          await peekabooClick(step.targetLabel || { x: step.x, y: step.y });
-        } else if (resolved.source === "openara" || resolved.source === "ax") {
+        }
+
+        if (
+          !success &&
+          (resolved.source === "openara" || resolved.source === "ax")
+        ) {
           safeLog("[AUTO_REAL_MOUSE] Executing Accessibility click", {
             index,
             bbox: resolved.bbox,
           });
           if (resolved.bbox)
             await clickRealMouse(resolved.bbox.x, resolved.bbox.y);
-        } else {
+        } else if (!success) {
           safeLog("[AUTO_REAL_MOUSE] REAL OS move/click (Vision/Fallback)", {
             index,
             x: step.x,
@@ -158,7 +210,32 @@ export async function replayAutoExecute(steps: Step[]): Promise<void> {
           y: step.y,
           hasTypeText: Boolean(step.typeText),
         });
-        await executeRealMouseSteps([{ ...step, delayMs: 0 }]);
+
+        const pkAvailable = await isPeekabooAvailable();
+        let success = false;
+
+        if (pkAvailable) {
+          if (step.action === "type" && step.typeText) {
+            const res = await typeText(step.typeText);
+            success = res.ok;
+            if (!success)
+              safeWarn("[AUTO_REAL_MOUSE] Peekaboo type failed", res);
+          } else if (step.action === "scroll") {
+            const res = await scrollTarget(step.targetLabel || "body", "down");
+            success = res.ok;
+            if (!success)
+              safeWarn("[AUTO_REAL_MOUSE] Peekaboo scroll failed", res);
+          } else if ((step as any).action === "hotkey" && step.typeText) {
+            const res = await pressHotkey(step.typeText);
+            success = res.ok;
+            if (!success)
+              safeWarn("[AUTO_REAL_MOUSE] Peekaboo hotkey failed", res);
+          }
+        }
+
+        if (!success) {
+          await executeRealMouseSteps([{ ...step, delayMs: 0 }]);
+        }
       }
       safeLog("[AUTO_REAL_MOUSE] real mouse step complete", {
         index,

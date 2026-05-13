@@ -207,6 +207,23 @@ async function runTests() {
     "Text is passed as a single argument without shell interpretation",
   );
 
+  assert(
+    spawnArgs.join(" ") === "type --text hello world; rm -rf / --json",
+    "type arguments are correct",
+  );
+
+  await adapter.scrollTarget("my-target", "up");
+  assert(
+    spawnArgs.join(" ") === "scroll --on my-target --direction up --json",
+    "scroll arguments are correct",
+  );
+
+  await adapter.clickTarget({ x: 10, y: 20 });
+  assert(
+    spawnArgs.join(" ") === "click --coords 10,20 --json",
+    "click by coords arguments are correct",
+  );
+
   restoreSpawn();
   Object.defineProperty(require("os"), "platform", originalPlatform); // Restore
 

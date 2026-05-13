@@ -57,6 +57,10 @@ try:
         print('FAIL: Sources are empty')
         sys.exit(1)
 
+    if 'no relevant information' in answer or 'no explicit steps' in answer:
+        print('FAIL: Answer is generic')
+        sys.exit(1)
+
     required_terms = ['create event', 'title', 'date', 'time', 'location', 'host']
     for term in required_terms:
         if term not in answer:
@@ -78,6 +82,10 @@ try:
     with open('lint_response.json', 'r') as f:
         data = json.load(f)
     issues = data.get('issues', [])
+
+    if len(issues) == 0:
+        print('FAIL: Lint has no issues')
+        sys.exit(1)
 
     found_success_condition = False
     for issue in issues:

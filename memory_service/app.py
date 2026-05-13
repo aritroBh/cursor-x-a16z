@@ -59,10 +59,28 @@ async def query(request: QueryRequest):
         fallback_sources = wiki_store.search_fallback(request.query)
         if fallback_sources:
             # Generate a procedural answer
-            answer_lines = ["To create the calendar event:"]
+            answer_lines = []
+
+            # Incorporate correction logic dynamically from content
+            import re
+            corrections = [s for s in fallback_sources if "Correction" in s["title"]]
+            correction_text = ""
+            for c in corrections:
+                corr_match = re.search(r'Correction Text:\s*(.*)', c["content"])
+                if corr_match:
+                    correction_text += f"\nNote: {corr_match.group(1)}"
+
+            # generic or specific context setup
+            if "event" in request.query.lower():
+                answer_lines.append("To create the calendar event:")
+            else:
+                answer_lines.append("Here is how to do it:")
+
             steps_found = False
 
             for source in fallback_sources:
+                if "Correction" in source["title"]:
+                    continue # Skip treating corrections as steps bodies directly
                 steps = wiki_store.extract_steps(source["content"])
                 if steps:
                     steps_found = True
@@ -73,6 +91,9 @@ async def query(request: QueryRequest):
             if not steps_found:
                 # If no explicit steps, provide a generic summary but dynamic
                 answer_lines.append("Found relevant information but no explicit steps.")
+
+            if correction_text:
+                answer_lines.append(correction_text)
 
             source_titles = [s['title'] for s in fallback_sources]
             answer_lines.append("\nSources: " + ", ".join(source_titles))

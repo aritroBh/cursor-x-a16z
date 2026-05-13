@@ -205,30 +205,41 @@ export async function captureSnapshot(
   return executePeekabooCommand(args);
 }
 
+export type PeekabooClickTarget =
+  | { kind: "element"; target: string; snapshotId?: string }
+  | { kind: "coords"; x: number; y: number };
+
 export async function clickTarget(
-  target: string | { x: number; y: number; snapshotId?: string },
+  target: PeekabooClickTarget,
 ): Promise<PeekabooResult> {
-  if (typeof target === "string") {
-    const snapRes = await executePeekabooCommand(["see", "--json"]);
-    if (!snapRes.ok || !snapRes.result || !snapRes.result.snapshotId) {
-      return {
-        ok: false,
-        warnings: ["Failed to extract snapshot id from peekaboo see --json"],
-      };
+  if (target.kind === "element") {
+    if (target.snapshotId) {
+      return executePeekabooCommand([
+        "click",
+        "--on",
+        target.target,
+        "--snapshot",
+        target.snapshotId,
+        "--json",
+      ]);
+    } else {
+      const snapRes = await executePeekabooCommand(["see", "--json"]);
+      if (!snapRes.ok || !snapRes.result || !snapRes.result.snapshotId) {
+        return {
+          ok: false,
+          warnings: ["Failed to extract snapshot id from peekaboo see --json"],
+        };
+      }
+      return executePeekabooCommand([
+        "click",
+        "--on",
+        target.target,
+        "--snapshot",
+        snapRes.result.snapshotId,
+        "--json",
+      ]);
     }
-    return executePeekabooCommand([
-      "click",
-      "--on",
-      target,
-      "--snapshot",
-      snapRes.result.snapshotId,
-      "--json",
-    ]);
-  } else if (typeof target === "object" && target.snapshotId) {
-    // If it has a snapshot ID, we assume it's acting as a reference target,
-    // but the spec for coords is just --coords <x>,<y>
-    // However, if the caller gave us a snapshotId, they probably meant to use it.
-    // Let's stick to coords if it has x and y.
+  } else if (target.kind === "coords") {
     return executePeekabooCommand([
       "click",
       "--coords",
@@ -236,13 +247,7 @@ export async function clickTarget(
       "--json",
     ]);
   }
-
-  return executePeekabooCommand([
-    "click",
-    "--coords",
-    `${(target as any).x},${(target as any).y}`,
-    "--json",
-  ]);
+  return { ok: false, warnings: ["Invalid click target"] };
 }
 
 export async function typeText(text: string): Promise<PeekabooResult> {
@@ -251,7 +256,11 @@ export async function typeText(text: string): Promise<PeekabooResult> {
 
 export async function pressHotkey(keys: string): Promise<PeekabooResult> {
   const helpRes = await executePeekabooCommand(["hotkey", "--help"]);
-  if (!helpRes.ok) {
+  if (
+    !helpRes.ok ||
+    !helpRes.raw ||
+    (!helpRes.raw.includes("hotkey") && !helpRes.raw.includes("USAGE"))
+  ) {
     return { ok: false, warnings: ["Peekaboo hotkey unavailable"] };
   }
   return executePeekabooCommand(["hotkey", keys, "--json"]);

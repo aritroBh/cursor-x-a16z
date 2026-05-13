@@ -121,13 +121,66 @@ export async function replayAutoExecute(steps: Step[]): Promise<void> {
           });
           success = true;
         } else if (resolved.source === "peekaboo") {
+          let pkTarget: any;
+          if (
+            step.targetLabel ||
+            step.selector ||
+            (step as any).accessibilityId
+          ) {
+            pkTarget = {
+              kind: "element",
+              target:
+                step.targetLabel ||
+                step.selector ||
+                (step as any).accessibilityId,
+              snapshotId: (step as any).snapshotId,
+            };
+          } else if (typeof step.x === "number" && typeof step.y === "number") {
+            pkTarget = { kind: "coords", x: step.x, y: step.y };
+          } else if (
+            resolved.bbox &&
+            typeof resolved.bbox.x === "number" &&
+            typeof resolved.bbox.y === "number" &&
+            typeof resolved.bbox.width === "number" &&
+            typeof resolved.bbox.height === "number"
+          ) {
+            pkTarget = {
+              kind: "coords",
+              x: resolved.bbox.x + resolved.bbox.width / 2,
+              y: resolved.bbox.y + resolved.bbox.height / 2,
+            };
+          } else if (
+            step.bbox &&
+            typeof step.bbox.x === "number" &&
+            typeof step.bbox.y === "number" &&
+            typeof step.bbox.width === "number" &&
+            typeof step.bbox.height === "number"
+          ) {
+            pkTarget = {
+              kind: "coords",
+              x: step.bbox.x + step.bbox.width / 2,
+              y: step.bbox.y + step.bbox.height / 2,
+            };
+          }
+
+          if (!pkTarget) {
+            safeWarn(
+              "[AUTO_REAL_MOUSE] Peekaboo click missing target context. Pausing.",
+              { index },
+            );
+            sendOverlay("replay:confirm-needed", {
+              index,
+              step,
+              reason: "Peekaboo missing valid target",
+            });
+            break;
+          }
+
           safeLog("[AUTO_REAL_MOUSE] Executing Peekaboo click", {
             index,
-            target: step.targetLabel || { x: step.x, y: step.y },
+            target: pkTarget,
           });
-          const result = await peekabooClick(
-            step.targetLabel || { x: step.x, y: step.y },
-          );
+          const result = await peekabooClick(pkTarget);
           if (!result.ok) {
             safeWarn(
               "[AUTO_REAL_MOUSE] Peekaboo click failed, attempting fallback",

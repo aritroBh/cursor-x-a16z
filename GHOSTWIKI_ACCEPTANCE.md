@@ -89,6 +89,8 @@ brew install steipete/tap/peekaboo
 peekaboo permissions status
 ```
 
+**Note**: macOS validation not run — requires macOS + Screen Recording + Accessibility permissions. `Run Winning Demo` sequence uses real API calls throughout its sequence.
+
 ## Update: Lint and Bug Fix Validation
 The following tests have been run to validate the `lint` failure, `peekaboo` arguments/availability and UI bugs:
 

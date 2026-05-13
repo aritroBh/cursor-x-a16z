@@ -1785,6 +1785,7 @@ app.whenReady().then(async () => {
     ) => {
       const port = process.env.MEMORY_SERVICE_PORT || "8765";
 
+      let correctionPath: string | null = null;
       if (feedbackType && feedbackDetails && feedbackSourceSessionId) {
         // It's a feedback loop
         const { compileCorrectionToWiki } = require("./wiki/workflowCompiler");
@@ -1797,6 +1798,7 @@ app.whenReady().then(async () => {
         );
         const wikiRoot = process.env.GHOSTWIKI_WIKI_ROOT || "./wiki";
         const filepath = writeWikiPage(page, wikiRoot);
+        correctionPath = filepath;
 
         // Re-ingest
         if (filepath) {
@@ -1815,7 +1817,11 @@ app.whenReady().then(async () => {
         body: JSON.stringify({ query: queryText }),
       });
 
-      return res.json();
+      const jsonRes = await res.json();
+      if (correctionPath) {
+        return { ...jsonRes, correctionPath };
+      }
+      return jsonRes;
     },
   );
 

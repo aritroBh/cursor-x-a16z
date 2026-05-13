@@ -21,6 +21,42 @@ export const GhostWikiPanel: React.FC = () => {
   const [queryInput, setQueryInput] = useState("");
   const [queryResult, setQueryResult] = useState<any>(null);
   const [isBusy, setIsBusy] = useState(false);
+  const [logs, setLogs] = useState<
+    {
+      id: number;
+      timestamp: string;
+      label: string;
+      status: "pending" | "pass" | "fail";
+      error?: string;
+    }[]
+  >([]);
+  const [memoryDiff, setMemoryDiff] = useState<any>(null);
+
+  const addLog = (
+    label: string,
+    status: "pending" | "pass" | "fail" = "pending",
+    error?: string,
+  ) => {
+    setLogs((prev) => {
+      const newLog = {
+        id: Date.now() + Math.random(),
+        timestamp: new Date().toLocaleTimeString(),
+        label,
+        status,
+        error,
+      };
+      return [newLog, ...prev].slice(0, 20);
+    });
+  };
+
+  const updateLastLog = (status: "pass" | "fail", error?: string) => {
+    setLogs((prev) => {
+      if (prev.length === 0) return prev;
+      const updated = [...prev];
+      updated[0] = { ...updated[0], status, error };
+      return updated;
+    });
+  };
 
   useEffect(() => {
     // Initial health check if desired
@@ -50,6 +86,7 @@ export const GhostWikiPanel: React.FC = () => {
 
   const handleIngest = async () => {
     setIsBusy(true);
+    addLog("Ingesting session data...");
     try {
       const res = await api.ghostwikiIngestSession(
         "event-recap-session-1",
@@ -61,8 +98,10 @@ export const GhostWikiPanel: React.FC = () => {
         mode: res.mode,
         wikiPages: res.sources_ingested || s.wikiPages,
       }));
+      updateLastLog("pass");
     } catch (e) {
       console.error(e);
+      updateLastLog("fail", String(e));
     }
     setIsBusy(false);
   };
@@ -70,18 +109,23 @@ export const GhostWikiPanel: React.FC = () => {
   const handleQuery = async () => {
     if (!queryInput) return;
     setIsBusy(true);
+    addLog(`Querying: "${queryInput}"`);
     try {
       const res = await api.ghostwikiQuery(queryInput);
       setQueryResult(res);
       setStatus((s) => ({ ...s, mode: res.mode }));
+      setMemoryDiff(null); // Reset diff on a new normal query
+      updateLastLog("pass");
     } catch (e) {
       console.error(e);
+      updateLastLog("fail", String(e));
     }
     setIsBusy(false);
   };
 
   const handleLint = async () => {
     setIsBusy(true);
+    addLog("Running Lint...");
     try {
       const res = await api.ghostwikiLint();
       setStatus((s) => ({
@@ -90,9 +134,10 @@ export const GhostWikiPanel: React.FC = () => {
         lintIssues: res.issues ? res.issues.length : 0,
       }));
       setLintResultIssues(res.issues || []);
-      alert(`Lint found ${res.issues ? res.issues.length : 0} issues.`);
+      updateLastLog("pass");
     } catch (e) {
       console.error(e);
+      updateLastLog("fail", String(e));
     }
     setIsBusy(false);
   };
@@ -103,30 +148,33 @@ export const GhostWikiPanel: React.FC = () => {
   const [feedbackText, setFeedbackText] = useState("");
 
   const handleRecord = async () => {
-    alert("Demo recording already loaded");
+    addLog("Demo recording already loaded", "pass");
   };
 
   const handleCompileWiki = async () => {
     setIsBusy(true);
+    addLog("Compiling Wiki...");
     try {
       // "event-recap-session-1" is the ID expected to be found in demo-workflows/event-recap/graph.json
       // By calling ghostwikiIngestSession, the main process explicitely loads the demo workflow and compiles it.
       await api.ghostwikiIngestSession("event-recap-session-1", "Specter");
-      alert("Demo workflow compiled into Wiki");
+      updateLastLog("pass");
     } catch (e) {
       console.error(e);
-      alert("Compile failed: " + String(e));
+      updateLastLog("fail", String(e));
     }
     setIsBusy(false);
   };
 
   const handleReplay = async () => {
     setIsBusy(true);
+    addLog("Starting Replay...");
     try {
       await api.autoExecute();
+      updateLastLog("pass");
     } catch (e) {
       console.error(e);
-      alert("Replay not implemented yet");
+      updateLastLog("fail", "Replay not implemented yet");
     }
     setIsBusy(false);
   };
@@ -134,21 +182,146 @@ export const GhostWikiPanel: React.FC = () => {
   const submitFeedback = async () => {
     if (!feedbackPrompt || !feedbackText) return;
     setIsBusy(true);
+    addLog("Submitting feedback and re-ingesting...");
     try {
-      await api.ghostwikiQuery(
+      const previousAnswer = queryResult?.answer;
+      const result = await api.ghostwikiQuery(
         queryInput, // pass the original query string
         "event-recap-session-1",
         feedbackPrompt.type,
         feedbackText,
       );
-      alert("Feedback recorded and re-ingested.");
+      setQueryResult(result);
+      setMemoryDiff({
+        beforeAnswer: previousAnswer,
+        afterAnswer: result.answer,
+        correctionText: feedbackText,
+        correctionPath:
+          result.correctionPath || "Correction file written; path unavailable",
+        sources: result.sources,
+      });
+      updateLastLog("pass");
       setFeedbackPrompt(null);
       setFeedbackText("");
-      // Rerun original query to show updated answer
-      await handleQuery();
     } catch (e) {
       console.error(e);
+      updateLastLog("fail", String(e));
     }
+    setIsBusy(false);
+  };
+
+  const delay = (ms: number) =>
+    new Promise((resolve) => setTimeout(resolve, ms));
+
+  const runWinningDemo = async () => {
+    setIsBusy(true);
+
+    // 1. Compile
+    addLog("Demo: Compiling Wiki...");
+    try {
+      await api.ghostwikiIngestSession("event-recap-session-1", "Specter");
+      updateLastLog("pass");
+      await delay(700);
+    } catch (e) {
+      updateLastLog("fail", String(e));
+      setIsBusy(false);
+      return;
+    }
+
+    // 2. Ingest
+    addLog("Demo: Ingesting session data...");
+    try {
+      const res = await api.ghostwikiIngestSession(
+        "event-recap-session-1",
+        "Specter",
+      );
+      setStatus((s) => ({
+        ...s,
+        lastIngest: new Date().toLocaleTimeString(),
+        mode: res.mode,
+        wikiPages: res.sources_ingested || s.wikiPages,
+      }));
+      updateLastLog("pass");
+      await delay(700);
+    } catch (e) {
+      updateLastLog("fail", String(e));
+      setIsBusy(false);
+      return;
+    }
+
+    // 3. Query
+    const demoQuery = "How do I create a calendar event from this event page?";
+    setQueryInput(demoQuery);
+    addLog(`Demo: Querying "${demoQuery}"`);
+    try {
+      const res = await api.ghostwikiQuery(demoQuery);
+      setQueryResult(res);
+      setStatus((s) => ({ ...s, mode: res.mode }));
+      updateLastLog("pass");
+      await delay(700);
+    } catch (e) {
+      updateLastLog("fail", String(e));
+      setIsBusy(false);
+      return;
+    }
+
+    // 4. Lint
+    addLog("Demo: Running Lint...");
+    try {
+      const res = await api.ghostwikiLint();
+      setStatus((s) => ({
+        ...s,
+        mode: res.mode,
+        lintIssues: res.issues ? res.issues.length : 0,
+      }));
+      setLintResultIssues(res.issues || []);
+      updateLastLog("pass");
+      await delay(700);
+    } catch (e) {
+      updateLastLog("fail", String(e));
+      setIsBusy(false);
+      return;
+    }
+
+    // 5, 6 & 7. Correct, Re-ingest & Re-query
+    addLog("Demo: Submitting Correction & Re-ingesting...");
+    try {
+      const previousAnswer = queryResult?.answer;
+      const correctionText = "It needs a success condition";
+      const result = await api.ghostwikiQuery(
+        demoQuery,
+        "event-recap-session-1",
+        "missing-step",
+        correctionText,
+      );
+      // Diff panel will catch the correction file if we have it in result
+      setQueryResult(result);
+      setMemoryDiff({
+        beforeAnswer: previousAnswer,
+        afterAnswer: result.answer,
+        correctionText: correctionText,
+        correctionPath:
+          result.correctionPath || "Correction file written; path unavailable",
+        sources: result.sources,
+      });
+      setStatus((s) => ({ ...s, mode: result.mode }));
+      updateLastLog("pass");
+      await delay(700);
+    } catch (e) {
+      updateLastLog("fail", String(e));
+      setIsBusy(false);
+      return;
+    }
+
+    // 8. Replay
+    addLog("Demo: Starting Replay...");
+    try {
+      await api.autoExecute();
+      updateLastLog("pass");
+    } catch (e) {
+      updateLastLog("fail", "Replay not implemented yet");
+    }
+
     setIsBusy(false);
   };
 
@@ -245,6 +418,18 @@ export const GhostWikiPanel: React.FC = () => {
           Lint
         </button>
         <button
+          onClick={runWinningDemo}
+          disabled={isBusy}
+          style={{
+            ...btnStyle,
+            background: "rgba(100, 210, 255, 0.2)",
+            color: "#64d2ff",
+            fontWeight: "bold",
+          }}
+        >
+          Run Winning Demo
+        </button>
+        <button
           onClick={handleReplay}
           disabled={!peekabooStatus.available}
           style={{ ...btnStyle, opacity: peekabooStatus.available ? 1 : 0.5 }}
@@ -283,6 +468,49 @@ export const GhostWikiPanel: React.FC = () => {
         </button>
       </div>
 
+      {logs.length > 0 && (
+        <div
+          style={{
+            marginTop: "12px",
+            padding: "8px",
+            background: "rgba(255,255,255,0.05)",
+            borderRadius: "8px",
+            fontSize: "11px",
+            maxHeight: "150px",
+            overflowY: "auto",
+          }}
+        >
+          <div style={{ fontWeight: "bold", marginBottom: "4px" }}>
+            Activity Log:
+          </div>
+          {logs.map((log) => (
+            <div
+              key={log.id}
+              style={{ display: "flex", gap: "8px", marginBottom: "4px" }}
+            >
+              <span style={{ color: "#888" }}>[{log.timestamp}]</span>
+              <span
+                style={{
+                  color:
+                    log.status === "pass"
+                      ? "#30d158"
+                      : log.status === "fail"
+                        ? "#ff453a"
+                        : "#ffcc00",
+                  fontWeight: "bold",
+                }}
+              >
+                {log.status.toUpperCase()}
+              </span>
+              <span>{log.label}</span>
+              {log.error && (
+                <span style={{ color: "#ff453a" }}> - {log.error}</span>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+
       {queryResult && (
         <div
           style={{
@@ -320,6 +548,89 @@ export const GhostWikiPanel: React.FC = () => {
             </div>
           )}
 
+          {memoryDiff && (
+            <div
+              style={{
+                marginTop: "12px",
+                padding: "8px",
+                background: "rgba(10, 132, 255, 0.1)",
+                borderRadius: "8px",
+                border: "1px solid rgba(10, 132, 255, 0.3)",
+              }}
+            >
+              <div
+                style={{
+                  fontWeight: "bold",
+                  marginBottom: "8px",
+                  color: "#64d2ff",
+                }}
+              >
+                Memory Diff
+              </div>
+
+              <div style={{ marginBottom: "6px" }}>
+                <span
+                  style={{
+                    fontWeight: "bold",
+                    fontSize: "11px",
+                    color: "#aaa",
+                  }}
+                >
+                  Before Answer:
+                </span>
+                <div
+                  style={{
+                    fontSize: "12px",
+                    fontStyle: "italic",
+                    color: "#bbb",
+                  }}
+                >
+                  {memoryDiff.beforeAnswer || "None"}
+                </div>
+              </div>
+
+              <div style={{ marginBottom: "6px" }}>
+                <span
+                  style={{
+                    fontWeight: "bold",
+                    fontSize: "11px",
+                    color: "#ffcc00",
+                  }}
+                >
+                  Correction Applied:
+                </span>
+                <div style={{ fontSize: "12px" }}>
+                  {memoryDiff.correctionText}
+                </div>
+                <div
+                  style={{ fontSize: "10px", color: "#888", marginTop: "2px" }}
+                >
+                  Path: {memoryDiff.correctionPath}
+                </div>
+              </div>
+
+              <div style={{ marginBottom: "6px" }}>
+                <span
+                  style={{
+                    fontWeight: "bold",
+                    fontSize: "11px",
+                    color: "#30d158",
+                  }}
+                >
+                  After Answer:
+                </span>
+                <div style={{ fontSize: "12px" }}>{memoryDiff.afterAnswer}</div>
+              </div>
+
+              {memoryDiff.sources && (
+                <div style={{ fontSize: "10px", color: "#888" }}>
+                  Sources updated:{" "}
+                  {memoryDiff.sources.map((s: any) => s.title).join(", ")}
+                </div>
+              )}
+            </div>
+          )}
+
           {status.lintIssues > 0 && (
             <div
               style={{
@@ -341,7 +652,9 @@ export const GhostWikiPanel: React.FC = () => {
                     </li>
                   ))
                 ) : (
-                  <li>Missing success condition</li>
+                  <li>
+                    Lint issue count reported, but no issue details returned.
+                  </li>
                 )}
               </ul>
             </div>

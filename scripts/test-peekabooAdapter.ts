@@ -218,10 +218,46 @@ async function runTests() {
     "scroll arguments are correct",
   );
 
-  await adapter.clickTarget({ x: 10, y: 20 });
+  await adapter.clickTarget({ kind: "coords", x: 10, y: 20 });
   assert(
     spawnArgs.join(" ") === "click --coords 10,20 --json",
     "click by coords arguments are correct",
+  );
+
+  let seeCalled = false;
+  mockSpawn((_cmd: string, args: string[]) => {
+    spawnArgs = args;
+    const ee = new (require("events").EventEmitter)();
+    ee.stdout = new (require("events").EventEmitter)();
+    ee.stderr = new (require("events").EventEmitter)();
+    ee.kill = () => {};
+    setTimeout(() => {
+      if (args[0] === "see") {
+        seeCalled = true;
+        ee.stdout.emit("data", '{"ok": true, "snapshotId": "snap-123"}');
+      } else {
+        ee.stdout.emit("data", '{"ok": true}');
+      }
+      ee.emit("close", 0);
+    }, 10);
+    return ee;
+  });
+
+  await adapter.clickTarget({
+    kind: "element",
+    target: "my-btn",
+    snapshotId: "snap-abc",
+  });
+  assert(
+    spawnArgs.join(" ") === "click --on my-btn --snapshot snap-abc --json",
+    "element + snapshotId arguments are correct",
+  );
+
+  await adapter.clickTarget({ kind: "element", target: "my-btn" });
+  assert(
+    seeCalled &&
+      spawnArgs.join(" ") === "click --on my-btn --snapshot snap-123 --json",
+    "element without snapshotId calls see --json and then click with snapshot",
   );
 
   restoreSpawn();

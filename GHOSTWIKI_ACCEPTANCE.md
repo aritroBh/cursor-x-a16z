@@ -21,8 +21,8 @@ All tests pass. Linting passes. Build completes successfully.
 
 ### Python Tests Output
 ```
-...............                                                          [100%]
-15 passed in 0.77s
+.....................                                                    [100%]
+21 passed in 0.86s
 ```
 
 ### Node targetResolver Tests Output
@@ -59,7 +59,7 @@ PASS: Nonzero exit handled
 PASS: Args are passed as an array to spawn
 PASS: shell: false is used
 PASS: Text is passed as a single argument without shell interpretation
-13/13 peekabooAdapter tests passed
+22/22 peekabooAdapter tests passed
 ```
 
 ### demo-ghostwiki-e2e.sh Output
@@ -79,6 +79,9 @@ All e2e tests PASSED!
 ## Known Limitations
 - The Python sidecar is currently spawned as a child process of the Electron main process for local development/demo ease.
 - `cognee` is currently an optional dependency that fails gracefully to local markdown search in `fallback` mode. This is by design.
+
+## UI-TARS
+UI-TARS: skipped — optional fallback provider not implemented for this submission.
 
 ## macOS Validation
 **not run — requires macOS + Screen Recording + Accessibility permissions**
@@ -114,8 +117,8 @@ The following tests have been run to validate the `lint` failure, `peekaboo` arg
 
 ### Python Tests Output
 ```
-...............                                                          [100%]
-15 passed in 0.70s
+.....................                                                    [100%]
+21 passed in 0.86s
 ```
 
 ### Node targetResolver Tests Output
@@ -159,7 +162,7 @@ PASS: scroll arguments are correct
 PASS: Args are passed as an array to spawn
 PASS: shell: false is used
 PASS: click by coords arguments are correct
-20/20 peekabooAdapter tests passed
+22/22 peekabooAdapter tests passed
 ```
 
 ### build Output
@@ -210,3 +213,6 @@ Calling /lint...
 PASS: Lint identified missing success condition
 All e2e tests PASSED!
 ```
+
+## Pre-commit Status
+pre-commit: skipped — no configured repo hook found

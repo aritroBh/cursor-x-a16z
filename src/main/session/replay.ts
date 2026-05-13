@@ -335,8 +335,8 @@ export async function replayWalkthrough(
           const peekabooAvailable = await isPeekabooAvailable();
           const resolved = resolveTarget(step, {
             hasDOM: false,
-            peekabooAvailable: isPeekabooAvailable(),
-            peekabooTarget: isPeekabooAvailable()
+            peekabooAvailable,
+            peekabooTarget: peekabooAvailable
               ? { bbox: { x: step.x, y: step.y } }
               : undefined,
             vlmTarget: {

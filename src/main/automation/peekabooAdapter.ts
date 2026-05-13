@@ -14,17 +14,19 @@ export function isMac(): boolean {
   return os.platform() === "darwin";
 }
 
+function getPeekabooBin(): string {
+  return process.env.PEEKABOO_BIN || "peekaboo";
+}
+
 function getUsePeekabooEnv(): boolean {
   if (process.env.USE_PEEKABOO === "false") return false;
   if (process.env.USE_PEEKABOO === "true") return true;
   return isMac();
 }
 
-export function isPeekabooAvailable(): boolean {
-  if (!isMac()) return false;
-  if (!getUsePeekabooEnv()) return false;
-  // Further runtime check would go in getPeekabooStatus
-  return true;
+export async function isPeekabooAvailable(): Promise<boolean> {
+  const status = await getPeekabooStatus();
+  return status.available;
 }
 
 function executePeekabooCommand(
@@ -49,7 +51,7 @@ function executePeekabooCommand(
     let stdoutData = "";
     let stderrData = "";
 
-    const child = spawn("peekaboo", args, { shell: false });
+    const child = spawn(getPeekabooBin(), args, { shell: false });
 
     const timer = setTimeout(() => {
       child.kill();
@@ -140,32 +142,46 @@ export async function getPeekabooStatus(): Promise<{
     };
   }
 
-  // Try to check permissions
-  const res = await executePeekabooCommand(["permissions", "status", "--json"]);
-  if (!res.ok) {
-    if (res.warnings.includes("Peekaboo binary missing on PATH")) {
-      return {
-        enabled: true,
-        available: false,
-        platform: "darwin",
-        warning:
-          "Peekaboo binary is missing. Install with: brew install steipete/tap/peekaboo",
-      };
-    }
+  // Check binary exists
+  const versionRes = await executePeekabooCommand(["--version"]);
+  if (!versionRes.ok) {
     return {
       enabled: true,
       available: false,
       platform: "darwin",
-      warning: res.warnings.join("; "),
+      warning:
+        "Peekaboo binary is missing. Install with: brew install steipete/tap/peekaboo",
     };
   }
 
-  const permissionsOk =
-    res.result && res.result.ScreenRecording && res.result.Accessibility;
+  // Try to check permissions
+  let res = await executePeekabooCommand(["permissions", "status", "--json"]);
+  if (!res.ok) {
+    // Fallback to non-json
+    const fallbackRes = await executePeekabooCommand(["permissions", "status"]);
+    if (!fallbackRes.ok) {
+      return {
+        enabled: true,
+        available: false,
+        platform: "darwin",
+        warning: res.warnings.join("; "),
+      };
+    }
+    res = fallbackRes;
+  }
+
+  const permissionsOk = res.result
+    ? res.result.ScreenRecording && res.result.Accessibility
+    : res.raw &&
+      res.raw.includes("Screen Recording") &&
+      res.raw.includes("Accessibility") &&
+      !res.raw.includes("missing") &&
+      !res.raw.includes("denied");
+
   if (!permissionsOk) {
     return {
       enabled: true,
-      available: true,
+      available: false,
       platform: "darwin",
       warning:
         "Missing macOS permissions. Check Screen Recording and Accessibility.",
@@ -190,26 +206,54 @@ export async function captureSnapshot(
 }
 
 export async function clickTarget(
-  target: string | { x: number; y: number },
+  target: string | { x: number; y: number; snapshotId?: string },
 ): Promise<PeekabooResult> {
   if (typeof target === "string") {
-    return executePeekabooCommand(["click", "--id", target, "--json"]);
+    const snapRes = await executePeekabooCommand(["see", "--json"]);
+    if (!snapRes.ok || !snapRes.result || !snapRes.result.snapshotId) {
+      return {
+        ok: false,
+        warnings: ["Failed to extract snapshot id from peekaboo see --json"],
+      };
+    }
+    return executePeekabooCommand([
+      "click",
+      "--on",
+      target,
+      "--snapshot",
+      snapRes.result.snapshotId,
+      "--json",
+    ]);
+  } else if (typeof target === "object" && target.snapshotId) {
+    // If it has a snapshot ID, we assume it's acting as a reference target,
+    // but the spec for coords is just --coords <x>,<y>
+    // However, if the caller gave us a snapshotId, they probably meant to use it.
+    // Let's stick to coords if it has x and y.
+    return executePeekabooCommand([
+      "click",
+      "--coords",
+      `${target.x},${target.y}`,
+      "--json",
+    ]);
   }
+
   return executePeekabooCommand([
     "click",
-    "--x",
-    String(target.x),
-    "--y",
-    String(target.y),
+    "--coords",
+    `${(target as any).x},${(target as any).y}`,
     "--json",
   ]);
 }
 
 export async function typeText(text: string): Promise<PeekabooResult> {
-  return executePeekabooCommand(["type", text, "--json"]);
+  return executePeekabooCommand(["type", "--text", text, "--json"]);
 }
 
 export async function pressHotkey(keys: string): Promise<PeekabooResult> {
+  const helpRes = await executePeekabooCommand(["hotkey", "--help"]);
+  if (!helpRes.ok) {
+    return { ok: false, warnings: ["Peekaboo hotkey unavailable"] };
+  }
   return executePeekabooCommand(["hotkey", keys, "--json"]);
 }
 
@@ -219,9 +263,10 @@ export async function scrollTarget(
 ): Promise<PeekabooResult> {
   return executePeekabooCommand([
     "scroll",
-    direction,
-    "--id",
+    "--on",
     target,
+    "--direction",
+    direction,
     "--json",
   ]);
 }

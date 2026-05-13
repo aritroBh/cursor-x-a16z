@@ -1738,10 +1738,21 @@ app.whenReady().then(async () => {
       const { compileSessionToWiki } = require("./wiki/workflowCompiler");
       const { writeWikiPage } = require("./wiki/wikiWriter");
       const { loadGraph } = require("./session/storage");
-      const graph = loadGraph(appName);
-      const session = graph.sessions.find((s: any) => s.id === sessionId);
+      const { getDemoWorkflow } = require("./session/demoWorkflow");
 
-      if (!session) throw new Error("Session not found");
+      const graph = loadGraph(appName);
+      // Use the demo workflow session explicitly if we can't find it in the graph
+      const demoWorkflow = getDemoWorkflow();
+      const session =
+        graph.sessions.find((s: any) => s.id === sessionId) ||
+        (demoWorkflow && demoWorkflow.sessions
+          ? demoWorkflow.sessions.find((s: any) => s.id === sessionId)
+          : null);
+
+      if (!session) {
+        // Throw explicit error if session isn't loaded/found. The fix allows the demo session to be seeded via getDemoWorkflow in loadGraph
+        throw new Error(`Session ${sessionId} not found in app ${appName}`);
+      }
 
       const pages = compileSessionToWiki(session, appName);
       const wikiRoot = process.env.GHOSTWIKI_WIKI_ROOT || "./wiki";

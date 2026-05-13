@@ -2,6 +2,7 @@ import React, { useState, useEffect } from "react";
 import { api } from "../src/api";
 
 export const GhostWikiPanel: React.FC = () => {
+  const [lintResultIssues, setLintResultIssues] = useState<any[]>([]);
   const [status, setStatus] = useState({
     active: false,
     mode: "unknown",
@@ -88,6 +89,7 @@ export const GhostWikiPanel: React.FC = () => {
         mode: res.mode,
         lintIssues: res.issues ? res.issues.length : 0,
       }));
+      setLintResultIssues(res.issues || []);
       alert(`Lint found ${res.issues ? res.issues.length : 0} issues.`);
     } catch (e) {
       console.error(e);
@@ -101,25 +103,19 @@ export const GhostWikiPanel: React.FC = () => {
   const [feedbackText, setFeedbackText] = useState("");
 
   const handleRecord = async () => {
-    setIsBusy(true);
-    try {
-      await api.startRecording();
-    } catch (e) {
-      console.error(e);
-      alert(
-        "Demo recording loaded. Calling api.startRecording() does nothing.",
-      );
-    }
-    setIsBusy(false);
+    alert("Demo recording already loaded");
   };
 
   const handleCompileWiki = async () => {
     setIsBusy(true);
     try {
+      // "event-recap-session-1" is the ID expected to be found in demo-workflows/event-recap/graph.json
+      // By calling ghostwikiIngestSession, the main process explicitely loads the demo workflow and compiles it.
       await api.ghostwikiIngestSession("event-recap-session-1", "Specter");
-      alert("Compiled 1 workflow pages into Wiki");
+      alert("Demo workflow compiled into Wiki");
     } catch (e) {
       console.error(e);
+      alert("Compile failed: " + String(e));
     }
     setIsBusy(false);
   };
@@ -231,8 +227,13 @@ export const GhostWikiPanel: React.FC = () => {
           marginBottom: "12px",
         }}
       >
-        <button onClick={handleRecord} disabled={isBusy} style={btnStyle}>
-          Demo recording loaded
+        <button
+          onClick={handleRecord}
+          disabled={true}
+          style={btnStyle}
+          title="Demo recording already loaded"
+        >
+          Demo recording already loaded
         </button>
         <button onClick={handleCompileWiki} disabled={isBusy} style={btnStyle}>
           Compile Wiki
@@ -331,7 +332,17 @@ export const GhostWikiPanel: React.FC = () => {
                 Lint Issues Found:
               </strong>
               <ul style={{ paddingLeft: "16px", margin: 0 }}>
-                <li>Missing success condition</li>
+                {lintResultIssues && lintResultIssues.length > 0 ? (
+                  lintResultIssues.map((issue: any, i: number) => (
+                    <li key={i}>
+                      {typeof issue === "string"
+                        ? issue
+                        : `${issue.rule}: ${issue.message}`}
+                    </li>
+                  ))
+                ) : (
+                  <li>Missing success condition</li>
+                )}
               </ul>
             </div>
           )}

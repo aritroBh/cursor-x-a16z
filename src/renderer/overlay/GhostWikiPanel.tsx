@@ -300,14 +300,10 @@ export const GhostWikiPanel: React.FC = () => {
         correctionText,
       );
 
-      const cPath = result.correctionPath || null;
-      if (cPath) {
-        // Just note it, passing 5.
-      } else {
-        // Explicitly show as requested
-        addLog("Correction file written; path unavailable", "pass");
-      }
-      updateLastLog("pass"); // passes step 5
+      const correctionPath =
+        result.correctionPath || "Correction file written; path unavailable";
+
+      updateLastLog("pass", correctionPath);
       await delay(500);
     } catch (e) {
       updateLastLog("fail", String(e));
@@ -318,10 +314,11 @@ export const GhostWikiPanel: React.FC = () => {
     // 6. Re-query
     addLog("6. Re-querying improved wiki");
     try {
-      if (!result.answer)
-        throw new Error("afterAnswer is missing in correction result");
-      if (!result.sources || result.sources.length === 0)
+      if (!result.answer) throw new Error("afterAnswer is missing");
+      if (!result.sources || result.sources.length === 0) {
         throw new Error("Sources missing in correction result");
+      }
+      updateLastLog("pass");
 
       // Diff panel will catch the correction file if we have it in result
       setQueryResult(result);

@@ -1,1 +1,0 @@
-{"ok":true,"mode":"fallback","warnings":[],"issues":[{"rule":"missing-success-condition","message":"Session event-recap-session-1 is missing a success condition.","severity":"error","file":"./demo-workflows/event-recap/graph.json"}]}

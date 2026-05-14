@@ -213,6 +213,7 @@ const api = {
       feedbackDetails,
     ),
   ghostwikiLint: () => ipcRenderer.invoke("ghostwiki:lint"),
+  ghostwikiHealth: () => ipcRenderer.invoke("ghostwiki:health"),
 };
 
 // Expose only the overlay-specific IPC facade.

@@ -1825,6 +1825,27 @@ app.whenReady().then(async () => {
     },
   );
 
+  ipcMain.handle("ghostwiki:health", async () => {
+    const port = process.env.MEMORY_SERVICE_PORT || "8765";
+    try {
+      const res = await fetch(`http://127.0.0.1:${port}/health`);
+      const data = await res.json();
+      return {
+        active: data.status === "ok",
+        mode: data.cognee_enabled ? "cognee" : "fallback",
+        cogneeEnabled: data.cognee_enabled,
+        warnings: [],
+      };
+    } catch (e: any) {
+      return {
+        active: false,
+        mode: "offline",
+        cogneeEnabled: false,
+        warnings: ["Memory service offline"],
+      };
+    }
+  });
+
   ipcMain.handle("ghostwiki:lint", async () => {
     const port = process.env.MEMORY_SERVICE_PORT || "8765";
     const res = await fetch(`http://127.0.0.1:${port}/lint`, {

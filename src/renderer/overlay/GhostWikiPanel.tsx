@@ -64,17 +64,22 @@ export const GhostWikiPanel: React.FC = () => {
   }, []);
 
   const refreshStatus = async () => {
+    let healthResult;
     try {
-      const res = await fetch("http://127.0.0.1:8765/health").then((r) =>
-        r.json(),
-      );
+      healthResult = await api.ghostwikiHealth();
       setStatus((s) => ({
         ...s,
-        mode: res.cognee_enabled ? "cognee" : "fallback",
-        active: true,
+        mode: healthResult.mode,
+        active: healthResult.active,
       }));
     } catch {
-      setStatus((s) => ({ ...s, active: false }));
+      healthResult = {
+        active: false,
+        mode: "offline",
+        cogneeEnabled: false,
+        warnings: ["Memory service offline"],
+      };
+      setStatus((s) => ({ ...s, active: false, mode: "offline" }));
     }
     try {
       const pStatus = await api.getPeekabooStatus();
@@ -82,6 +87,7 @@ export const GhostWikiPanel: React.FC = () => {
     } catch (e) {
       console.error(e);
     }
+    return healthResult;
   };
 
   const handleQuery = async (presetQuery?: string) => {
@@ -181,16 +187,9 @@ export const GhostWikiPanel: React.FC = () => {
     // 1. Loading workflow memory
     addLog("1. Loading workflow memory");
     try {
-      await refreshStatus();
-      // wait a bit for state to update or check immediately
-      const res = await fetch("http://127.0.0.1:8765/health").then((r) =>
-        r.json(),
-      );
-      if (res && res.status === "ok") {
-        updateLastLog("pass");
-      } else {
-        throw new Error("Memory service offline");
-      }
+      const health = await refreshStatus();
+      if (!health.active) throw new Error("Memory service offline");
+      updateLastLog("pass");
       await delay(500);
     } catch (e) {
       updateLastLog("fail", "Memory service offline");
@@ -289,11 +288,12 @@ export const GhostWikiPanel: React.FC = () => {
       return;
     }
 
-    // 5. Correct & 6. Re-query
+    // 5. Correct
     addLog("5. Writing correction memory");
+    let result: any;
+    const correctionText = "It needs a success condition";
     try {
-      const correctionText = "It needs a success condition";
-      const result = await api.ghostwikiQuery(
+      result = await api.ghostwikiQuery(
         demoQuery,
         "event-recap-session-1",
         "missing-step",
@@ -309,8 +309,15 @@ export const GhostWikiPanel: React.FC = () => {
       }
       updateLastLog("pass"); // passes step 5
       await delay(500);
+    } catch (e) {
+      updateLastLog("fail", String(e));
+      setIsBusy(false);
+      return;
+    }
 
-      addLog("6. Re-querying improved wiki");
+    // 6. Re-query
+    addLog("6. Re-querying improved wiki");
+    try {
       if (!result.answer)
         throw new Error("afterAnswer is missing in correction result");
       if (!result.sources || result.sources.length === 0)
@@ -322,7 +329,8 @@ export const GhostWikiPanel: React.FC = () => {
         beforeAnswer: beforeAnswer,
         afterAnswer: result.answer,
         correctionText: correctionText,
-        correctionPath: cPath || "Correction file written; path unavailable",
+        correctionPath:
+          result.correctionPath || "Correction file written; path unavailable",
         sources: result.sources,
       });
       setStatus((s) => ({ ...s, mode: result.mode }));

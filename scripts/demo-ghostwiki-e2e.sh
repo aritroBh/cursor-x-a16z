@@ -1,6 +1,8 @@
 #!/bin/bash
 set -euo pipefail
 
+rm -f demo-workflows/event-recap/wiki/correction-e2e.md
+
 export COGNEE_ENABLED=false
 export GHOSTWIKI_WIKI_ROOT=./demo-workflows/event-recap/wiki
 export MEMORY_SERVICE_PORT=8765
@@ -142,13 +144,10 @@ try:
         print('FAIL: Sources do not include correction page')
         sys.exit(1)
 
-    print('PASS: Correction applied and verified in query output')
+    print('PASS: Backend/wiki-level self-improvement proof')
 except Exception as e:
     print(f'FAIL: Python json parsing failed on second query: {e}')
     sys.exit(1)
 " || { cleanup; exit 1; }
-
-# Remove the test correction to avoid polluting state for the UI demo later
-rm demo-workflows/event-recap/wiki/correction-e2e.md
 
 echo "All e2e tests PASSED!"

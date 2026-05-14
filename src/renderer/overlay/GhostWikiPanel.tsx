@@ -132,7 +132,7 @@ export const GhostWikiPanel: React.FC = () => {
     try {
       // "event-recap-session-1" is the ID expected to be found in demo-workflows/event-recap/graph.json
       // By calling ghostwikiIngestSession, the main process explicitely loads the demo workflow and compiles it.
-      await api.ghostwikiIngestSession("event-recap-session-1", "Specter");
+      await api.ghostwikiIngestSession("event-recap-session-1", "Luma");
       updateLastLog("pass");
     } catch (e) {
       console.error(e);
@@ -178,24 +178,32 @@ export const GhostWikiPanel: React.FC = () => {
   const runWinningDemo = async () => {
     setIsBusy(true);
 
-    // 1. Loading workflow memory (skipped as it is implied)
-    // Actually the requested logs are exactly:
     // 1. Loading workflow memory
-    // 2. Compiling + ingesting wiki
-    // 3. Asking the ghost how to repeat the task
-    // 4. Linting missing/unsafe steps
-    // 5. Writing correction memory
-    // 6. Re-querying improved wiki
-    // 7. Checking replay readiness
-
-    addLog("1. Loading workflow memory", "pass");
+    addLog("1. Loading workflow memory");
+    try {
+      await refreshStatus();
+      // wait a bit for state to update or check immediately
+      const res = await fetch("http://127.0.0.1:8765/health").then((r) =>
+        r.json(),
+      );
+      if (res && res.status === "ok") {
+        updateLastLog("pass");
+      } else {
+        throw new Error("Memory service offline");
+      }
+      await delay(500);
+    } catch (e) {
+      updateLastLog("fail", "Memory service offline");
+      setIsBusy(false);
+      return;
+    }
 
     // 2. Compile + Ingest
     addLog("2. Compiling + ingesting wiki");
     try {
       const res = await api.ghostwikiIngestSession(
         "event-recap-session-1",
-        "Specter",
+        "Luma",
       );
       setStatus((s) => ({
         ...s,
@@ -229,7 +237,7 @@ export const GhostWikiPanel: React.FC = () => {
         "time",
         "location",
         "host",
-      ].filter((k) => !res.answer.includes(k));
+      ].filter((k) => !res.answer.toLowerCase().includes(k.toLowerCase()));
       if (missingKeys.length > 0)
         throw new Error(`Query answer missing: ${missingKeys.join(", ")}`);
       if (!res.sources || res.sources.length === 0)
@@ -253,10 +261,19 @@ export const GhostWikiPanel: React.FC = () => {
       if (numIssues === 0)
         throw new Error("Lint issues expected but none found");
 
-      // Allow passing if the specific wording isn't found but there are issues, to avoid brittleness.
-      // The prompt asks to check "at least one issue mentions missing success condition".
-      // We check for it loosely.
-      // But we will strictly check if issues exist as done above.
+      const hasMissingSuccessCondition = res.issues.some((issue: any) => {
+        const text =
+          typeof issue === "string" ? issue : `${issue.rule} ${issue.message}`;
+        return (
+          text.toLowerCase().includes("missing") &&
+          text.toLowerCase().includes("success") &&
+          text.toLowerCase().includes("condition")
+        );
+      });
+
+      if (!hasMissingSuccessCondition) {
+        throw new Error("Lint did not include missing success condition issue");
+      }
 
       setStatus((s) => ({
         ...s,
@@ -273,7 +290,7 @@ export const GhostWikiPanel: React.FC = () => {
     }
 
     // 5. Correct & 6. Re-query
-    addLog("5. Writing correction memory / 6. Re-querying improved wiki");
+    addLog("5. Writing correction memory");
     try {
       const correctionText = "It needs a success condition";
       const result = await api.ghostwikiQuery(
@@ -283,16 +300,21 @@ export const GhostWikiPanel: React.FC = () => {
         correctionText,
       );
 
+      const cPath = result.correctionPath || null;
+      if (cPath) {
+        // Just note it, passing 5.
+      } else {
+        // Explicitly show as requested
+        addLog("Correction file written; path unavailable", "pass");
+      }
+      updateLastLog("pass"); // passes step 5
+      await delay(500);
+
+      addLog("6. Re-querying improved wiki");
       if (!result.answer)
         throw new Error("afterAnswer is missing in correction result");
       if (!result.sources || result.sources.length === 0)
         throw new Error("Sources missing in correction result");
-
-      if (!("correctionPath" in result) || !result.correctionPath) {
-        addLog("Correction file written; path unavailable", "pass");
-      }
-      const cPath =
-        result.correctionPath || "Correction file written; path unavailable";
 
       // Diff panel will catch the correction file if we have it in result
       setQueryResult(result);
@@ -300,7 +322,7 @@ export const GhostWikiPanel: React.FC = () => {
         beforeAnswer: beforeAnswer,
         afterAnswer: result.answer,
         correctionText: correctionText,
-        correctionPath: cPath,
+        correctionPath: cPath || "Correction file written; path unavailable",
         sources: result.sources,
       });
       setStatus((s) => ({ ...s, mode: result.mode }));
@@ -355,8 +377,8 @@ export const GhostWikiPanel: React.FC = () => {
             fontStyle: "italic",
           }}
         >
-          GhostTwin compiles your app workflows into a living wiki, answers from
-          memory, lints missing steps, and improves itself when corrected.
+          Built from a Luma event workflow: the ghost remembers fields, actions,
+          missing steps, and corrections.
         </div>
       </div>
 
@@ -452,12 +474,13 @@ export const GhostWikiPanel: React.FC = () => {
           >
             Workflow Memory
           </div>
-          <div style={{ fontSize: "11px" }}>• Event recap workflow</div>
-          <div style={{ fontSize: "11px" }}>
-            • Wiki pages: {status.wikiPages}
-          </div>
-          <div style={{ fontSize: "11px" }}>
-            • Last ingest: {status.lastIngest}
+          <div style={{ fontSize: "11px" }}>• Luma event workflow</div>
+          <div style={{ fontSize: "11px" }}>• title</div>
+          <div style={{ fontSize: "11px" }}>• date/time</div>
+          <div style={{ fontSize: "11px" }}>• location</div>
+          <div style={{ fontSize: "11px" }}>• hosts</div>
+          <div style={{ fontSize: "11px", marginTop: "4px", color: "#888" }}>
+            Pages: {status.wikiPages}
           </div>
         </div>
         <div
@@ -516,23 +539,44 @@ export const GhostWikiPanel: React.FC = () => {
           <div style={{ fontSize: "11px" }}>
             • Lint issues: {status.lintIssues}
           </div>
-          {status.lintIssues > 0 && lintResultIssues[0] && (
-            <div
-              style={{
-                fontSize: "10px",
-                color: "#aaa",
-                marginTop: "2px",
-                whiteSpace: "nowrap",
-                overflow: "hidden",
-                textOverflow: "ellipsis",
-              }}
-            >
-              Latest:{" "}
-              {typeof lintResultIssues[0] === "string"
-                ? lintResultIssues[0]
-                : lintResultIssues[0].message}
-            </div>
-          )}
+          {status.lintIssues > 0 &&
+            lintResultIssues.length > 0 &&
+            (() => {
+              const missingSuccessCondition = lintResultIssues.find(
+                (issue: any) => {
+                  const text =
+                    typeof issue === "string"
+                      ? issue
+                      : `${issue.rule} ${issue.message}`;
+                  return (
+                    text.toLowerCase().includes("missing") &&
+                    text.toLowerCase().includes("success") &&
+                    text.toLowerCase().includes("condition")
+                  );
+                },
+              );
+              const displayIssue =
+                missingSuccessCondition || lintResultIssues[0];
+              const issueText =
+                typeof displayIssue === "string"
+                  ? displayIssue
+                  : displayIssue.message;
+              return (
+                <div
+                  style={{
+                    fontSize: "10px",
+                    color: missingSuccessCondition ? "#ff453a" : "#aaa",
+                    marginTop: "2px",
+                    whiteSpace: "nowrap",
+                    overflow: "hidden",
+                    textOverflow: "ellipsis",
+                    fontWeight: missingSuccessCondition ? "bold" : "normal",
+                  }}
+                >
+                  Latest: {issueText}
+                </div>
+              );
+            })()}
         </div>
       </div>
 

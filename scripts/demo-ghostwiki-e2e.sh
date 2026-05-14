@@ -1,7 +1,8 @@
 #!/bin/bash
 set -euo pipefail
 
-rm -f demo-workflows/event-recap/wiki/correction-e2e.md
+CORRECTION_FILE="demo-workflows/event-recap/wiki/correction-e2e.md"
+rm -f "$CORRECTION_FILE"
 
 export COGNEE_ENABLED=false
 export GHOSTWIKI_WIKI_ROOT=./demo-workflows/event-recap/wiki
@@ -12,6 +13,7 @@ python -m uvicorn memory_service.app:app --port $MEMORY_SERVICE_PORT &
 MEMORY_SERVICE_PID=$!
 
 function cleanup {
+  rm -f "$CORRECTION_FILE"
   echo "Cleaning up memory service (PID: $MEMORY_SERVICE_PID)..."
   kill $MEMORY_SERVICE_PID || true
 }
@@ -41,6 +43,60 @@ if [ "$INGEST_STATUS" != "200" ]; then
     exit 1
 fi
 echo "PASS: Ingest"
+
+echo "Testing Luma Event Profile Queries..."
+
+# 1. Who hosted the event?
+curl -s -X POST -H "Content-Type: application/json" -d '{"query": "Who hosted the event?"}' http://127.0.0.1:$MEMORY_SERVICE_PORT/query > query_host_response.json
+python -c "
+import sys, json
+try:
+    with open('query_host_response.json', 'r') as f:
+        data = json.load(f)
+    answer = data.get('answer', '').lower()
+    if 'cognee' not in answer or ('nicole levin' not in answer and 'pebblebed vc' not in answer):
+        print('FAIL: Host query did not include cognee and Nicole Levin or Pebblebed VC. Answer was: ' + answer)
+        sys.exit(1)
+    print('PASS: Host query returned correct details')
+except Exception as e:
+    print(f'FAIL: Python json parsing failed: {e}')
+    sys.exit(1)
+" || { cleanup; exit 1; }
+
+# 2. What prizes are available?
+curl -s -X POST -H "Content-Type: application/json" -d '{"query": "What prizes are available?"}' http://127.0.0.1:$MEMORY_SERVICE_PORT/query > query_prizes_response.json
+python -c "
+import sys, json
+try:
+    with open('query_prizes_response.json', 'r') as f:
+        data = json.load(f)
+    answer = data.get('answer', '').lower()
+    if '800' not in answer or '500' not in answer or '200' not in answer:
+        print('FAIL: Prizes query did not include \$800, \$500, \$200. Answer was: ' + answer)
+        sys.exit(1)
+    print('PASS: Prizes query returned correct details')
+except Exception as e:
+    print(f'FAIL: Python json parsing failed: {e}')
+    sys.exit(1)
+" || { cleanup; exit 1; }
+
+# 3. What is the schedule?
+curl -s -X POST -H "Content-Type: application/json" -d '{"query": "What is the schedule?"}' http://127.0.0.1:$MEMORY_SERVICE_PORT/query > query_schedule_response.json
+python -c "
+import sys, json
+try:
+    with open('query_schedule_response.json', 'r') as f:
+        data = json.load(f)
+    answer = data.get('answer', '').lower()
+    if '4:30' not in answer or '5:00' not in answer or '5:30' not in answer or '6:00' not in answer:
+        print('FAIL: Schedule query did not include 4:30, 5:00, 5:30, 6:00. Answer was: ' + answer)
+        sys.exit(1)
+    print('PASS: Schedule query returned correct details')
+except Exception as e:
+    print(f'FAIL: Python json parsing failed: {e}')
+    sys.exit(1)
+" || { cleanup; exit 1; }
+
 
 echo "Calling /query..."
 QUERY_PAYLOAD='{"query": "How do I create a calendar event from this event page?"}'

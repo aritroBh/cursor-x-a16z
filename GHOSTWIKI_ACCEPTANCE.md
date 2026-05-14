@@ -22,6 +22,7 @@ macOS live automation: not run unless actually validated with Screen Recording +
 ## Known Limitations
 - The full Electron IPC feedback path is not covered by an automated E2E test.
 - Relies on local markdown parsing to mock out Cognee backend endpoints for consistency.
+- npm audit reports unresolved dependency advisories; not remediated for hackathon demo.
 
 ## Final Command Outputs
 

@@ -13,3 +13,9 @@ logs/
 test_output.txt
 memory_service/__pycache__/
 memory_service/tests/__pycache__/
+
+# GhostWiki generated E2E artifacts
+e2e_output.txt
+lint_response.json
+query_*_response.json
+query_response*.json

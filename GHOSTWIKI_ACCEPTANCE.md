@@ -124,30 +124,37 @@ rendering chunks...
 ```
 Starting memory service in background...
 Waiting for service to be healthy...
-INFO:     127.0.0.1:35042 - "GET /health HTTP/1.1" 200 OK
-INFO:     127.0.0.1:35054 - "GET /health HTTP/1.1" 200 OK
+INFO:     127.0.0.1:57854 - "GET /health HTTP/1.1" 200 OK
+INFO:     127.0.0.1:57858 - "GET /health HTTP/1.1" 200 OK
 PASS: Health check
 Calling /ingest...
-INFO:     127.0.0.1:35068 - "POST /ingest HTTP/1.1" 200 OK
+INFO:     127.0.0.1:57864 - "POST /ingest HTTP/1.1" 200 OK
 PASS: Ingest
+Testing Luma Event Profile Queries...
+INFO:     127.0.0.1:57866 - "POST /query HTTP/1.1" 200 OK
+PASS: Host query returned correct details
+INFO:     127.0.0.1:57878 - "POST /query HTTP/1.1" 200 OK
+PASS: Prizes query returned correct details
+INFO:     127.0.0.1:57894 - "POST /query HTTP/1.1" 200 OK
+PASS: Schedule query returned correct details
 Calling /query...
-INFO:     127.0.0.1:35080 - "POST /query HTTP/1.1" 200 OK
+INFO:     127.0.0.1:57910 - "POST /query HTTP/1.1" 200 OK
 PASS: Query returned step-by-step procedural answer with sources
 Calling /lint...
-INFO:     127.0.0.1:35082 - "POST /lint HTTP/1.1" 200 OK
+INFO:     127.0.0.1:57914 - "POST /lint HTTP/1.1" 200 OK
 PASS: Lint identified missing success condition
 Running backend/wiki-level self-improvement proof...
 Calling /query after correction...
-INFO:     127.0.0.1:35086 - "POST /query HTTP/1.1" 200 OK
+INFO:     127.0.0.1:57924 - "POST /query HTTP/1.1" 200 OK
 PASS: Backend/wiki-level self-improvement proof
 All e2e tests PASSED!
-Cleaning up memory service (PID: 218011)...
- INFO:     Started server process [218011]
+Cleaning up memory service (PID: 5737)...
+ INFO:     Started server process [5737]
 INFO:     Waiting for application startup.
 INFO:     Application startup complete.
 INFO:     Uvicorn running on http://127.0.0.1:8765 (Press CTRL+C to quit)
 INFO:     Shutting down
 INFO:     Waiting for application shutdown.
 INFO:     Application shutdown complete.
-INFO:     Finished server process [218011]
+INFO:     Finished server process [5737]
 ```

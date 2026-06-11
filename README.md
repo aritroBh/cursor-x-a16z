@@ -795,6 +795,19 @@ npm run dev
 | [`docs/real-product-smoke-test.md`](docs/real-product-smoke-test.md) | Real-app ghost tutor smoke tests |
 | [`docs/manual-stress-test-checklist.md`](docs/manual-stress-test-checklist.md) | Manual QA checklist |
 | [`docs/reality-lock.md`](docs/reality-lock.md) | Reality-lock design notes |
+| [`AGENTS.md`](AGENTS.md) | AI agent playbook — graphify navigation, entry points, verification |
+
+### Code navigation (graphify)
+
+Agents and contributors can use the bundled structural index (`graphify-out/graph.json`) to find symbols before grepping:
+
+```bash
+npm run graphify:setup          # install CLI + skill, rebuild index
+graphify query graphify-out/graph.json planner
+graphify auto-update .          # refresh after edits
+```
+
+Skill source: [howell5/willhong-skills@graphify](https://skills.sh/howell5/willhong-skills/graphify) (pinned in `skills-lock.json`).
 
 ---
 

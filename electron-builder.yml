@@ -17,6 +17,8 @@ extraResources:
       - "**/*"
       # Exclude dev-only compiled macOS binary; production compiles on first run.
       - "!build/**"
+  - from: resources/ambient-listener.html
+    to: ambient-listener.html
 asarUnpack:
   - resources/**
   - node_modules/@nut-tree/**

@@ -1090,6 +1090,52 @@ async function main() {
     "AI health marks natural voice ready if either provider is available",
   );
 
+  printHeader("Context Tracking + Proactive Prediction");
+
+  check(
+    fileExists("src/main/context/contextTracker.ts"),
+    "contextTracker.ts exists",
+  );
+  check(
+    fileExists("src/main/context/proactivePrediction.ts"),
+    "proactivePrediction.ts exists",
+  );
+  check(
+    fileExists("src/main/context/typedContextBuffer.ts"),
+    "typedContextBuffer.ts exists",
+  );
+  check(
+    fileExists("src/main/context/clipboardContext.ts"),
+    "clipboardContext.ts exists",
+  );
+  check(
+    fileExists("src/main/context/browserUrlProbe.ts"),
+    "browserUrlProbe.ts exists",
+  );
+  check(
+    fileExists("src/main/context/contextStorage.ts"),
+    "contextStorage.ts exists",
+  );
+  check(
+    fileExists("resources/ambient-listener.html"),
+    "ambient-listener.html exists",
+  );
+  check(
+    mainIndex.includes("startContextTracking") &&
+      mainIndex.includes("buildProactivePrediction") &&
+      mainIndex.includes('ipcMain.handle("proactive:predict"'),
+    "index.ts wires context tracking and proactive prediction IPC",
+  );
+  check(
+    preloadBody.includes("getProactivePrediction") &&
+      preloadBody.includes("getContextSnapshot"),
+    "overlay preload exposes proactive/context APIs",
+  );
+  check(
+    overlayAppBody.includes("getProactivePrediction"),
+    "OverlayApp calls proactive prediction on summon",
+  );
+
   printHeader("Logger Safety");
 
   check(fileExists("src/main/logger.ts"), "src/main/logger.ts exists");

@@ -44,6 +44,19 @@ Or use the helper script: `npm run graphify:setup`
 | Dashboard | `src/renderer/dashboard/DashboardApp.tsx` |
 | Tests | `scripts/test-specter.ts`, `memory_service/tests/` |
 
+## Proactive context (no-prompt summon)
+
+Specter tracks foreground app, window title, browser URL, typed text, clipboard, voice, and uiohook activity. On double-shift summon it auto-predicts intent via GhostWiki + Claude.
+
+| Env var | Default | Meaning |
+| --- | --- | --- |
+| `SPECTER_PROACTIVE_PREDICT` | `true` | Auto-prediction on overlay open |
+| `SPECTER_AMBIENT_AUDIO` | `false` | Background mic snippets → Whisper (opt-in) |
+
+IPC: `context:get`, `context:refresh`, `proactive:predict`
+
+Persisted history: `~/Library/Application Support/Specter/context-history.json`
+
 ## Conventions
 
 - **TypeScript** — Electron main in `src/main/`, React renderer in `src/renderer/`

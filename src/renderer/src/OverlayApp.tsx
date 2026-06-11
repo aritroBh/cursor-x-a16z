@@ -1001,14 +1001,60 @@ const OverlayApp: React.FC = () => {
     };
   }, []);
 
-  // Detect current app context when overlay becomes visible
+  // Proactive context + prediction when overlay becomes visible
   useEffect(() => {
-    if (isVisible) {
-      // Cheap text only; do not call Claude Vision on toggle
-      setScreenState((prev: any) => prev || { app: "current app" });
-    } else {
+    if (!isVisible) {
       setScreenState(null);
+      return;
     }
+
+    let cancelled = false;
+
+    void (async () => {
+      setUltraState("thinking");
+      try {
+        const predictionRes = await api.getProactivePrediction();
+        if (cancelled) return;
+
+        const snapshot = predictionRes?.context;
+        if (snapshot) {
+          setScreenState({
+            app: snapshot.appName || "Unknown",
+            windowTitle: snapshot.windowTitle,
+            pageUrl: snapshot.pageUrl,
+            searchHint: snapshot.searchHint,
+            recentTypedText: snapshot.recentTypedText,
+            coordinates: [],
+          });
+        }
+
+        let shouldSpeak = false;
+        setUltraSessionHistory((prev) => {
+          if (!predictionRes?.prediction || prev.length > 0) return prev;
+          shouldSpeak = true;
+          return [
+            {
+              role: "assistant",
+              content: predictionRes.prediction,
+              proactive: true,
+            },
+          ];
+        });
+        if (shouldSpeak && modeRef.current === "ultra") {
+          speakIfUltra(predictionRes.prediction, "proactive summon");
+        } else {
+          setUltraState("waitingForUser");
+        }
+      } catch (error) {
+        console.error("[PROACTIVE] summon prediction failed", error);
+        setScreenState({ app: "Unknown", coordinates: [] });
+        setUltraState("waitingForUser");
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
   }, [isVisible]);
 
   useEffect(() => {
@@ -2901,7 +2947,16 @@ const OverlayApp: React.FC = () => {
                         gap: "8px",
                       }}
                     >
-                      <span>Looking at {screenState.app}</span>
+                      <span>
+                        Looking at {screenState.app}
+                        {screenState.searchHint
+                          ? ` · "${screenState.searchHint}"`
+                          : screenState.recentTypedText
+                            ? ` · typing "${screenState.recentTypedText}"`
+                            : screenState.windowTitle
+                              ? ` · ${screenState.windowTitle}`
+                              : ""}
+                      </span>
                       {mode === "ultra" && (
                         <span
                           style={{

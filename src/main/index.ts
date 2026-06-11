@@ -86,6 +86,7 @@ import {
   recordBehavioralFeedback,
   seedDemoCheckpoints,
   setBehavioralStateEmitter,
+  setForegroundAppProvider,
   startBehavioralTracking,
   stopBehavioralTracking,
 } from "./behavioral/tracker";
@@ -108,6 +109,20 @@ import {
 import { validateSender } from "./security/ipcGuards";
 
 import { startMemorySidecar } from "./memorySidecar";
+import {
+  getContextHistory,
+  getLatestContextSnapshot,
+  recordVoiceTranscript,
+  refreshContextNow,
+  startContextTracking,
+  stopContextTracking,
+} from "./context/contextTracker";
+import { buildProactivePrediction } from "./context/proactivePrediction";
+import {
+  startAmbientAudioListener,
+  stopAmbientAudioListener,
+} from "./context/ambientAudio";
+import { getForegroundAppLabel } from "./context/contextTracker";
 
 const icon = join(__dirname, "../../resources/icon.png");
 const DEFAULT_APP_NAME = "Specter";
@@ -868,6 +883,9 @@ app.whenReady().then(async () => {
     sendOverlayEvent("spec:mood", state.moodLabel);
   });
   startBehavioralTracking();
+  setForegroundAppProvider(() => getForegroundAppLabel());
+  startContextTracking();
+  startAmbientAudioListener();
   setTimeout(() => {
     const { realFrames, trackingMs } = getBehavioralFrameRate();
     if (trackingMs > 8000 && realFrames < 3) {
@@ -896,6 +914,9 @@ app.whenReady().then(async () => {
 
   app.on("before-quit", () => {
     stopBehavioralTracking();
+    stopContextTracking();
+    stopAmbientAudioListener();
+    setForegroundAppProvider(null);
     setBehavioralStateEmitter(null);
   });
 
@@ -1340,6 +1361,19 @@ app.whenReady().then(async () => {
     return ultraConverse(payload);
   });
 
+  ipcMain.handle("context:get", async () => ({
+    ok: true,
+    snapshot: getLatestContextSnapshot(),
+    history: getContextHistory().slice(-10),
+  }));
+
+  ipcMain.handle("context:refresh", async () => ({
+    ok: true,
+    snapshot: await refreshContextNow("ipc refresh"),
+  }));
+
+  ipcMain.handle("proactive:predict", async () => buildProactivePrediction());
+
   ipcMain.handle("agent:compileNoteHtml", async (event, input) => {
     if (!validateSender(event, overlayWindow))
       throw new Error("Unauthorized sender");
@@ -1739,7 +1773,11 @@ app.whenReady().then(async () => {
       byteLength: byteLengthOfAudioData(audioData),
       convertedBufferLength: buffer.length,
     });
-    return transcribe(buffer);
+    const result = await transcribe(buffer);
+    if (result?.ok && typeof result.text === "string" && result.text.trim()) {
+      recordVoiceTranscript(result.text);
+    }
+    return result;
   });
 
   ipcMain.handle(

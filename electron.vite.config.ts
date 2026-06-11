@@ -15,6 +15,7 @@ export default defineConfig({
           overlay: resolve(__dirname, "src/preload/overlay.ts"),
           clinical: resolve(__dirname, "src/preload/clinical.ts"),
           dashboard: resolve(__dirname, "src/preload/dashboard.ts"),
+          ambient: resolve(__dirname, "src/preload/ambient.ts"),
         },
       },
     },

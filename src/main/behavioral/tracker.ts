@@ -14,6 +14,15 @@ import {
   normalizeBehavioralState,
 } from "./model";
 import { safeLog, safeWarn } from "../logger";
+import { recordKeyEvent } from "../context/typedContextBuffer";
+
+let foregroundAppProvider: (() => string | null) | null = null;
+
+export function setForegroundAppProvider(
+  provider: (() => string | null) | null,
+): void {
+  foregroundAppProvider = provider;
+}
 
 const MAX_MEMORY_FRAMES = 260;
 const PAUSE_FRAME_INTERVAL_MS = 1000;
@@ -186,6 +195,25 @@ export function getBufferedBehavioralFrameCount(): number {
   return frames.filter((frame) => frame.synthetic !== true).length;
 }
 
+export function getRecentActivityHints(limit = 12): Array<{
+  actionType: string;
+  t: number;
+  app?: string;
+}> {
+  return frames.slice(-limit).map((frame) => ({
+    actionType: frame.actionType,
+    t: frame.t,
+    app: frame.app,
+  }));
+}
+
+export function getTypingBurstCount(windowMs = 60_000): number {
+  const cutoff = Date.now() - windowMs;
+  return frames.filter(
+    (frame) => frame.t >= cutoff && frame.actionType === "type",
+  ).length;
+}
+
 export function getBehavioralFrameRate(): {
   realFrames: number;
   trackingMs: number;
@@ -218,12 +246,15 @@ export function startBehavioralTracking(): void {
   });
 
   safeHook("keydown", (event) => {
+    recordKeyEvent(event);
     const revision = isBackspaceOrDelete(event) ? 1 : 0;
+    const appLabel = foregroundAppProvider?.() || undefined;
     pushFrame({
       t: Date.now(),
       dwellMs: Math.max(0, Date.now() - lastActionAt),
       actionType: revision ? "backtrack" : "type",
       revisionSignal: revision,
+      app: appLabel,
     });
   });
 

@@ -567,11 +567,13 @@ export async function ultraConverse(
       content: msg.content,
     }));
 
+    const isProactiveSummon = message.includes("[Proactive summon]");
     const response = await client.messages.create({
       model: CLAUDE_MODEL,
       max_tokens: 700,
-      system:
-        "You are Specter, a friendly ghost assistant that lives on the user's computer. You remember workflows the user has done before (provided as memoryFromPastSessions) and can teach them software step by step. Be conversational and concise (1-3 short sentences; replies may be read aloud). When the user asks you to demonstrate, teach, or do something on screen, set intent to start_walkthrough. When memory is relevant, reference it naturally. Return ONLY valid JSON.",
+      system: isProactiveSummon
+        ? "You are Specter, a friendly ghost assistant on the user's computer. The user summoned you without typing. Use screenState and memoryFromPastSessions to predict what they are doing now (app, page, search, recent activity) and offer one concrete helpful next step. Be conversational and concise (1-3 short sentences; may be read aloud). Do not ask them to repeat context you already have. Return ONLY valid JSON."
+        : "You are Specter, a friendly ghost assistant that lives on the user's computer. You remember workflows the user has done before (provided as memoryFromPastSessions) and can teach them software step by step. Be conversational and concise (1-3 short sentences; replies may be read aloud). When the user asks you to demonstrate, teach, or do something on screen, set intent to start_walkthrough. When memory is relevant, reference it naturally. Return ONLY valid JSON.",
       messages: [
         ...history,
         {

@@ -216,6 +216,11 @@ const api = {
     ),
   ghostwikiLint: () => ipcRenderer.invoke("ghostwiki:lint"),
   ghostwikiHealth: () => ipcRenderer.invoke("ghostwiki:health"),
+
+  // Context + proactive prediction
+  getContextSnapshot: () => ipcRenderer.invoke("context:get"),
+  refreshContextSnapshot: () => ipcRenderer.invoke("context:refresh"),
+  getProactivePrediction: () => ipcRenderer.invoke("proactive:predict"),
 };
 
 // Expose only the overlay-specific IPC facade.

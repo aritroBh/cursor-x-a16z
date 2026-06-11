@@ -28,7 +28,8 @@
     "test:peekabooAdapter": "npx ts-node --transpile-only scripts/test-peekabooAdapter.ts",
     "graphify:setup": "bash scripts/setup-graphify.sh",
     "graphify:build": "graphify build .",
-    "graphify:update": "graphify auto-update ."
+    "graphify:update": "graphify auto-update .",
+    "stress:context": "npx ts-node --transpile-only scripts/stress-test-context.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.33.0",

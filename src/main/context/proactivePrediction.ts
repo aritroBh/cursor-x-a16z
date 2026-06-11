@@ -4,7 +4,6 @@ import { loadGraph } from "../session/storage";
 import { safeLog, safeWarn } from "../logger";
 import {
   formatContextSummary,
-  getLatestContextSnapshot,
   refreshContextNow,
   type ContextSnapshot,
 } from "./contextTracker";
@@ -37,7 +36,9 @@ function buildProactiveMemoryQuery(snapshot: ContextSnapshot): string {
     hints.push(`voice=${snapshot.lastVoiceTranscript}`);
   if (snapshot.typingBurstCount > 0)
     hints.push(`typingEvents60s=${snapshot.typingBurstCount}`);
-  const activity = snapshot.recentActivity.map((item) => item.actionType).join(",");
+  const activity = snapshot.recentActivity
+    .map((item) => item.actionType)
+    .join(",");
   if (activity) hints.push(`activity=${activity}`);
 
   return `User summoned assistant without typing. Context: ${hints.join("; ")}. What are they likely doing and what past workflow memory helps?`;
@@ -84,9 +85,7 @@ function fallbackPrediction(
   } else if (snapshot.recentTypedText) {
     parts.push(`You were typing "${snapshot.recentTypedText}".`);
   } else if (snapshot.windowTitle && snapshot.appName) {
-    parts.push(
-      `You're in ${snapshot.appName} on "${snapshot.windowTitle}".`,
-    );
+    parts.push(`You're in ${snapshot.appName} on "${snapshot.windowTitle}".`);
   } else if (snapshot.appName) {
     parts.push(`You're in ${snapshot.appName}.`);
   }

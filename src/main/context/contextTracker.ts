@@ -110,12 +110,14 @@ function extractSearchHint(
   return null;
 }
 
-function extractPageContextFromAx(elements: Array<{
-  role: string;
-  title: string;
-  desc: string;
-  value: string;
-}>): { windowTitle: string | null; pageUrl: string | null } {
+function extractPageContextFromAx(
+  elements: Array<{
+    role: string;
+    title: string;
+    desc: string;
+    value: string;
+  }>,
+): { windowTitle: string | null; pageUrl: string | null } {
   const windowEl = elements.find(
     (el) =>
       el.role === "AXWindow" ||

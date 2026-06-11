@@ -25,11 +25,9 @@ export async function probeBrowserUrl(
   if (!script) return null;
 
   try {
-    const { stdout } = await execFileAsync(
-      "osascript",
-      ["-e", script],
-      { timeout: 2_500 },
-    );
+    const { stdout } = await execFileAsync("osascript", ["-e", script], {
+      timeout: 2_500,
+    });
     const url = stdout.trim();
     return /^https?:\/\//i.test(url) ? url : null;
   } catch (error) {

@@ -1,6 +1,9 @@
 import React from "react";
 import type { BehavioralState, SpecMood } from "../../main/session/types";
-import { usePerimeterRoam } from "./usePerimeterRoam";
+import {
+  usePerimeterRoam,
+  type PerimeterRoamResult,
+} from "./usePerimeterRoam";
 import { ReasoningBubbles, type ReasoningLine } from "./ReasoningBubbles";
 
 interface SpecBuddyProps {
@@ -11,6 +14,8 @@ interface SpecBuddyProps {
   compact?: boolean;
   pitchMode?: boolean;
   reasoningLines?: ReasoningLine[];
+  /** When set, roam position is owned by parent (avoids duplicate usePerimeterRoam). */
+  roam?: PerimeterRoamResult;
 }
 
 function labelForMood(mood: SpecMood, state?: BehavioralState): string {
@@ -204,12 +209,15 @@ export const SpecBuddy: React.FC<SpecBuddyProps> = ({
   compact = false,
   pitchMode = false,
   reasoningLines = [],
+  roam: externalRoam,
 }) => {
-  const { x, y, edge, isMoving, transitionDuration } = usePerimeterRoam(
-    enabled,
+  const internalRoam = usePerimeterRoam(
+    enabled && !externalRoam,
     '[data-specter-boundary="true"]',
     { ghostSize: 56, avoidBottomCenter: true },
   );
+  const { x, y, edge, isMoving, transitionDuration } =
+    externalRoam ?? internalRoam;
 
   const animClass = resolveAnimationClass(mood, isMoving);
   const tiltClass = isMoving

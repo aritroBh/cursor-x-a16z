@@ -13,6 +13,7 @@ import { GhostWikiPanel } from "../overlay/GhostWikiPanel";
 import { UltraState } from "../overlay/UltraReplyBubble";
 import { ChatThread } from "../overlay/ChatThread";
 import { TargetPreviewGhost } from "../overlay/TargetPreviewGhost";
+import { usePerimeterRoam } from "../overlay/usePerimeterRoam";
 import { VoiceMicButton } from "../overlay/VoiceMicButton";
 import { buildReasoningLines } from "../overlay/buildReasoningLines";
 import type {
@@ -476,6 +477,38 @@ const OverlayApp: React.FC = () => {
   const isHudHoveredRef = useRef(false);
   const isHudDraggingRef = useRef(false);
   const isInputFocusedRef = useRef(false);
+  const roamingGhostPosRef = useRef({ x: 50, y: 50 });
+
+  const isReplayActiveForRoam =
+    replayState === "running" || mirrorStatus === "running";
+  const roamShowWorkflowCard =
+    (Boolean(realAppTargets?.fallbackAvailable) ||
+      Boolean(
+        realAppTargets || selectedRealAppTarget || isManualTargetPicking,
+      )) &&
+    !isManualTargetPicking;
+  const specBuddyRoamEnabled =
+    (isVisible || isReplayActiveForRoam || isLoading) &&
+    !(
+      roamShowWorkflowCard &&
+      selectedRealAppTarget &&
+      !isReplayActiveForRoam
+    );
+  const specBuddyRoam = usePerimeterRoam(
+    specBuddyRoamEnabled,
+    '[data-specter-boundary="true"]',
+    { ghostSize: 56, avoidBottomCenter: true },
+  );
+
+  useEffect(() => {
+    const w = window.innerWidth;
+    const h = window.innerHeight;
+    if (w <= 0 || h <= 0 || specBuddyRoam.x <= -500) return;
+    roamingGhostPosRef.current = {
+      x: (specBuddyRoam.x / w) * 100,
+      y: (specBuddyRoam.y / h) * 100,
+    };
+  }, [specBuddyRoam.x, specBuddyRoam.y]);
 
   const modeRef = useRef(mode);
   const demoPresentationRef = useRef(demoPresentationMode);
@@ -2584,7 +2617,11 @@ const OverlayApp: React.FC = () => {
                 <div
                   className={`ghost-live-pop${liveGhostLeaving ? " is-leaving" : ""}`}
                 >
-                  <GhostActionPlayer step={liveGhostStep} isActive={true} />
+                  <GhostActionPlayer
+                    step={liveGhostStep}
+                    isActive={true}
+                    start={roamingGhostPosRef.current}
+                  />
                 </div>
               ) : (
                 <GhostCursor
@@ -2629,6 +2666,7 @@ const OverlayApp: React.FC = () => {
               mood={specMood}
               state={displayedBehavior || undefined}
               enabled={isVisible || isReplayRunning || isLoading}
+              roam={specBuddyRoam}
               checkpointLabel={activeCheckpoint?.label}
               compact={!showDebugTools && !demoPresentationMode}
               pitchMode={pitchMode}

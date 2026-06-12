@@ -561,6 +561,11 @@
   animation: none;
 }
 
+.walkthrough-guide-container.is-wait .walkthrough-guide-ring {
+  animation: none;
+  opacity: 0.4;
+}
+
 .walkthrough-guide-container.is-locked .walkthrough-guide-dot {
   box-shadow:
     0 0 0 2px rgba(48, 209, 88, 0.82),

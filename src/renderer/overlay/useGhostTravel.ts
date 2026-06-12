@@ -34,6 +34,7 @@ export function useGhostTravel(
   const [phase, setPhase] = useState<GhostTravelPhase>("enter");
   const startPosRef = useRef(options?.start || { x: 50, y: 50 });
   const lastPosRef = useRef({ x: 50, y: 50 });
+  const hasSeededRef = useRef(false);
   const timersRef = useRef<number[]>([]);
 
   useEffect(() => {
@@ -97,6 +98,11 @@ export function useGhostTravel(
   useEffect(() => {
     if (loop || !enabled || !target) return;
 
+    if (!hasSeededRef.current && options?.start) {
+      lastPosRef.current = { x: options.start.x, y: options.start.y };
+      hasSeededRef.current = true;
+    }
+
     const timers: number[] = [];
     timersRef.current = timers;
 
@@ -115,7 +121,15 @@ export function useGhostTravel(
     return () => {
       timers.forEach((id) => window.clearTimeout(id));
     };
-  }, [loop, enabled, target?.x, target?.y, travelMs]);
+  }, [
+    loop,
+    enabled,
+    target?.x,
+    target?.y,
+    travelMs,
+    options?.start?.x,
+    options?.start?.y,
+  ]);
 
   const percentX = loop
     ? phase === "enter" || phase === "reset"

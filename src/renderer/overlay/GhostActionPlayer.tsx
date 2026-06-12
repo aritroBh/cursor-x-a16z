@@ -6,6 +6,8 @@ const CURSOR_HOTSPOT = { x: 5.5, y: 3.21 };
 export interface GhostActionPlayerProps {
   step: any;
   isActive: boolean;
+  /** Viewport-percent origin for first travel (e.g. idle roam position). */
+  start?: { x: number; y: number };
 }
 
 const GhostCursorSvg: React.FC<{ className?: string }> = ({ className }) => (
@@ -24,6 +26,7 @@ const GhostCursorSvg: React.FC<{ className?: string }> = ({ className }) => (
 export const GhostActionPlayer: React.FC<GhostActionPlayerProps> = ({
   step,
   isActive,
+  start,
 }) => {
   const target =
     step && (step.viewportX != null || step.x != null)
@@ -35,7 +38,7 @@ export const GhostActionPlayer: React.FC<GhostActionPlayerProps> = ({
 
   const { percentX, percentY, isTraveling, isArrived } = useGhostTravel(
     isActive ? target : null,
-    { loop: false, travelMs: 550 },
+    { loop: false, travelMs: 550, start },
   );
 
   const prevPosRef = useRef({ x: percentX, y: percentY });
@@ -102,18 +105,9 @@ export const GhostActionPlayer: React.FC<GhostActionPlayerProps> = ({
   if (!isArrived) return null;
 
   if (action === "click") {
-    const isLocked = step.ghostLocked === true;
     return (
       <div style={baseStyle}>
-        <div style={{ position: "relative", width: 0, height: 0 }}>
-          <div
-            className="walkthrough-guide-ring"
-            style={{
-              animationIterationCount: isLocked ? 2 : "infinite",
-            }}
-          />
-        </div>
-        <div className="ghost-action-click" style={{ marginTop: -3 }}>
+        <div className="ghost-action-click">
           <GhostCursorSvg />
         </div>
       </div>

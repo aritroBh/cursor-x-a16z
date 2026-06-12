@@ -703,6 +703,64 @@ export async function ultraConverse(
   }
 }
 
+/* ──────────────────────────────────────────────────────────────────────────
+ * Single-step planner (Part A / A3). One Claude call per step, re-grounded on
+ * the live serialized tree each time — distinct from planSteps(), which plans a
+ * whole tutorial upfront. See docs/PERSON2_PLAN.md and src/shared/partA-contract.ts.
+ * ────────────────────────────────────────────────────────────────────────── */
+
+const SINGLE_STEP_SYSTEM_PROMPT =
+  "You are a patient software tutor guiding a beginner one step at a time. " +
+  "You are given the user's goal, a compact list of on-screen elements (each with a short id like e17), " +
+  "the steps already completed, and a short summary of what this user already knows. " +
+  "Decide the SINGLE next step. Pick the element by its id. " +
+  'Write "say" in at most two sentences: explain WHY, not just what ' +
+  '("the paperclip is how most apps represent attachments — you\'ll see it everywhere"). ' +
+  "If the goal is already accomplished, set goal_complete true and element_id null. " +
+  "Return ONLY valid JSON of the shape " +
+  '{ "say": string, "element_id": string|null, "action_type": "click|type|scroll|wait|read", "goal_complete": boolean }.';
+
+const ACTION_TYPES: ActionType[] = ["click", "type", "scroll", "wait", "read"];
+
+function toActionType(value: any): ActionType {
+  return ACTION_TYPES.includes(value) ? value : "click";
+}
+
+/** Build the compact "[eNN] role \"label\" (x,y)" block the planner reads. */
+function compactTreeText(tree: SerializedTree): string {
+  if (typeof tree.compactText === "string" && tree.compactText.trim()) {
+    return tree.compactText;
+  }
+  const header =
+    `APP: ${tree.app}  WINDOW: ${tree.window}\n` +
+    (tree.focusedId ? `FOCUSED: ${tree.focusedId}\n` : "");
+  const lines = tree.elements.map((el) => {
+    const [x1, y1] = el.bbox;
+    const value = el.value ? ` value="${el.value}"` : "";
+    return `[${el.id}] ${el.role} "${el.label}"${value} (${x1}, ${y1})`;
+  });
+  const truncated = tree.truncatedCount
+    ? `\n…(+${tree.truncatedCount} more elements)`
+    : "";
+  return `${header}${lines.join("\n")}${truncated}`;
+}
+
+function normalizePlannerOutput(raw: any): PlannerOutput {
+  const partial = raw && typeof raw === "object" ? raw : {};
+  return {
+    say:
+      typeof partial.say === "string" && partial.say.trim()
+        ? partial.say.trim()
+        : "Let's take the next step.",
+    element_id:
+      typeof partial.element_id === "string" && partial.element_id.trim()
+        ? partial.element_id.trim()
+        : null,
+    action_type: toActionType(partial.action_type),
+    goal_complete: partial.goal_complete === true,
+  };
+}
+
 export function resolveStep(
   output: PlannerOutput,
   tree: SerializedTree,

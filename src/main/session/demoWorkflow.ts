@@ -1,8 +1,5 @@
 import { BrowserWindow, screen } from "electron";
-import {
-  normalizePracticeWindowTargetToViewportPercent,
-  type ViewportPercentTarget,
-} from "../screenCoordinates";
+import { normalizePracticeWindowTargetToViewportPercent } from "../screenCoordinates";
 import type { Step } from "./types";
 
 export const CONTROLLED_DEMO_NODE_ID = "Specter Controlled Demo";
@@ -20,12 +17,44 @@ const DEMO_TARGETS = {
 function contentTargetPercent(
   window: BrowserWindow | null,
   target: { x: number; y: number },
-): ViewportPercentTarget {
+): {
+  x: number;
+  y: number;
+  viewportX: number;
+  viewportY: number;
+  coordinateFrame: "viewport";
+  sourceFrame: "practice-window";
+  rawTarget: {
+    x: number;
+    y: number;
+    coordinateFrame: "practice-window";
+  };
+  captureMeta: Step["captureMeta"];
+} {
   const contentBounds =
     window && !window.isDestroyed() ? window.getContentBounds() : null;
   const fallbackBounds = screen.getPrimaryDisplay().bounds;
   const bounds = contentBounds || fallbackBounds;
-  return normalizePracticeWindowTargetToViewportPercent(target, bounds);
+  const normalized = normalizePracticeWindowTargetToViewportPercent(
+    target,
+    bounds,
+  );
+  // Re-assert the frame literals: the normalizer always produces them but its
+  // declared return type is the wider ViewportPercentTarget.
+  return {
+    x: normalized.x,
+    y: normalized.y,
+    viewportX: normalized.viewportX,
+    viewportY: normalized.viewportY,
+    coordinateFrame: "viewport",
+    sourceFrame: "practice-window",
+    rawTarget: {
+      x: normalized.rawTarget?.x ?? normalized.x,
+      y: normalized.rawTarget?.y ?? normalized.y,
+      coordinateFrame: "practice-window",
+    },
+    captureMeta: normalized.captureMeta,
+  };
 }
 
 export function createControlledDemoWorkflow(window: BrowserWindow | null): {

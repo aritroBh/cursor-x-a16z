@@ -7,7 +7,6 @@ import { safeLog, safeWarn, safeError } from "../logger";
 
 import OpenAI from "openai";
 
-const ELEVENLABS_API_URL = "https://api.elevenlabs.io/v1/text-to-speech";
 const BRIAN_VOICE_ID = "nPczCjzI2devNBz1zQrb";
 const DEFAULT_MODEL_ID = "eleven_flash_v2_5";
 const PROVIDER_TIMEOUT_MS = 20_000;
@@ -19,7 +18,12 @@ let speechRunId = 0;
 function waitForProcess(child: ChildProcess): Promise<void> {
   return new Promise((resolve, reject) => {
     child.once("error", reject);
-    child.once("close", () => resolve());
+    child.once("close", (code) => {
+      if (code && code !== 0) {
+        safeWarn("[TTS] playback process exited non-zero", { code });
+      }
+      resolve();
+    });
   });
 }
 
@@ -124,7 +128,7 @@ export interface SpeakResult {
   };
 }
 
-async function speakElevenLabsStream(
+async function speakElevenLabs(
   text: string,
   apiKey: string,
   voiceId: string,
@@ -134,13 +138,13 @@ async function speakElevenLabsStream(
   activeRequest = controller;
 
   const timeoutId = setTimeout(() => {
-    safeWarn("[TTS] ElevenLabs stream timed out");
+    safeWarn("[TTS] ElevenLabs timed out");
     controller.abort();
   }, PROVIDER_TIMEOUT_MS);
 
   try {
     const response = await fetch(
-      `https://api.elevenlabs.io/v1/text-to-speech/${voiceId}/stream`,
+      `https://api.elevenlabs.io/v1/text-to-speech/${voiceId}`,
       {
         method: "POST",
         signal: controller.signal,
@@ -174,31 +178,18 @@ async function speakElevenLabsStream(
       };
     }
 
-    if (!response.body) {
-      return { ok: false, reason: "No response body" };
+    const buffer = Buffer.from(await response.arrayBuffer());
+    if (!buffer.byteLength) {
+      return { ok: false, reason: "Empty audio response" };
     }
 
-    const afplay = spawn("afplay", ["-"], {
-      stdio: ["pipe", "ignore", "ignore"],
-    });
-    activePlayback = afplay;
+    const outputDir = join(tmpdir(), "specter-tts");
+    const outputPath = join(outputDir, `elevenlabs-speech-${Date.now()}.mp3`);
+    await mkdir(outputDir, { recursive: true });
+    await writeFile(outputPath, buffer);
 
-    const reader = response.body.getReader();
-    const stdin = afplay.stdin as NodeJS.WritableStream;
-
-    const pump = async (): Promise<void> => {
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        if (!stdin.writable) break;
-        stdin.write(Buffer.from(value));
-      }
-      stdin.end();
-    };
-
-    await Promise.all([pump(), waitForProcess(afplay)]);
-
-    if (activePlayback === afplay) activePlayback = null;
+    safeLog("[TTS] ElevenLabs success, playing...", { bytes: buffer.length });
+    await playAudioFile(outputPath);
     return { ok: true };
   } catch (error: any) {
     clearTimeout(timeoutId);
@@ -219,7 +210,6 @@ export async function speak(text: string): Promise<SpeakResult> {
   await stopSpeaking();
   if (!text.trim()) return { success: true, providerUsed: "macos" };
 
-  const runId = speechRunId;
   const elevenlabsKey = process.env.ELEVENLABS_API_KEY;
   const openaiKey = process.env.OPENAI_API_KEY;
   const voiceId = process.env.ELEVENLABS_VOICE_ID || BRIAN_VOICE_ID;
@@ -229,15 +219,10 @@ export async function speak(text: string): Promise<SpeakResult> {
 
   // 1. Try ElevenLabs
   if (elevenlabsKey) {
-    safeLog("[TTS] Calling ElevenLabs stream...", { voiceId, modelId });
-    const result = await speakElevenLabsStream(
-      text,
-      elevenlabsKey,
-      voiceId,
-      modelId,
-    );
+    safeLog("[TTS] Calling ElevenLabs...", { voiceId, modelId });
+    const result = await speakElevenLabs(text, elevenlabsKey, voiceId, modelId);
     if (result.ok) return { success: true, providerUsed: "elevenlabs" };
-    safeWarn("[TTS] ElevenLabs stream failed", { reason: result.reason });
+    safeWarn("[TTS] ElevenLabs failed", { reason: result.reason });
     failures.elevenlabs = result.reason;
   }
 

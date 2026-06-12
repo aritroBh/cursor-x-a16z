@@ -1394,7 +1394,8 @@ app.whenReady().then(async () => {
   // debug:tree — dev-only: returns the latest serialized AX tree snapshot.
   ipcMain.handle("debug:tree", () => {
     const tree = axEventWatcher.getLatestTree();
-    if (!tree) return { ok: false, error: "no tree yet — start a session first" };
+    if (!tree)
+      return { ok: false, error: "no tree yet — start a session first" };
     return { ok: true, tree };
   });
 

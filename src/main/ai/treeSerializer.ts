@@ -144,7 +144,13 @@ export function buildSerializedTree(dump: AxDumpResult): SerializedTree {
       Math.round(el.y + el.h),
     ];
 
-    contractElements.push({ id, role: el.role, label, value: el.value || undefined, bbox });
+    contractElements.push({
+      id,
+      role: el.role,
+      label,
+      value: el.value || undefined,
+      bbox,
+    });
 
     if (focusedEl && el.i === focusedEl.i) focusedId = id;
   }

@@ -14,6 +14,10 @@ import ApplicationServices
 let args = CommandLine.arguments
 let target: String
 
+// Module-level state for click detection
+var g_clickTap: CFMachPort?
+var g_clickRunLoopSource: CFRunLoopSource?
+
 func findApp(_ identifier: String) -> NSRunningApplication? {
     if let app = NSRunningApplication.runningApplications(withBundleIdentifier: identifier).first {
         return app
@@ -96,10 +100,49 @@ if args.count >= 2 && args[1] == "--watch" {
 
     CFRunLoopAddSource(CFRunLoopGetCurrent(), AXObserverGetRunLoopSource(obs), .defaultMode)
 
+    // Also start global click detection via CGEvent tap (requires Input Monitoring permission)
+    startClickTap(pid: g_watchPid)
+
     // Emit a ready marker so the Node side knows the watcher is up.
     emitWatchEvent("watch_ready")
     CFRunLoopRun()
     exit(0)
+}
+
+// MARK: - Click Detection via CGEvent Tap
+
+func startClickTap(pid: pid_t) {
+    let eventMask = (1 << CGEventType.leftMouseDown.rawValue) | (1 << CGEventType.rightMouseDown.rawValue)
+    guard let tap = CGEvent.tapCreate(
+        tap: .cgSessionEventTap,
+        place: .headInsertEventTap,
+        options: .defaultTap,
+        eventsOfInterest: CGEventMask(eventMask),
+        callback: { _, type, event, _ in
+            let location = event.location
+            let clickEvent = "{\"event\":\"click\",\"x\":\(location.x),\"y\":\(location.y),\"pid\":\(g_watchPid),\"button\":\(type == .leftMouseDown ? "\"left\"" : "\"right\"")}\n"
+            FileHandle.standardOutput.write(clickEvent.data(using: .utf8)!)
+            return Unmanaged.passRetained(event)
+        },
+        userInfo: nil
+    ) else {
+        FileHandle.standardError.write("click-tap-create-failed\n".data(using: .utf8)!)
+        return
+    }
+    g_clickTap = tap
+    let runLoopSource = CFMachPortCreateRunLoopSource(kCFAllocatorDefault, tap, 0)
+    g_clickRunLoopSource = runLoopSource
+    CFRunLoopAddSource(CFRunLoopGetCurrent(), runLoopSource, .defaultMode)
+    CGEvent.tapEnable(tap: tap, enable: true)
+}
+
+func stopClickTap() {
+    if let tap = g_clickTap {
+        CGEvent.tapEnable(tap: tap, enable: false)
+        CFRunLoopRemoveSource(CFRunLoopGetCurrent(), g_clickRunLoopSource, .defaultMode)
+        g_clickTap = nil
+        g_clickRunLoopSource = nil
+    }
 }
 
 // `--frontmost-only` is a fast probe used by the main process to capture the

@@ -12,6 +12,14 @@ interface AxWatchEvent {
   pid: number;
 }
 
+interface AxClickEvent {
+  event: "click";
+  x: number;
+  y: number;
+  pid: number;
+  button: "left" | "right";
+}
+
 class AxEventWatcher extends EventEmitter {
   private proc: ChildProcess | null = null;
   private bundleId: string | null = null;
@@ -34,16 +42,34 @@ class AxEventWatcher extends EventEmitter {
 
     const rl = createInterface({ input: this.proc.stdout! });
     rl.on("line", (line) => {
-      let evt: AxWatchEvent | null = null;
+      const trimmed = line.trim();
+      if (!trimmed) return;
       try {
-        evt = JSON.parse(line.trim()) as AxWatchEvent;
+        const parsed = JSON.parse(trimmed);
+        if (parsed.event === "click") {
+          const clickEvt = parsed as AxClickEvent;
+          safeLog("[AX_WATCHER] click", {
+            x: clickEvt.x,
+            y: clickEvt.y,
+            button: clickEvt.button,
+          });
+          this.emit("click", {
+            x: clickEvt.x,
+            y: clickEvt.y,
+            button: clickEvt.button,
+            pid: clickEvt.pid,
+            t: Date.now(),
+          });
+          return;
+        }
+        const evt = parsed as AxWatchEvent;
+        safeLog("[AX_WATCHER] event", { event: evt.event });
+        this.emit("axEvent", evt);
+        // Re-dump the tree on every notification (debounced to one in-flight at a time).
+        void this.refreshTree();
       } catch {
         return;
       }
-      safeLog("[AX_WATCHER] event", { event: evt.event });
-      this.emit("axEvent", evt);
-      // Re-dump the tree on every notification (debounced to one in-flight at a time).
-      void this.refreshTree();
     });
 
     this.proc.stderr?.on("data", (chunk: Buffer) => {

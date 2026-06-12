@@ -1,4 +1,5 @@
-import React, { useEffect, useRef, useState } from "react";
+import React, { useEffect } from "react";
+import { useGhostTravel } from "./useGhostTravel";
 
 interface PreviewTarget {
   x: number;
@@ -12,23 +13,19 @@ interface TargetPreviewGhostProps {
   active: boolean;
 }
 
-type Phase = "enter" | "travel" | "arrived" | "reset";
-
 const CURSOR_HOTSPOT = { x: 5.5, y: 3.21 };
-
-const TRAVEL_MS = 600;
-const PAUSE_MS = 400;
-const PULSE_MS = 600;
-const RESET_MS = 100;
 
 export const TargetPreviewGhost: React.FC<TargetPreviewGhostProps> = ({
   target,
   start,
   active,
 }) => {
-  const [phase, setPhase] = useState<Phase>("enter");
-  const startPosRef = useRef(start || { x: 50, y: 50 });
-  const timersRef = useRef<number[]>([]);
+  const { phase, percentX, percentY, isTraveling, isArrived, travelMs } =
+    useGhostTravel(active && target ? target : null, {
+      loop: true,
+      start,
+      enabled: active,
+    });
 
   useEffect(() => {
     if (!target) return;
@@ -50,54 +47,8 @@ export const TargetPreviewGhost: React.FC<TargetPreviewGhostProps> = ({
     }
   }, [phase, target]);
 
-  useEffect(() => {
-    if (!active || !target) return;
-
-    if (start) startPosRef.current = start;
-
-    const timers: number[] = [];
-    timersRef.current = timers;
-
-    const cycle = () => {
-      setPhase("travel");
-      const t1 = window.setTimeout(() => {
-        setPhase("arrived");
-        const t2 = window.setTimeout(() => {
-          setPhase("reset");
-          const t3 = window.setTimeout(() => {
-            setPhase("enter");
-            const t4 = window.setTimeout(() => {
-              cycle();
-            }, 50);
-            timers.push(t4);
-          }, RESET_MS);
-          timers.push(t3);
-        }, PAUSE_MS + PULSE_MS);
-        timers.push(t2);
-      }, TRAVEL_MS);
-      timers.push(t1);
-    };
-
-    setPhase("enter");
-    const t0 = window.setTimeout(() => {
-      cycle();
-    }, 50);
-    timers.push(t0);
-
-    return () => {
-      timers.forEach((id) => window.clearTimeout(id));
-    };
-  }, [active, target?.x, target?.y, start?.x, start?.y]);
-
   if (!active || !target) return null;
 
-  const percentX =
-    phase === "enter" || phase === "reset" ? startPosRef.current.x : target.x;
-  const percentY =
-    phase === "enter" || phase === "reset" ? startPosRef.current.y : target.y;
-
-  const isTraveling = phase === "travel";
-  const isArrived = phase === "arrived";
   const isReset = phase === "reset";
 
   return (
@@ -111,7 +62,7 @@ export const TargetPreviewGhost: React.FC<TargetPreviewGhostProps> = ({
         zIndex: 9999,
         willChange: "transform, opacity",
         transition: isTraveling
-          ? "transform 600ms ease-out, opacity 600ms ease-out"
+          ? `transform ${travelMs}ms ease-out, opacity ${travelMs}ms ease-out`
           : "none",
         opacity: isReset ? 0 : 0.88,
         filter: "drop-shadow(0 3px 5px rgba(0, 0, 0, 0.38))",

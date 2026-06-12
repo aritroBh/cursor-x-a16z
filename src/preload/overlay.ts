@@ -105,6 +105,8 @@ const api = {
     ),
   ultraConverse: (payload: any) =>
     ipcRenderer.invoke("ultra:converse", payload),
+  resolveLiveTarget: (targetLabel: string, action: string) =>
+    ipcRenderer.invoke("live:resolveTarget", { targetLabel, action }),
   compileNotesToHtml: (input: any) =>
     ipcRenderer.invoke("agent:compileNoteHtml", input),
   checkAIBackend: () => ipcRenderer.invoke("ai:healthCheck"),

@@ -6,6 +6,12 @@ import {
 import { safeLog, safeWarn, safeError } from "../logger";
 import type { BehavioralState } from "../session/types";
 import { normalizeBehavioralState } from "../behavioral/model";
+import type {
+  ContractStep,
+  PlannerOutput,
+  SerializedTree,
+  ActionType,
+} from "../../shared/partA-contract";
 
 const CLAUDE_MODEL = getAnthropicModel();
 const STEP_ACTIONS = ["click", "type", "scroll", "wait"];
@@ -624,5 +630,179 @@ export async function ultraConverse(
   } catch (error: any) {
     safeError("[ULTRA] Anthropic converse failed", error);
     return fallbackUltraReply(message);
+  }
+}
+
+/* ──────────────────────────────────────────────────────────────────────────
+ * Single-step planner (Part A / A3). One Claude call per step, re-grounded on
+ * the live serialized tree each time — distinct from planSteps(), which plans a
+ * whole tutorial upfront. See docs/PERSON2_PLAN.md and src/shared/partA-contract.ts.
+ * ────────────────────────────────────────────────────────────────────────── */
+
+const SINGLE_STEP_SYSTEM_PROMPT =
+  "You are a patient software tutor guiding a beginner one step at a time. " +
+  "You are given the user's goal, a compact list of on-screen elements (each with a short id like e17), " +
+  "the steps already completed, and a short summary of what this user already knows. " +
+  "Decide the SINGLE next step. Pick the element by its id. " +
+  'Write "say" in at most two sentences: explain WHY, not just what ' +
+  '("the paperclip is how most apps represent attachments — you\'ll see it everywhere"). ' +
+  "If the goal is already accomplished, set goal_complete true and element_id null. " +
+  "Return ONLY valid JSON of the shape " +
+  '{ "say": string, "element_id": string|null, "action_type": "click|type|scroll|wait|read", "goal_complete": boolean }.';
+
+const ACTION_TYPES: ActionType[] = ["click", "type", "scroll", "wait", "read"];
+
+function toActionType(value: any): ActionType {
+  return ACTION_TYPES.includes(value) ? value : "click";
+}
+
+/** Build the compact "[eNN] role \"label\" (x,y)" block the planner reads. */
+function compactTreeText(tree: SerializedTree): string {
+  if (typeof tree.compactText === "string" && tree.compactText.trim()) {
+    return tree.compactText;
+  }
+  const header =
+    `APP: ${tree.app}  WINDOW: ${tree.window}\n` +
+    (tree.focusedId ? `FOCUSED: ${tree.focusedId}\n` : "");
+  const lines = tree.elements.map((el) => {
+    const [x1, y1] = el.bbox;
+    const value = el.value ? ` value="${el.value}"` : "";
+    return `[${el.id}] ${el.role} "${el.label}"${value} (${x1}, ${y1})`;
+  });
+  const truncated = tree.truncatedCount
+    ? `\n…(+${tree.truncatedCount} more elements)`
+    : "";
+  return `${header}${lines.join("\n")}${truncated}`;
+}
+
+function normalizePlannerOutput(raw: any): PlannerOutput {
+  const partial = raw && typeof raw === "object" ? raw : {};
+  return {
+    say:
+      typeof partial.say === "string" && partial.say.trim()
+        ? partial.say.trim()
+        : "Let's take the next step.",
+    element_id:
+      typeof partial.element_id === "string" && partial.element_id.trim()
+        ? partial.element_id.trim()
+        : null,
+    action_type: toActionType(partial.action_type),
+    goal_complete: partial.goal_complete === true,
+  };
+}
+
+/**
+ * Resolve a raw planner output against the live tree into a renderable ContractStep.
+ * If element_id no longer exists in the tree (UI changed), target is null and the
+ * caller should re-plan rather than point at nothing.
+ */
+export function resolveStep(
+  output: PlannerOutput,
+  tree: SerializedTree,
+  stepId: number,
+): ContractStep {
+  const el =
+    output.element_id != null
+      ? tree.elements.find((e) => e.id === output.element_id)
+      : undefined;
+
+  return {
+    stepId,
+    say: output.say,
+    target: el
+      ? {
+          elementId: el.id,
+          role: el.role,
+          label: el.label,
+          bbox: el.bbox,
+          screenScale: tree.screenScale,
+        }
+      : null,
+    actionType: output.action_type,
+    status: output.goal_complete ? "goal_done" : "active",
+    correction: null,
+    goalComplete: output.goal_complete,
+  };
+}
+
+/**
+ * Plan the SINGLE next step toward `goal`, grounded on the current tree.
+ * Returns a ContractStep ready for the overlay. Falls back to a safe step when
+ * no API key is configured so the demo never hard-stops.
+ */
+export async function planNextStep(
+  goal: string,
+  tree: SerializedTree,
+  completed: ContractStep[],
+  profileSummary: string,
+  stepId: number,
+): Promise<ContractStep> {
+  const client = createAnthropicClient();
+
+  if (!client) {
+    safeWarn("[PLANNER] No Anthropic client; single-step fallback");
+    const first = tree.elements[0];
+    return resolveStep(
+      {
+        say: "Let's start with the first thing on screen.",
+        element_id: first ? first.id : null,
+        action_type: "click",
+        goal_complete: false,
+      },
+      tree,
+      stepId,
+    );
+  }
+
+  try {
+    const message = await client.messages.create({
+      model: CLAUDE_MODEL,
+      max_tokens: 512,
+      system: SINGLE_STEP_SYSTEM_PROMPT,
+      messages: [
+        {
+          role: "user",
+          content: [
+            `GOAL: ${goal}`,
+            profileSummary ? `USER PROFILE: ${profileSummary}` : "",
+            completed.length
+              ? `STEPS DONE: ${completed.map((s) => s.say).join(" | ")}`
+              : "STEPS DONE: (none yet)",
+            "",
+            "SCREEN:",
+            compactTreeText(tree),
+          ]
+            .filter(Boolean)
+            .join("\n"),
+        },
+      ],
+    });
+
+    const rawText = message.content
+      .flatMap((part) =>
+        part.type === "text" && "text" in part && typeof part.text === "string"
+          ? [part.text]
+          : [],
+      )
+      .join("\n");
+
+    safeLog("[PLANNER] Single-step raw:", rawText);
+    return resolveStep(normalizePlannerOutput(extractJson(rawText)), tree, stepId);
+  } catch (error: any) {
+    safeError(
+      "[AI_BACKEND] Single-step planner unavailable; using fallback",
+      classifyAnthropicError(error),
+    );
+    const first = tree.elements[0];
+    return resolveStep(
+      {
+        say: "Let's keep going with the next step.",
+        element_id: first ? first.id : null,
+        action_type: "click",
+        goal_complete: false,
+      },
+      tree,
+      stepId,
+    );
   }
 }

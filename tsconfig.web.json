@@ -3,7 +3,8 @@
   "include": [
     "src/renderer/**/*",
     "src/preload/**/*",
-    "src/main/session/types.ts"
+    "src/main/session/types.ts",
+    "src/shared/**/*"
   ],
   "compilerOptions": {
     "composite": true,

@@ -37,6 +37,71 @@ func jsonString(_ value: String?) -> String {
     return "\"\(escaped)\""
 }
 
+// Module-level state for --watch mode (global so @convention(c) callbacks can reach it).
+var g_watchPid: pid_t = 0
+
+// Emits a single-line JSON event to stdout so the Node process can read it.
+func emitWatchEvent(_ name: String) {
+    let line = "{\"event\":\"\(jsonString(name) != "null" ? name : "unknown")\",\"pid\":\(g_watchPid)}\n"
+    FileHandle.standardOutput.write(line.data(using: .utf8)!)
+}
+
+// --watch <bundle-id|app-name>  (or --watch alone = frontmost app)
+// Registers an AXObserver on the target app and streams JSON events to stdout
+// whenever AX notifications fire. The Node side re-dumps the tree on each event.
+if args.count >= 2 && args[1] == "--watch" {
+    let watchTarget: String
+    let watchApp: NSRunningApplication
+    if args.count >= 3 {
+        watchTarget = args[2]
+        guard let resolved = findApp(watchTarget) else {
+            FileHandle.standardError.write("not-found:\(watchTarget)\n".data(using: .utf8)!)
+            exit(3)
+        }
+        watchApp = resolved
+    } else {
+        guard let frontmost = NSWorkspace.shared.frontmostApplication else {
+            FileHandle.standardError.write("no-frontmost-app\n".data(using: .utf8)!)
+            exit(4)
+        }
+        watchApp = frontmost
+        watchTarget = frontmost.bundleIdentifier ?? frontmost.localizedName ?? "unknown"
+    }
+
+    g_watchPid = watchApp.processIdentifier
+    let watchAxApp = AXUIElementCreateApplication(g_watchPid)
+
+    var observer: AXObserver?
+    let observerCallback: AXObserverCallback = { _, _, notification, _ in
+        emitWatchEvent(notification as String)
+    }
+
+    guard AXObserverCreate(g_watchPid, observerCallback, &observer) == .success,
+          let obs = observer else {
+        FileHandle.standardError.write("observer-create-failed\n".data(using: .utf8)!)
+        exit(5)
+    }
+
+    let notifications: [String] = [
+        kAXFocusedUIElementChangedNotification as String,
+        kAXValueChangedNotification as String,
+        kAXWindowCreatedNotification as String,
+        kAXTitleChangedNotification as String,
+        kAXUIElementDestroyedNotification as String,
+        kAXSelectedChildrenChangedNotification as String,
+    ]
+    for note in notifications {
+        AXObserverAddNotification(obs, watchAxApp, note as CFString, nil)
+    }
+
+    CFRunLoopAddSource(CFRunLoopGetCurrent(), AXObserverGetRunLoopSource(obs), .defaultMode)
+
+    // Emit a ready marker so the Node side knows the watcher is up.
+    emitWatchEvent("watch_ready")
+    CFRunLoopRun()
+    exit(0)
+}
+
 // `--frontmost-only` is a fast probe used by the main process to capture the
 // user's foreground app *before* Specter's overlay steals focus. Without this,
 // every later AX query targets Specter itself instead of the app the user is

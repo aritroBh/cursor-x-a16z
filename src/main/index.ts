@@ -13,7 +13,12 @@ import { join } from "path";
 import { electronApp, optimizer, is } from "@electron-toolkit/utils";
 import { uIOhook, UiohookKey } from "uiohook-napi";
 
-import { checkPermissions, isPermissionError } from "./permissions";
+import {
+  checkPermissions,
+  isPermissionError,
+  getPermissionStatus,
+} from "./permissions";
+import { axEventWatcher } from "./context/axEventWatcher";
 import { registerDashboardIpc, showDashboardWindow } from "./dashboard";
 import { captureScreenBase64 } from "./capture";
 import { clickRealMouse, executeRealMouseSteps, moveRealMouse } from "./cursor";
@@ -1373,6 +1378,18 @@ app.whenReady().then(async () => {
   }));
 
   ipcMain.handle("proactive:predict", async () => buildProactivePrediction());
+
+  // Part-A contract channels ─────────────────────────────────────────────────
+
+  // permissions:get — overlay onboarding polls this to show the grant checkmark.
+  ipcMain.handle("permissions:get", () => getPermissionStatus());
+
+  // debug:tree — dev-only: returns the latest serialized AX tree snapshot.
+  ipcMain.handle("debug:tree", () => {
+    const tree = axEventWatcher.getLatestTree();
+    if (!tree) return { ok: false, error: "no tree yet — start a session first" };
+    return { ok: true, tree };
+  });
 
   ipcMain.handle("agent:compileNoteHtml", async (event, input) => {
     if (!validateSender(event, overlayWindow))

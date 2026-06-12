@@ -14,6 +14,8 @@ interface InputBarProps {
   onUltraSpokenInput?: (text: string) => void;
   onTranscriptionStart?: () => void;
   onTranscriptionEnd?: () => void;
+  /** Fired before recording starts — lets the parent release any other mic. */
+  onRecordingStart?: () => void;
 }
 
 const SpecterMarkIcon = () => (
@@ -113,6 +115,7 @@ export const InputBar: React.FC<InputBarProps> = ({
   onUltraSpokenInput,
   onTranscriptionStart,
   onTranscriptionEnd,
+  onRecordingStart,
 }) => {
   const recorderRef = useRef(new MicRecorder());
   const [value, setValue] = useState("");
@@ -162,6 +165,7 @@ export const InputBar: React.FC<InputBarProps> = ({
 
   const startRecording = async () => {
     if (disabled || recordingActiveRef.current || micState !== "idle") return;
+    onRecordingStart?.();
     setMicMessage("");
     recordingActiveRef.current = true;
     setMicState("recording");
@@ -183,7 +187,7 @@ export const InputBar: React.FC<InputBarProps> = ({
   };
 
   const handleCancel = async () => {
-    if (micState !== "recording") return;
+    if (micState !== "recording" || !recordingActiveRef.current) return;
     console.log("[MIC] cancel clicked");
     recordingActiveRef.current = false;
     setMicState("idle");

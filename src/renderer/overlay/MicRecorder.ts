@@ -57,6 +57,7 @@ export class MicRecorder {
   private audioContext: AudioContext | null = null;
   private analyser: AnalyserNode | null = null;
   private dataArray: Uint8Array<ArrayBuffer> | null = null;
+  private stopPromise: Promise<ArrayBuffer> | null = null;
 
   private chooseMimeType(): string | undefined {
     if (typeof MediaRecorder.isTypeSupported !== "function") return undefined;
@@ -118,6 +119,7 @@ export class MicRecorder {
     this.mediaRecorder.start(250);
     this.startedAt = Date.now();
     this.isRecording = true;
+    this.stopPromise = null;
 
     try {
       this.audioContext = new AudioContext();
@@ -144,6 +146,14 @@ export class MicRecorder {
   async stop(): Promise<ArrayBuffer> {
     console.log("[MIC] stop requested");
 
+    // Idempotent: concurrent stop() calls (cancel + confirm racing) share one
+    // promise instead of overwriting onstop and stranding the first caller.
+    if (this.stopPromise) return this.stopPromise;
+    this.stopPromise = this.doStop();
+    return this.stopPromise;
+  }
+
+  private async doStop(): Promise<ArrayBuffer> {
     if (this.audioContext && this.audioContext.state !== "closed") {
       try {
         await this.audioContext.close();

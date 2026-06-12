@@ -9,6 +9,8 @@ interface VoiceMicButtonProps {
   onTranscriptionEnd?: () => void;
   onMouseEnter?: () => void;
   onMouseLeave?: () => void;
+  /** Fired before recording starts — lets the parent release any other mic. */
+  onRecordingStart?: () => void;
 }
 
 export const VoiceMicButton: React.FC<VoiceMicButtonProps> = ({
@@ -18,6 +20,7 @@ export const VoiceMicButton: React.FC<VoiceMicButtonProps> = ({
   onTranscriptionEnd,
   onMouseEnter,
   onMouseLeave,
+  onRecordingStart,
 }) => {
   const recorderRef = useRef(new MicRecorder());
   const recordingStartRef = useRef<Promise<void> | null>(null);
@@ -38,6 +41,7 @@ export const VoiceMicButton: React.FC<VoiceMicButtonProps> = ({
 
   const startRecording = async () => {
     if (disabled || recordingActiveRef.current || micState !== "idle") return;
+    onRecordingStart?.();
     setMicMessage("");
     recordingActiveRef.current = true;
     setMicState("recording");
@@ -56,7 +60,7 @@ export const VoiceMicButton: React.FC<VoiceMicButtonProps> = ({
   };
 
   const handleCancel = async () => {
-    if (micState !== "recording") return;
+    if (micState !== "recording" || !recordingActiveRef.current) return;
     recordingActiveRef.current = false;
     setMicState("idle");
     try {
@@ -156,11 +160,35 @@ export const VoiceMicButton: React.FC<VoiceMicButtonProps> = ({
       >
         <button
           type="button"
-          className={`voice-mic-float__btn ${micState !== "idle" ? "is-busy" : ""}`}
-          disabled={disabled || micState !== "idle"}
-          onClick={() => void startRecording()}
-          aria-label="Talk to Specter"
-          title="Talk to Specter"
+          className={`voice-mic-float__btn ${
+            micState === "recording"
+              ? "is-live"
+              : micState === "transcribing"
+                ? "is-busy"
+                : "is-muted"
+          }`}
+          disabled={disabled || micState === "transcribing"}
+          onClick={() => {
+            if (micState === "recording") {
+              void handleConfirm();
+            } else if (micState === "idle") {
+              void startRecording();
+            }
+          }}
+          aria-label={
+            micState === "recording"
+              ? "Mic live — click to stop and send"
+              : micState === "transcribing"
+                ? "Transcribing..."
+                : "Mic muted — click to talk"
+          }
+          title={
+            micState === "recording"
+              ? "Mic live — click to stop"
+              : micState === "transcribing"
+                ? "Transcribing..."
+                : "Mic muted — click to talk"
+          }
         >
           <svg viewBox="0 0 24 24" aria-hidden="true">
             <path
@@ -179,6 +207,15 @@ export const VoiceMicButton: React.FC<VoiceMicButtonProps> = ({
               strokeLinejoin="round"
               strokeWidth="1.8"
             />
+            {micState !== "recording" && micState !== "transcribing" && (
+              <path
+                d="M4.5 3.5l15 17"
+                fill="none"
+                stroke="currentColor"
+                strokeLinecap="round"
+                strokeWidth="2"
+              />
+            )}
           </svg>
         </button>
         {micMessage && (

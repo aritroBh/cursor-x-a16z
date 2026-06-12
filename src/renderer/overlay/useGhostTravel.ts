@@ -12,6 +12,12 @@ export interface GhostTravelTarget {
   y: number;
 }
 
+/** Viewport-percent clamp — coordinates arrive over IPC and must never
+ * paint the ghost outside the screen. */
+function clampPercent(value: number): number {
+  return Math.min(100, Math.max(0, value));
+}
+
 export interface UseGhostTravelOptions {
   loop?: boolean;
   travelMs?: number;
@@ -36,6 +42,13 @@ export function useGhostTravel(
   const lastPosRef = useRef({ x: 50, y: 50 });
   const hasSeededRef = useRef(false);
   const timersRef = useRef<number[]>([]);
+
+  // Lazy ref init during render (not effect) so the very first "enter" frame
+  // already paints at the seeded origin — effects run after paint, too late.
+  if (!loop && !hasSeededRef.current && options?.start) {
+    lastPosRef.current = { x: options.start.x, y: options.start.y };
+    hasSeededRef.current = true;
+  }
 
   useEffect(() => {
     if (options?.start) {
@@ -98,16 +111,13 @@ export function useGhostTravel(
   useEffect(() => {
     if (loop || !enabled || !target) return;
 
-    if (!hasSeededRef.current && options?.start) {
-      lastPosRef.current = { x: options.start.x, y: options.start.y };
-      hasSeededRef.current = true;
-    }
-
     const timers: number[] = [];
     timersRef.current = timers;
 
     setPhase("enter");
 
+    // 50ms (not 16ms) so the browser paints the "enter" frame at the origin
+    // before the transform changes — otherwise the CSS transition never fires.
     const t0 = window.setTimeout(() => {
       setPhase("travel");
       const t1 = window.setTimeout(() => {
@@ -115,7 +125,7 @@ export function useGhostTravel(
         lastPosRef.current = { x: target.x, y: target.y };
       }, travelMs);
       timers.push(t1);
-    }, 16);
+    }, 50);
     timers.push(t0);
 
     return () => {
@@ -125,21 +135,25 @@ export function useGhostTravel(
   // Including it restarts mid-flight travel on every parent re-render.
   }, [loop, enabled, target?.x, target?.y, travelMs]);
 
-  const percentX = loop
-    ? phase === "enter" || phase === "reset"
-      ? startPosRef.current.x
-      : (target?.x ?? startPosRef.current.x)
-    : phase === "enter"
-      ? lastPosRef.current.x
-      : (target?.x ?? lastPosRef.current.x);
+  const percentX = clampPercent(
+    loop
+      ? phase === "enter" || phase === "reset"
+        ? startPosRef.current.x
+        : (target?.x ?? startPosRef.current.x)
+      : phase === "enter"
+        ? lastPosRef.current.x
+        : (target?.x ?? lastPosRef.current.x),
+  );
 
-  const percentY = loop
-    ? phase === "enter" || phase === "reset"
-      ? startPosRef.current.y
-      : (target?.y ?? startPosRef.current.y)
-    : phase === "enter"
-      ? lastPosRef.current.y
-      : (target?.y ?? lastPosRef.current.y);
+  const percentY = clampPercent(
+    loop
+      ? phase === "enter" || phase === "reset"
+        ? startPosRef.current.y
+        : (target?.y ?? startPosRef.current.y)
+      : phase === "enter"
+        ? lastPosRef.current.y
+        : (target?.y ?? lastPosRef.current.y),
+  );
 
   return {
     phase,

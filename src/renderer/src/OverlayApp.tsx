@@ -403,6 +403,8 @@ const OverlayApp: React.FC = () => {
   const [liveGhostLeaving, setLiveGhostLeaving] = useState(false);
   const liveGhostTimeoutRef = useRef<number | null>(null);
   const liveGhostLeaveTimerRef = useRef<number | null>(null);
+  // Monotonic question id — a slow Q1 response must not overwrite Q2's ghost.
+  const converseGenRef = useRef(0);
 
   const [ultraState, setUltraState] = useState<UltraState>("idle");
   const [ultraSessionHistory, setUltraSessionHistory] = useState<any[]>([]);
@@ -781,6 +783,10 @@ const OverlayApp: React.FC = () => {
     if (liveGhostTimeoutRef.current) {
       window.clearTimeout(liveGhostTimeoutRef.current);
     }
+    if (liveGhostLeaveTimerRef.current) {
+      window.clearTimeout(liveGhostLeaveTimerRef.current);
+      liveGhostLeaveTimerRef.current = null;
+    }
     liveGhostTimeoutRef.current = window.setTimeout(() => {
       liveGhostTimeoutRef.current = null;
       setLiveGhostLeaving(true);
@@ -831,6 +837,7 @@ const OverlayApp: React.FC = () => {
     cancelGhostListen();
     if (mode !== "ultra" && !demoPresentationMode) return;
 
+    const gen = ++converseGenRef.current;
     clearLiveGhost();
     setUltraState("thinking");
     console.log("[ULTRA] user said", { text });
@@ -896,7 +903,9 @@ const OverlayApp: React.FC = () => {
         await startRealAppTest(text);
       }
 
-      await applyLiveTargetFromResult(result);
+      if (gen === converseGenRef.current) {
+        await applyLiveTargetFromResult(result);
+      }
     } catch (error) {
       clearTimeout(timeout);
       setMemorySearchActive(false);
@@ -910,6 +919,7 @@ const OverlayApp: React.FC = () => {
   // Memory service is consulted in parallel (capped at 2.5s) so past-session
   // knowledge flavors the reply without blocking it.
   const handleChatInput = async (text: string) => {
+    const gen = ++converseGenRef.current;
     clearLiveGhost();
     setUltraState("thinking");
 
@@ -966,7 +976,9 @@ const OverlayApp: React.FC = () => {
         await startRealAppTest(text);
       }
 
-      await applyLiveTargetFromResult(result);
+      if (gen === converseGenRef.current) {
+        await applyLiveTargetFromResult(result);
+      }
     } catch (error) {
       clearTimeout(timeout);
       setMemorySearchActive(false);
@@ -1478,10 +1490,11 @@ const OverlayApp: React.FC = () => {
     }
 
     setGuideReady(false);
+    // 50ms enter-frame paint + 550ms travel = ring reveals on arrival
     guideReadyTimerRef.current = window.setTimeout(() => {
       setGuideReady(true);
       guideReadyTimerRef.current = null;
-    }, 550);
+    }, 620);
 
     return () => {
       if (guideReadyTimerRef.current) {
@@ -1490,18 +1503,21 @@ const OverlayApp: React.FC = () => {
       }
     };
   }, [
+    // Coordinate primitives only — full step objects are recreated on
+    // non-positional updates (e.g. ghostLocked flip on target reach) and
+    // would reset the 620ms timer, blanking the ring mid-walkthrough.
     currentStep?.viewportX,
     currentStep?.x,
     currentStep?.viewportY,
     currentStep?.y,
+    Boolean(currentStep),
     liveGhostStep?.viewportX,
     liveGhostStep?.x,
     liveGhostStep?.viewportY,
     liveGhostStep?.y,
+    Boolean(liveGhostStep),
     replayState,
     replayMode,
-    currentStep,
-    liveGhostStep,
     mirrorStatus,
   ]);
 
@@ -2618,6 +2634,7 @@ const OverlayApp: React.FC = () => {
                 <GhostActionPlayer
                   step={currentStep}
                   isActive={isReplayRunning}
+                  start={roamingGhostPosRef.current}
                 />
               ) : isLiveGhostActive ? (
                 <div
@@ -3309,12 +3326,15 @@ const OverlayApp: React.FC = () => {
                     disabled={isLoading}
                     mode={mode}
                     onUltraSpokenInput={handleUltraSpokenInput}
+                    onRecordingStart={cancelGhostListen}
                     onTranscriptionStart={() => {
                       if (mode === "ultra") setUltraState("transcribing");
                     }}
                     onTranscriptionEnd={() => {
-                      if (mode === "ultra" && ultraState === "transcribing")
-                        setUltraState("waitingForUser");
+                      if (mode === "ultra")
+                        setUltraState((s) =>
+                          s === "transcribing" ? "waitingForUser" : s,
+                        );
                     }}
                     onFocus={() => {
                       if (import.meta.env.VITE_DEBUG_VERBOSE === "true")
@@ -4018,10 +4038,12 @@ const OverlayApp: React.FC = () => {
             <VoiceMicButton
               disabled={isLoading}
               onSpokenInput={handleUltraSpokenInput}
+              onRecordingStart={cancelGhostListen}
               onTranscriptionStart={() => setUltraState("transcribing")}
               onTranscriptionEnd={() => {
-                if (ultraState === "transcribing")
-                  setUltraState("waitingForUser");
+                setUltraState((s) =>
+                  s === "transcribing" ? "waitingForUser" : s,
+                );
               }}
               onMouseEnter={() => setInteractivity(true)}
               onMouseLeave={() => setInteractivity(false)}

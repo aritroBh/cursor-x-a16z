@@ -35,8 +35,9 @@ export const GhostCursor: React.FC<GhostCursorProps> = ({
     document.head.appendChild(style);
   }
 
-  const percentX = step.viewportX ?? step.x;
-  const percentY = step.viewportY ?? step.y;
+  // Clamp: step coordinates arrive over IPC; never paint off-screen.
+  const percentX = Math.min(100, Math.max(0, step.viewportX ?? step.x));
+  const percentY = Math.min(100, Math.max(0, step.viewportY ?? step.y));
 
   const svg = (
     <svg width="24" height="24" viewBox="0 0 24 24">

@@ -102,7 +102,16 @@ export const GhostActionPlayer: React.FC<GhostActionPlayerProps> = ({
     );
   }
 
-  if (!isArrived) return null;
+  // "enter" phase: must render the cursor at the origin so the DOM node
+  // exists before travel starts — a fresh mount at the target coordinates
+  // would skip the CSS transition entirely (pop instead of glide).
+  if (!isArrived) {
+    return (
+      <div style={baseStyle}>
+        <GhostCursorSvg />
+      </div>
+    );
+  }
 
   if (action === "click") {
     return (

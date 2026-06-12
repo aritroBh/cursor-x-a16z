@@ -984,18 +984,20 @@
   animation: ghost-float-idle 3.4s ease-in-out infinite;
 }
 
+/* Opacity-only: animating transform here would make this wrapper the
+   containing block for the fixed-position ghost inside, re-basing its
+   vw/vh coordinates off the wrapper (screen center) and throwing the
+   cursor off-screen for the duration of the animation. */
 .ghost-live-pop {
-  animation: ghost-live-pop-in 220ms cubic-bezier(0.34, 1.56, 0.64, 1);
+  animation: ghost-live-pop-in 220ms ease-out;
 }
 
 @keyframes ghost-live-pop-in {
   0% {
     opacity: 0;
-    transform: scale(0.4);
   }
   100% {
     opacity: 1;
-    transform: scale(1);
   }
 }
 
@@ -1006,11 +1008,9 @@
 @keyframes ghost-live-pop-out {
   0% {
     opacity: 1;
-    transform: scale(1);
   }
   100% {
     opacity: 0;
-    transform: scale(0.5);
   }
 }
 
@@ -2110,6 +2110,20 @@
 .voice-mic-float__btn:disabled {
   opacity: 0.55;
   cursor: default;
+}
+
+.voice-mic-float__btn.is-muted {
+  color: rgba(255, 99, 88, 0.92);
+  border-color: rgba(255, 69, 58, 0.4);
+}
+
+.voice-mic-float__btn.is-live {
+  color: #ffffff;
+  border-color: rgba(48, 209, 88, 0.85);
+  background: rgba(48, 209, 88, 0.28);
+  animation: mic-live-pulse 1.4s ease-in-out infinite;
+  opacity: 1;
+  cursor: pointer;
 }
 
 .voice-mic-float__hint {

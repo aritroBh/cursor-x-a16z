@@ -9,7 +9,7 @@ import OpenAI from "openai";
 
 const ELEVENLABS_API_URL = "https://api.elevenlabs.io/v1/text-to-speech";
 const RACHEL_VOICE_ID = "21m00Tcm4TlvDq8ikWAM";
-const DEFAULT_MODEL_ID = "eleven_turbo_v2";
+const DEFAULT_MODEL_ID = "eleven_turbo_v2_5";
 const PROVIDER_TIMEOUT_MS = 20_000;
 
 let activePlayback: ChildProcess | null = null;
@@ -73,7 +73,7 @@ async function speakOpenAI(
   apiKey: string,
 ): Promise<{ ok: boolean; reason?: string }> {
   const model = process.env.OPENAI_TTS_MODEL || "gpt-4o-mini-tts";
-  const voice = (process.env.OPENAI_TTS_VOICE as any) || "nova";
+  const voice = (process.env.OPENAI_TTS_VOICE as any) || "shimmer";
 
   safeLog("[TTS] Trying OpenAI TTS...", { model, voice });
   try {
@@ -124,6 +124,96 @@ export interface SpeakResult {
   };
 }
 
+async function speakElevenLabsStream(
+  text: string,
+  apiKey: string,
+  voiceId: string,
+  modelId: string,
+): Promise<{ ok: boolean; reason?: string }> {
+  const controller = new AbortController();
+  activeRequest = controller;
+
+  const timeoutId = setTimeout(() => {
+    safeWarn("[TTS] ElevenLabs stream timed out");
+    controller.abort();
+  }, PROVIDER_TIMEOUT_MS);
+
+  try {
+    const response = await fetch(
+      `https://api.elevenlabs.io/v1/text-to-speech/${voiceId}/stream`,
+      {
+        method: "POST",
+        signal: controller.signal,
+        headers: {
+          "xi-api-key": apiKey,
+          "Content-Type": "application/json",
+          Accept: "audio/mpeg",
+        },
+        body: JSON.stringify({
+          text,
+          model_id: modelId,
+          output_format: "mp3_44100_128",
+          voice_settings: {
+            stability: 0.45,
+            similarity_boost: 0.8,
+            style: 0.15,
+            use_speaker_boost: true,
+          },
+        }),
+      },
+    );
+
+    clearTimeout(timeoutId);
+    if (activeRequest === controller) activeRequest = null;
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      return {
+        ok: false,
+        reason: `HTTP ${response.status}: ${errorText.slice(0, 120)}`,
+      };
+    }
+
+    if (!response.body) {
+      return { ok: false, reason: "No response body" };
+    }
+
+    const afplay = spawn("afplay", ["-"], {
+      stdio: ["pipe", "ignore", "ignore"],
+    });
+    activePlayback = afplay;
+
+    const reader = response.body.getReader();
+    const stdin = afplay.stdin as NodeJS.WritableStream;
+
+    const pump = async (): Promise<void> => {
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        if (!stdin.writable) break;
+        stdin.write(Buffer.from(value));
+      }
+      stdin.end();
+    };
+
+    await Promise.all([pump(), waitForProcess(afplay)]);
+
+    if (activePlayback === afplay) activePlayback = null;
+    return { ok: true };
+  } catch (error: any) {
+    clearTimeout(timeoutId);
+    if (activeRequest === controller) activeRequest = null;
+    const isAbort =
+      error?.name === "AbortError" ||
+      error?.message?.includes("aborted") ||
+      error?.message?.includes("timed out");
+    return {
+      ok: false,
+      reason: isAbort ? "Aborted" : error?.message || String(error),
+    };
+  }
+}
+
 export async function speak(text: string): Promise<SpeakResult> {
   safeLog("[TTS] speak called", { preview: text?.slice(0, 50) });
   await stopSpeaking();
@@ -139,80 +229,16 @@ export async function speak(text: string): Promise<SpeakResult> {
 
   // 1. Try ElevenLabs
   if (elevenlabsKey) {
-    let request: AbortController | null = null;
-    let timeoutId: ReturnType<typeof setTimeout> | null = null;
-    try {
-      safeLog("[TTS] Calling ElevenLabs...", { voiceId, modelId });
-      request = new AbortController();
-      activeRequest = request;
-      timeoutId = setTimeout(() => {
-        safeWarn(
-          `[TTS] ElevenLabs timed out after ${PROVIDER_TIMEOUT_MS / 1000}s`,
-        );
-        request!.abort();
-      }, PROVIDER_TIMEOUT_MS);
-
-      const response = await fetch(`${ELEVENLABS_API_URL}/${voiceId}`, {
-        method: "POST",
-        signal: request.signal,
-        headers: {
-          "xi-api-key": elevenlabsKey,
-          "Content-Type": "application/json",
-          Accept: "audio/mpeg",
-        },
-        body: JSON.stringify({
-          text,
-          model_id: modelId,
-          voice_settings: {
-            stability: 0.45,
-            similarity_boost: 0.8,
-            style: 0.15,
-            use_speaker_boost: true,
-          },
-        }),
-      });
-
-      clearTimeout(timeoutId);
-      timeoutId = null;
-      if (activeRequest === request) activeRequest = null;
-      if (runId !== speechRunId)
-        return {
-          success: false,
-          providerUsed: "elevenlabs",
-          fallbackReason: "stale run",
-        };
-
-      if (response.ok) {
-        const audio = Buffer.from(await response.arrayBuffer());
-        const outputDir = join(tmpdir(), "specter-tts");
-        const outputPath = join(outputDir, `eleven-speech-${Date.now()}.mp3`);
-        await mkdir(outputDir, { recursive: true });
-        await writeFile(outputPath, audio);
-        if (runId === speechRunId) {
-          safeLog("[TTS] ElevenLabs success, playing...");
-          await playAudioFile(outputPath);
-          return { success: true, providerUsed: "elevenlabs" };
-        }
-      } else {
-        const errorText = await response.text();
-        safeWarn("[TTS] ElevenLabs returned error", {
-          status: response.status,
-          errorText,
-        });
-        failures.elevenlabs = `HTTP ${response.status}${errorText ? `: ${errorText.slice(0, 120)}` : ""}`;
-      }
-    } catch (error: any) {
-      if (timeoutId !== null) clearTimeout(timeoutId);
-      if (activeRequest === request) activeRequest = null;
-      safeError("[TTS] ElevenLabs exception", error);
-      const isTimeout =
-        error?.name === "AbortError" ||
-        error?.message?.includes("aborted") ||
-        error?.message?.includes("timed out");
-      failures.elevenlabs = isTimeout
-        ? `Timed out after ${PROVIDER_TIMEOUT_MS / 1000}s`
-        : error?.message || String(error);
-    }
+    safeLog("[TTS] Calling ElevenLabs stream...", { voiceId, modelId });
+    const result = await speakElevenLabsStream(
+      text,
+      elevenlabsKey,
+      voiceId,
+      modelId,
+    );
+    if (result.ok) return { success: true, providerUsed: "elevenlabs" };
+    safeWarn("[TTS] ElevenLabs stream failed", { reason: result.reason });
+    failures.elevenlabs = result.reason;
   }
 
   // 2. Try OpenAI TTS Fallback

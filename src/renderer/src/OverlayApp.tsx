@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect, useRef, useCallback } from "react";
 import { api } from "./api";
 import { InputBar } from "../overlay/InputBar";
 import { GhostCursor } from "../overlay/GhostCursor";
@@ -424,6 +424,9 @@ const OverlayApp: React.FC = () => {
   const [aiHealthMessage, setAiHealthMessage] = useState("");
   const [aiHealthPills, setAiHealthPills] = useState<any>(null);
   const [specMood, setSpecMood] = useState<SpecMood>("idle");
+  const [isSpeaking, setIsSpeaking] = useState(false);
+  const ghostListenAbortRef = useRef<{ cancelled: boolean } | null>(null);
+  const demoPresentationRef = useRef(false);
   const [behavioralState, setBehavioralState] =
     useState<BehavioralState | null>(null);
   const [behaviorCheckpoints, setBehaviorCheckpoints] = useState<
@@ -476,6 +479,13 @@ const OverlayApp: React.FC = () => {
     void api.setOverlayClickThrough(next);
   };
 
+  const cancelGhostListen = useCallback(() => {
+    if (ghostListenAbortRef.current) {
+      ghostListenAbortRef.current.cancelled = true;
+      ghostListenAbortRef.current = null;
+    }
+  }, []);
+
   const speakIfUltra = (text: string, moment: string) => {
     const currentMode = modeRef.current;
     console.log("[MODE] current mode", { mode: currentMode, moment });
@@ -486,9 +496,12 @@ const OverlayApp: React.FC = () => {
         setUltraState("waitingForUser");
       }, 20_000);
 
+      setIsSpeaking(true);
+      cancelGhostListen();
       void api
         .speak(text)
         .then((result: any) => {
+          setIsSpeaking(false);
           clearTimeout(timeout);
           if (result?.providerUsed) {
             setLastTTSProvider(result.providerUsed);
@@ -498,9 +511,95 @@ const OverlayApp: React.FC = () => {
           } else if (result?.providerUsed === "openai") {
             console.log("[TTS] used OpenAI fallback");
           }
-          setUltraState("waitingForUser");
+          void (async () => {
+            if (modeRef.current !== "ultra" && !demoPresentationRef.current) {
+              setUltraState("waitingForUser");
+              return;
+            }
+
+            cancelGhostListen();
+            const listenCtx = { cancelled: false };
+            ghostListenAbortRef.current = listenCtx;
+            setUltraState("listening");
+
+            const { MicRecorder } = await import("../overlay/MicRecorder");
+            const recorder = new MicRecorder();
+
+            const SPEECH_THRESHOLD = 18;
+            const SILENCE_CONFIRM_MS = 1200;
+            const MAX_LISTEN_MS = 7000;
+            const startedAt = Date.now();
+            let speechDetected = false;
+            let silenceStartAt: number | null = null;
+
+            try {
+              await recorder.start();
+            } catch {
+              ghostListenAbortRef.current = null;
+              setUltraState("waitingForUser");
+              return;
+            }
+
+            await new Promise<void>((resolve) => {
+              const poll = setInterval(() => {
+                if (listenCtx.cancelled || Date.now() - startedAt >= MAX_LISTEN_MS) {
+                  clearInterval(poll);
+                  resolve();
+                  return;
+                }
+                const levels = recorder.getAudioLevels();
+                if (levels) {
+                  const avg =
+                    levels.reduce((s: number, v: number) => s + v, 0) /
+                    levels.length;
+                  if (avg > SPEECH_THRESHOLD) {
+                    speechDetected = true;
+                    silenceStartAt = null;
+                  } else if (speechDetected) {
+                    if (!silenceStartAt) silenceStartAt = Date.now();
+                    else if (Date.now() - silenceStartAt >= SILENCE_CONFIRM_MS) {
+                      clearInterval(poll);
+                      resolve();
+                    }
+                  }
+                }
+              }, 150);
+            });
+
+            if (listenCtx.cancelled) {
+              await recorder.stop().catch(() => {});
+              return;
+            }
+
+            const buffer = await recorder.stop().catch(() => new ArrayBuffer(0));
+
+            if (!buffer.byteLength || !speechDetected) {
+              ghostListenAbortRef.current = null;
+              setUltraState("waitingForUser");
+              return;
+            }
+
+            setUltraState("transcribing");
+            const transcribeResult = await (window as any).api
+              .transcribe(buffer)
+              .catch(() => ({ ok: false }));
+
+            if (listenCtx.cancelled) return;
+            ghostListenAbortRef.current = null;
+
+            if (
+              transcribeResult?.ok &&
+              typeof transcribeResult.text === "string" &&
+              transcribeResult.text.trim()
+            ) {
+              await handleUltraSpokenInput(transcribeResult.text);
+            } else {
+              setUltraState("waitingForUser");
+            }
+          })();
         })
         .catch((error: unknown) => {
+          setIsSpeaking(false);
           clearTimeout(timeout);
           console.error("[TTS] error fallback", error);
           setLastTTSProvider("macos");
@@ -606,6 +705,7 @@ const OverlayApp: React.FC = () => {
   };
 
   const handleUltraSpokenInput = async (text: string) => {
+    cancelGhostListen();
     if (mode !== "ultra") return;
 
     setUltraState("thinking");
@@ -1004,6 +1104,7 @@ const OverlayApp: React.FC = () => {
   // Proactive context + prediction when overlay becomes visible
   useEffect(() => {
     if (!isVisible) {
+      cancelGhostListen();
       setScreenState(null);
       return;
     }
@@ -2249,6 +2350,7 @@ const OverlayApp: React.FC = () => {
                   (isVisible || isReplayRunning) && !targetPreviewActive
                 }
                 step={currentStep}
+                isSpeaking={isSpeaking}
               />
               <WalkthroughGuide step={currentStep} />
               <TargetPreviewGhost

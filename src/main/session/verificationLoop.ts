@@ -22,7 +22,11 @@ import {
   getCurrentGoal,
   getCurrentStep,
 } from "./tutorSession";
-import type { ContractStep, SerializedTree } from "../../shared/partA-contract";
+import type {
+  ContractElement,
+  ContractStep,
+  SerializedTree,
+} from "../../shared/partA-contract";
 
 export type InteractionKind = "focus" | "value" | "click" | "window" | "other";
 
@@ -66,6 +70,32 @@ export function evaluateInteraction(
     action: "correct",
     observedLabel: observed.label ?? observed.elementId,
   };
+}
+
+/**
+ * Hit-test a physical-pixel click against the tree's element bboxes. Returns the
+ * smallest (most specific) element whose bbox contains the point, or null.
+ * Click coords and bboxes are both physical screen px (the locked contract), so
+ * no scaling is needed here.
+ */
+export function hitTest(
+  tree: SerializedTree | null,
+  x: number,
+  y: number,
+): ContractElement | null {
+  if (!tree) return null;
+  let best: ContractElement | null = null;
+  let bestArea = Infinity;
+  for (const el of tree.elements) {
+    const [x1, y1, x2, y2] = el.bbox;
+    if (x < x1 || x > x2 || y < y1 || y > y2) continue;
+    const area = Math.max(0, x2 - x1) * Math.max(0, y2 - y1);
+    if (area < bestArea) {
+      best = el;
+      bestArea = area;
+    }
+  }
+  return best;
 }
 
 /**
@@ -148,6 +178,15 @@ async function advanceStepNudge(step: ContractStep): Promise<void> {
  * Subscribe the verification loop to the live AX watcher. Call once at startup
  * (no-op if already attached). Safe to call before the watcher is running —
  * it just registers listeners.
+ *
+ * Signals (in order of precision):
+ *  - "click" {x,y}: hit-test against the current tree → the touched element.
+ *    This is the authoritative signal for click steps.
+ *  - "treeChanged" value (typing): debounced; the focused field's value changed.
+ *  - "axEvent": only used to tag the pending event kind + arm the nudge timer.
+ *
+ * The focus-only path is intentionally NOT used to advance/correct: clicks give
+ * us the real element, and focus changes alone produced false corrections.
  */
 export function startVerification(): void {
   if (attached) return;
@@ -155,23 +194,35 @@ export function startVerification(): void {
 
   axEventWatcher.on("axEvent", (evt: { event: string }) => {
     pendingEventType = evt?.event ?? "";
+    armNudge();
   });
 
+  // Click: the precise signal — hit-test the point against the live tree.
+  axEventWatcher.on("click", (evt: { x: number; y: number }) => {
+    armNudge();
+    const tree = axEventWatcher.getLatestTree();
+    const el = hitTest(tree, evt.x, evt.y);
+    void processObserved({
+      elementId: el?.id ?? null,
+      label: el?.label,
+      kind: "click",
+      tree: tree ?? undefined,
+    });
+  });
+
+  // Tree change: only the typing/value case advances (debounced to a pause).
   axEventWatcher.on("treeChanged", (tree: SerializedTree) => {
     armNudge();
     const observed = observationFromTree(tree);
-
-    if (observed.kind === "value") {
-      // Typing: debounce until the user pauses, then evaluate once.
-      if (typingTimer) clearTimeout(typingTimer);
-      typingTimer = setTimeout(() => void processObserved(observed), TYPING_DEBOUNCE_MS);
-      return;
-    }
-    // Focus / window changes evaluate immediately.
-    void processObserved(observed);
+    if (observed.kind !== "value") return;
+    if (typingTimer) clearTimeout(typingTimer);
+    typingTimer = setTimeout(
+      () => void processObserved(observed),
+      TYPING_DEBOUNCE_MS,
+    );
   });
 
-  safeLog("[VERIFY] attached to axEventWatcher");
+  safeLog("[VERIFY] attached to axEventWatcher (click + typing)");
 }
 
 export function stopVerification(): void {

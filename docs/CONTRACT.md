@@ -37,3 +37,35 @@ the overlay shows the pulse — never a frozen overlay.
 Group B builds against `MOCK_STEP` (exported from the contract file) and a hardcoded `BrainEvent` stream from
 hour 1. Person 2 wires `session:start` / `step:current` to return canned values first, real planner second.
 This is non-negotiable — ship the canned channels by hour 2.
+
+## Group B integration cheat-sheet (Part A is live)
+The renderer reaches the brain through `(window as any).api` (see `src/renderer/src/api.ts`) — same pattern as
+the existing `api.onSpecState`. All of this works **today** with no API key and no Accessibility (falls back to
+`MOCK_TREE`):
+
+```ts
+// 1. (demo only) seed a prior session so the greeting says "Welcome back!"
+await api.seedDemoProfile("Gmail")
+
+// 2. start a goal → greeting, and the brain begins planning step 1
+const { sessionId, greeting } = await api.startTutorSession(
+  "send an email with an attachment", "Gmail")
+speak(greeting)
+
+// 3. subscribe ONCE to brain → overlay push events
+api.onSpecEvent((e) => {
+  switch (e.type) {
+    case "thinking":       showPulse(); break
+    case "step_advanced":  render(e.step); speak(e.step.say); break   // e.step = ContractStep
+    case "step_corrected": flashRed(); render(e.step); speak(e.step.correction); break
+    case "goal_complete":  confetti(e.summary); break                  // e.summary.learned: string[]
+  }
+})
+
+// 4. (optional) poll the current step on reconnect
+const { ok, step } = await api.getCurrentStep()
+```
+
+Rendering a `ContractStep.target`: `bbox` is `[x1,y1,x2,y2]` in **physical px**; divide by `target.screenScale`
+for CSS px. `target` is `null` for read/wait steps (no pointer). Verification is automatic — when the user
+clicks, the brain advances or corrects and pushes the next `spec:event`; Group B does not call advance/verify.

@@ -9,8 +9,10 @@
 import {
   evaluateInteraction,
   processObserved,
+  hitTest,
   type ObservedInteraction,
 } from "../src/main/session/verificationLoop";
+import type { SerializedTree } from "../src/shared/partA-contract";
 import {
   startSession,
   getCurrentStep,
@@ -63,6 +65,24 @@ async function main(): Promise<void> {
     evaluateInteraction(obs("e3"), null).action === "ignore",
     "no active step → ignore",
   );
+
+  console.log("hitTest (click → element):");
+  const tree: SerializedTree = {
+    app: "Gmail",
+    window: "Inbox",
+    screenScale: 2,
+    focusedId: null,
+    elements: [
+      { id: "e3", role: "button", label: "Compose", bbox: [88, 120, 160, 150] },
+      { id: "e17", role: "button", label: "Attach files", bbox: [612, 884, 648, 920] },
+      // a big container overlapping e17, to prove we pick the smallest hit
+      { id: "e0", role: "group", label: "Toolbar", bbox: [600, 880, 900, 940] },
+    ],
+  };
+  assert(hitTest(tree, 630, 900)?.id === "e17", "click inside a button hits it");
+  assert(hitTest(tree, 120, 135)?.id === "e3", "click hits the right button");
+  assert(hitTest(tree, 5, 5) === null, "click in empty space hits nothing");
+  assert(hitTest(null, 10, 10) === null, "null tree is safe");
 
   console.log("processObserved (apply-path, live session):");
   setBrainEventEmitter((e) => events.push(e));

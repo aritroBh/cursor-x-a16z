@@ -71,6 +71,7 @@ let lastVoiceAt = 0;
 let lastBundleId: string | null = null;
 let appSwitches: AppSwitchEvent[] = [];
 let currentWatchBundleId: string | null = null;
+let treeChangedSubscribed = false;
 
 function emptySnapshot(): ContextSnapshot {
   return {
@@ -358,10 +359,15 @@ function startWatcherForApp(bundleId: string): void {
   currentWatchBundleId = bundleId;
   axEventWatcher.start(bundleId);
 
-  // One-time listener for tree changes
-  axEventWatcher.on("treeChanged", async (tree: SerializedTree) => {
-    await buildSnapshotFromTree(tree, "ax-event");
-  });
+  // Subscribe to tree changes exactly once — startWatcherForApp runs on every
+  // app switch, so re-subscribing here would leak listeners and fire the
+  // snapshot builder N times per event.
+  if (!treeChangedSubscribed) {
+    treeChangedSubscribed = true;
+    axEventWatcher.on("treeChanged", async (tree: SerializedTree) => {
+      await buildSnapshotFromTree(tree, "ax-event");
+    });
+  }
 
   safeLog("[CONTEXT] started AX watcher", { bundleId });
 }
@@ -413,7 +419,7 @@ export function stopContextTracking(): void {
 export async function refreshContextNow(
   reason = "manual",
 ): Promise<ContextSnapshot> {
-  return pollContext(reason);
+  return pollContextFallback(reason);
 }
 
 export function getLatestContextSnapshot(): ContextSnapshot {

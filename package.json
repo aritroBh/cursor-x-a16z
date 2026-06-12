@@ -27,6 +27,7 @@
     "test:targetResolver": "npx ts-node scripts/test-targetResolver.ts",
     "test:peekabooAdapter": "npx ts-node --transpile-only scripts/test-peekabooAdapter.ts",
     "test:planNextStep": "npx ts-node --transpile-only scripts/test-planNextStep.ts",
+    "test:tutorSession": "npx ts-node --transpile-only scripts/test-tutorSession.ts",
     "graphify:setup": "bash scripts/setup-graphify.sh",
     "graphify:build": "graphify build .",
     "graphify:update": "graphify auto-update .",

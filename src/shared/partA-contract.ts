@@ -132,3 +132,31 @@ export const MOCK_STEP: ContractStep = {
   correction: null,
   goalComplete: false,
 };
+
+/**
+ * Canned serialized tree for Group B / driver fallback when the live AX tree
+ * isn't available yet (e.g. Accessibility not granted, no foreground app read).
+ */
+export const MOCK_TREE: SerializedTree = {
+  app: "Gmail (browser: Chrome)",
+  window: "Inbox — user@gmail.com",
+  screenScale: 2.0,
+  focusedId: "e42",
+  elements: [
+    { id: "e3", role: "button", label: "Compose", bbox: [88, 120, 160, 150] },
+    {
+      id: "e17",
+      role: "button",
+      label: "Attach files",
+      bbox: [612, 884, 648, 920],
+    },
+    {
+      id: "e42",
+      role: "textfield",
+      label: "Search mail",
+      value: "",
+      bbox: [400, 60, 700, 90],
+      focused: true,
+    },
+  ],
+};

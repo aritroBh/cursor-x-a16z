@@ -36,6 +36,11 @@ import {
   fallbackScreenTargets,
 } from "./ai/screener";
 import { planSteps, converse, ultraConverse } from "./ai/planner";
+import {
+  startSession,
+  getCurrentStep,
+  setBrainEventEmitter,
+} from "./session/tutorSession";
 import { speak, stopSpeaking } from "./ai/tts";
 import { transcribe } from "./ai/whisper";
 import { checkAIHealth } from "./ai/health";
@@ -1389,6 +1394,24 @@ app.whenReady().then(async () => {
     const tree = axEventWatcher.getLatestTree();
     if (!tree) return { ok: false, error: "no tree yet — start a session first" };
     return { ok: true, tree };
+  });
+
+  // Brain → overlay push events (thinking / step_advanced / step_corrected /
+  // goal_complete) flow over a single spec:event channel.
+  setBrainEventEmitter((event) => sendOverlayEvent("spec:event", event));
+
+  // session:start — overlay submits a goal; brain returns sessionId + greeting
+  // and begins planning the first step (delivered via spec:event step_advanced).
+  ipcMain.handle("session:start", async (_event, req) =>
+    startSession(req ?? { goal: "" }),
+  );
+
+  // step:current — overlay polls the latest cached step (alternative to the
+  // spec:event push, e.g. on reconnect).
+  ipcMain.handle("step:current", () => {
+    const step = getCurrentStep();
+    if (!step) return { ok: false, error: "no current step yet" };
+    return { ok: true, step };
   });
 
   ipcMain.handle("agent:compileNoteHtml", async (event, input) => {

@@ -221,6 +221,16 @@ const api = {
   getContextSnapshot: () => ipcRenderer.invoke("context:get"),
   refreshContextSnapshot: () => ipcRenderer.invoke("context:refresh"),
   getProactivePrediction: () => ipcRenderer.invoke("proactive:predict"),
+
+  // Part A — tutor session (one-step-at-a-time loop)
+  startTutorSession: (goal: string, appHint?: string) =>
+    ipcRenderer.invoke("session:start", { goal, appHint }),
+  getCurrentStep: () => ipcRenderer.invoke("step:current"),
+  getPermissionStatus: () => ipcRenderer.invoke("permissions:get"),
+  getDebugTree: () => ipcRenderer.invoke("debug:tree"),
+  // thinking | step_advanced | step_corrected | goal_complete
+  onSpecEvent: (callback: (event: any) => void) =>
+    onIpc("spec:event", callback),
 };
 
 // Expose only the overlay-specific IPC facade.

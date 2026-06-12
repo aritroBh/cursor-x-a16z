@@ -41,6 +41,7 @@ import {
   getCurrentStep,
   setBrainEventEmitter,
 } from "./session/tutorSession";
+import { startVerification } from "./session/verificationLoop";
 import { speak, stopSpeaking } from "./ai/tts";
 import { transcribe } from "./ai/whisper";
 import { checkAIHealth } from "./ai/health";
@@ -1399,6 +1400,10 @@ app.whenReady().then(async () => {
   // Brain → overlay push events (thinking / step_advanced / step_corrected /
   // goal_complete) flow over a single spec:event channel.
   setBrainEventEmitter((event) => sendOverlayEvent("spec:event", event));
+
+  // Verification loop: watch real AX events and advance/correct the session.
+  // Safe to attach before the watcher is running — it only registers listeners.
+  startVerification();
 
   // session:start — overlay submits a goal; brain returns sessionId + greeting
   // and begins planning the first step (delivered via spec:event step_advanced).

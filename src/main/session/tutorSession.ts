@@ -121,6 +121,11 @@ export function getCurrentStep(): ContractStep | null {
   return session?.current ?? null;
 }
 
+/** Active goal, for the correction prompt in the verification loop. */
+export function getCurrentGoal(): string {
+  return session?.goal ?? "";
+}
+
 /**
  * M3 hook: user completed the current step correctly → bank it and plan next.
  */

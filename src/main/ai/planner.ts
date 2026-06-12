@@ -726,6 +726,59 @@ export function resolveStep(
 }
 
 /**
+ * One cheap Claude call to write a friendly correction after a wrong action
+ * (Part A / A4). Falls back to a safe line when no client is configured.
+ */
+export async function writeCorrection(
+  goal: string,
+  expected: { say: string; label: string },
+  observedLabel: string,
+): Promise<string> {
+  const fallback = `Almost — that wasn't quite it. ${expected.say}`;
+  const client = createAnthropicClient();
+  if (!client) return fallback;
+
+  try {
+    const message = await client.messages.create({
+      model: CLAUDE_MODEL,
+      max_tokens: 120,
+      system:
+        "You are a patient software tutor. The learner just interacted with the wrong thing. " +
+        "Write ONE short, encouraging sentence that gently notes the miss and points them to the right target. " +
+        "No preamble, no quotes — just the sentence.",
+      messages: [
+        {
+          role: "user",
+          content: [
+            `GOAL: ${goal}`,
+            `THEY SHOULD: ${expected.say} (target: "${expected.label}")`,
+            `THEY INTERACTED WITH: "${observedLabel}"`,
+            "Write the correction:",
+          ].join("\n"),
+        },
+      ],
+    });
+
+    const text = message.content
+      .flatMap((part) =>
+        part.type === "text" && "text" in part && typeof part.text === "string"
+          ? [part.text]
+          : [],
+      )
+      .join(" ")
+      .trim();
+
+    return text || fallback;
+  } catch (error: any) {
+    safeWarn(
+      "[PLANNER] correction call failed; using fallback",
+      classifyAnthropicError(error),
+    );
+    return fallback;
+  }
+}
+
+/**
  * Plan the SINGLE next step toward `goal`, grounded on the current tree.
  * Returns a ContractStep ready for the overlay. Falls back to a safe step when
  * no API key is configured so the demo never hard-stops.

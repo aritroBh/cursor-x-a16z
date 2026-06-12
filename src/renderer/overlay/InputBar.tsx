@@ -10,7 +10,7 @@ interface InputBarProps {
   onBlur?: () => void;
   onRecordingOverlayMouseEnter?: () => void;
   onRecordingOverlayMouseLeave?: () => void;
-  mode?: "silent" | "ultra";
+  mode?: "silent" | "ultra" | "ghostwiki";
   onUltraSpokenInput?: (text: string) => void;
   onTranscriptionStart?: () => void;
   onTranscriptionEnd?: () => void;

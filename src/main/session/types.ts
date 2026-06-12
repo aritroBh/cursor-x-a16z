@@ -30,6 +30,11 @@ export interface Step {
   };
   axElementIndex?: string;
   axApp?: string;
+  // Optional resolver hints consumed by replayAuto / replay target resolution.
+  selector?: string;
+  targetConfidence?: number;
+  appName?: string;
+  bbox?: { x: number; y: number; width: number; height: number };
 }
 
 export interface Node {

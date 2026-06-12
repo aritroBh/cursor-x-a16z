@@ -43,6 +43,7 @@ import {
 } from "./session/tutorSession";
 import { startVerification } from "./session/verificationLoop";
 import { seedDemoProfile, getProfile } from "./session/skillProfileStore";
+import { getPeekabooStatus } from "./automation/peekabooAdapter";
 import { speak, stopSpeaking } from "./ai/tts";
 import { transcribe } from "./ai/whisper";
 import { checkAIHealth } from "./ai/health";

@@ -77,6 +77,17 @@ if args.count >= 2 {
 let pid = app.processIdentifier
 let axApp = AXUIElementCreateApplication(pid)
 
+// Electron/Chromium apps lazily build their AX tree: without an assistive
+// client signal they expose only a handful of window-chrome nodes (observed:
+// 8 elements for Cursor). Setting AXManualAccessibility forces Chromium to
+// construct the full tree; AXEnhancedUserInterface is the older equivalent
+// some apps still honor. Harmless no-ops on native apps.
+let axTrue = kCFBooleanTrue as CFTypeRef
+let manualErr = AXUIElementSetAttributeValue(
+    axApp, "AXManualAccessibility" as CFString, axTrue)
+_ = AXUIElementSetAttributeValue(
+    axApp, "AXEnhancedUserInterface" as CFString, axTrue)
+
 func axGet(_ elem: AXUIElement, _ attr: String) -> CFTypeRef? {
     var ref: CFTypeRef?
     let err = AXUIElementCopyAttributeValue(elem, attr as CFString, &ref)
@@ -169,13 +180,28 @@ func walk(_ elem: AXUIElement, depth: Int) {
     }
 }
 
-// Walk top-level windows. Fall back to the app element if no windows exist.
-if let windows = axGet(axApp, kAXWindowsAttribute as String) as? [AXUIElement], !windows.isEmpty {
-    for window in windows {
-        walk(window, depth: 0)
+func walkAllWindows(_ root: AXUIElement) {
+    if let windows = axGet(root, kAXWindowsAttribute as String) as? [AXUIElement], !windows.isEmpty {
+        for window in windows {
+            walk(window, depth: 0)
+        }
+    } else {
+        walk(root, depth: 0)
     }
-} else {
-    walk(axApp, depth: 0)
+}
+
+walkAllWindows(axApp)
+
+// Chromium honors AXManualAccessibility asynchronously: the first walk after
+// setting it can still see the shallow chrome-only tree. If the walk came back
+// suspiciously small and we did set the flag, wait for the renderer to build
+// the real tree and walk a fresh app element once more.
+if elements.count < 15 && manualErr == .success {
+    usleep(900_000)
+    elements.removeAll()
+    idx = 0
+    let freshApp = AXUIElementCreateApplication(pid)
+    walkAllWindows(freshApp)
 }
 
 func jsonEscape(_ s: String) -> String {

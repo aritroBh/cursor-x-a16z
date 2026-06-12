@@ -3,6 +3,7 @@ import {
   createAnthropicClient,
   getAnthropicModel,
 } from "./config";
+import { isLabelResolvableInVisibleSet } from "../automation/liveTargetResolver";
 import { safeLog, safeWarn, safeError } from "../logger";
 import type { BehavioralState } from "../session/types";
 import { normalizeBehavioralState } from "../behavioral/model";
@@ -515,6 +516,14 @@ export interface UltraConversePayload {
   screenState?: any;
   sessionHistory?: any[];
   memoryContext?: string;
+  /** Accessibility labels from frontmost app; constrains liveTarget grounding. */
+  visibleAxLabels?: string[];
+}
+
+export interface UltraConverseLiveTarget {
+  targetLabel: string;
+  action: "click" | "type" | "scroll" | "wait";
+  instruction?: string;
 }
 
 export interface UltraConverseResult {
@@ -523,6 +532,35 @@ export interface UltraConverseResult {
   suggestedPrompt?: string;
   shouldSpeak?: boolean;
   shouldStartWalkthrough?: boolean;
+  liveTarget?: UltraConverseLiveTarget;
+  /** Set when model pointed at a label not present in visibleAxLabels / AX tree. */
+  liveTargetUnresolved?: string;
+}
+
+const LIVE_TARGET_ACTIONS = new Set(["click", "type", "scroll", "wait"]);
+
+export function parseUltraLiveTarget(
+  raw: unknown,
+): UltraConverseLiveTarget | undefined {
+  if (!raw || typeof raw !== "object") return undefined;
+  const obj = raw as Record<string, unknown>;
+  const targetLabel =
+    typeof obj.targetLabel === "string" ? obj.targetLabel.trim() : "";
+  const action = obj.action;
+  if (
+    !targetLabel ||
+    typeof action !== "string" ||
+    !LIVE_TARGET_ACTIONS.has(action)
+  ) {
+    return undefined;
+  }
+  const instruction =
+    typeof obj.instruction === "string" ? obj.instruction.trim() : undefined;
+  return {
+    targetLabel,
+    action: action as UltraConverseLiveTarget["action"],
+    ...(instruction ? { instruction } : {}),
+  };
 }
 
 function fallbackUltraReply(message: string): UltraConverseResult {
@@ -567,13 +605,23 @@ export async function ultraConverse(
       content: msg.content,
     }));
 
+    const visibleLabels = (payload.visibleAxLabels || [])
+      .map((label) => String(label).trim())
+      .filter((label) => label.length > 1)
+      .slice(0, 25);
+
+    const liveTargetInstruction =
+      visibleLabels.length > 0
+        ? `If your reply references a specific on-screen control, include liveTarget ONLY when targetLabel exactly matches one of these accessibility-visible labels from the frontmost app: ${JSON.stringify(visibleLabels)}. Never invent menu items or buttons (e.g. "Save", "File") unless they appear in that list. action must be click|type|scroll|wait. Optional instruction: short spoken hint. Omit liveTarget when nothing in the list fits or the reply is purely conversational.`
+        : "If your reply references a specific visible UI element the user should look at or interact with, include liveTarget with targetLabel (concise visible text/accessibility label from the current app only — never generic guesses), action (click|type|scroll|wait), and optional instruction (short spoken hint). Omit liveTarget when the reply is purely conversational with nothing to point at.";
+
     const isProactiveSummon = message.includes("[Proactive summon]");
     const response = await client.messages.create({
       model: CLAUDE_MODEL,
       max_tokens: 700,
       system: isProactiveSummon
-        ? "You are Specter, a friendly ghost assistant on the user's computer. The user summoned you without typing. Use screenState and memoryFromPastSessions to predict what they are doing now (app, page, search, recent activity) and offer one concrete helpful next step. Be conversational and concise (1-3 short sentences; may be read aloud). Do not ask them to repeat context you already have. Return ONLY valid JSON."
-        : "You are Specter, a friendly ghost assistant that lives on the user's computer. You remember workflows the user has done before (provided as memoryFromPastSessions) and can teach them software step by step. Be conversational and concise (1-3 short sentences; replies may be read aloud). When the user asks you to demonstrate, teach, or do something on screen, set intent to start_walkthrough. When memory is relevant, reference it naturally. Return ONLY valid JSON.",
+        ? `You are Specter, a friendly ghost assistant on the user's computer. The user summoned you without typing. Use screenState and memoryFromPastSessions to predict what they are doing now (app, page, search, recent activity) and offer one concrete helpful next step. Be conversational and concise (1-3 short sentences; may be read aloud). Do not ask them to repeat context you already have. ${liveTargetInstruction} Return ONLY valid JSON.`
+        : `You are Specter, a friendly ghost assistant that lives on the user's computer. You remember workflows the user has done before (provided as memoryFromPastSessions) and can teach them software step by step. Be conversational and concise (1-3 short sentences; replies may be read aloud). When the user asks you to demonstrate, teach, or do something on screen, set intent to start_walkthrough. When memory is relevant, reference it naturally. ${liveTargetInstruction} Return ONLY valid JSON.`,
       messages: [
         ...history,
         {
@@ -584,12 +632,15 @@ export async function ultraConverse(
               currentGoal,
               screenState,
               memoryFromPastSessions: memoryContext || null,
+              visibleAxLabels: visibleLabels.length > 0 ? visibleLabels : null,
               requiredShape: {
                 reply: "string (short, conversational)",
                 intent:
                   "answer | start_walkthrough | repeat_step | clarify | stop",
                 shouldSpeak: "boolean",
                 shouldStartWalkthrough: "boolean",
+                liveTarget:
+                  "optional { targetLabel: string, action: click|type|scroll|wait, instruction?: string }",
               },
             },
             null,
@@ -608,6 +659,22 @@ export async function ultraConverse(
       .join("\n");
 
     const result = extractJson(rawText);
+    let liveTarget = parseUltraLiveTarget(result.liveTarget);
+    let liveTargetUnresolved: string | undefined;
+
+    if (liveTarget && visibleLabels.length > 0) {
+      if (
+        !isLabelResolvableInVisibleSet(liveTarget.targetLabel, visibleLabels)
+      ) {
+        liveTargetUnresolved = liveTarget.targetLabel;
+        safeWarn("[ULTRA] liveTarget stripped — not in visible AX labels", {
+          targetLabel: liveTarget.targetLabel,
+          visibleAxLabels: visibleLabels.slice(0, 8),
+        });
+        liveTarget = undefined;
+      }
+    }
+
     return {
       reply:
         typeof result.reply === "string"
@@ -620,6 +687,8 @@ export async function ultraConverse(
         typeof result.shouldStartWalkthrough === "boolean"
           ? result.shouldStartWalkthrough
           : false,
+      ...(liveTarget ? { liveTarget } : {}),
+      ...(liveTargetUnresolved ? { liveTargetUnresolved } : {}),
     };
   } catch (error: any) {
     safeError("[ULTRA] Anthropic converse failed", error);

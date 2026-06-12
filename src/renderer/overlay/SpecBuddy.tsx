@@ -1,6 +1,7 @@
 import React from "react";
 import type { BehavioralState, SpecMood } from "../../main/session/types";
 import { usePerimeterRoam } from "./usePerimeterRoam";
+import { ReasoningBubbles, type ReasoningLine } from "./ReasoningBubbles";
 
 interface SpecBuddyProps {
   mood: SpecMood;
@@ -9,6 +10,7 @@ interface SpecBuddyProps {
   checkpointLabel?: string;
   compact?: boolean;
   pitchMode?: boolean;
+  reasoningLines?: ReasoningLine[];
 }
 
 function labelForMood(mood: SpecMood, state?: BehavioralState): string {
@@ -201,6 +203,7 @@ export const SpecBuddy: React.FC<SpecBuddyProps> = ({
   checkpointLabel,
   compact = false,
   pitchMode = false,
+  reasoningLines = [],
 }) => {
   const { x, y, edge, isMoving, transitionDuration } = usePerimeterRoam(
     enabled,
@@ -327,7 +330,11 @@ export const SpecBuddy: React.FC<SpecBuddyProps> = ({
       {!compact && (
         <div className="spec-buddy__checkpoint">{checkpointLabel}</div>
       )}
-      <div className="spec-buddy__label">{labelForMood(mood, state)}</div>
+      {reasoningLines.length > 0 ? (
+        <ReasoningBubbles lines={reasoningLines} />
+      ) : !compact ? (
+        <div className="spec-buddy__label">{labelForMood(mood, state)}</div>
+      ) : null}
     </div>
   );
 };

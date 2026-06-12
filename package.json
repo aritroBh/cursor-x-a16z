@@ -17,6 +17,8 @@
     "build:mac": "npm run build && electron-builder --mac",
     "build:linux": "npm run build && electron-builder --linux",
     "test:specter": "npx ts-node scripts/test-specter.ts",
+    "test:live-ghost": "npx ts-node --transpile-only scripts/test-live-ghost-unit.ts",
+    "test:ultra-grounding": "npx ts-node --transpile-only scripts/test-ultra-live-target-grounding.ts",
     "security-check": "npx ts-node scripts/security-check.ts",
     "test:vision": "npx ts-node scripts/test-vision.ts",
     "test:vision:live": "npx ts-node scripts/test-vision-live.ts",

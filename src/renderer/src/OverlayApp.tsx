@@ -1,7 +1,8 @@
-import React, { useState, useEffect, useRef, useCallback } from "react";
+import React, { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { api } from "./api";
 import { InputBar } from "../overlay/InputBar";
 import { GhostCursor } from "../overlay/GhostCursor";
+import { GhostActionPlayer } from "../overlay/GhostActionPlayer";
 import { WalkthroughGuide } from "../overlay/WalkthroughGuide";
 import { SpecBuddy } from "../overlay/SpecBuddy";
 import { ModeToggle } from "../overlay/ModeToggle";
@@ -12,6 +13,8 @@ import { GhostWikiPanel } from "../overlay/GhostWikiPanel";
 import { UltraState } from "../overlay/UltraReplyBubble";
 import { ChatThread } from "../overlay/ChatThread";
 import { TargetPreviewGhost } from "../overlay/TargetPreviewGhost";
+import { VoiceMicButton } from "../overlay/VoiceMicButton";
+import { buildReasoningLines } from "../overlay/buildReasoningLines";
 import type {
   BehavioralCheckpoint,
   BehavioralDiff,
@@ -376,11 +379,13 @@ const OverlayApp: React.FC = () => {
     const fetchMode = async () => {
       try {
         const startupMode = await api.getStartupMode();
-        // ghostwiki startup means "demo ready": chat mode, memory one click away.
+        // Demo presentation: voice + reasoning bubbles, no chat HUD.
         if (startupMode === "ghostwiki") {
           setMode("silent");
+          setDemoPresentationMode(true);
         } else if (startupMode === "ultra") {
           setMode("ultra");
+          setDemoPresentationMode(false);
         }
       } catch (err) {
         console.error("Failed to get startup mode", err);
@@ -391,6 +396,12 @@ const OverlayApp: React.FC = () => {
   const [currentStep, setCurrentStep] = useState<any>(null);
   const [replayState, setReplayState] = useState<ReplayState>("idle");
   const [replayMode, setReplayMode] = useState<ReplayMode>(null);
+  const [guideReady, setGuideReady] = useState(false);
+  const guideReadyTimerRef = useRef<number | null>(null);
+  const [liveGhostStep, setLiveGhostStep] = useState<any>(null);
+  const [liveGhostLeaving, setLiveGhostLeaving] = useState(false);
+  const liveGhostTimeoutRef = useRef<number | null>(null);
+  const liveGhostLeaveTimerRef = useRef<number | null>(null);
 
   const [ultraState, setUltraState] = useState<UltraState>("idle");
   const [ultraSessionHistory, setUltraSessionHistory] = useState<any[]>([]);
@@ -426,7 +437,6 @@ const OverlayApp: React.FC = () => {
   const [specMood, setSpecMood] = useState<SpecMood>("idle");
   const [isSpeaking, setIsSpeaking] = useState(false);
   const ghostListenAbortRef = useRef<{ cancelled: boolean } | null>(null);
-  const demoPresentationRef = useRef(false);
   const [behavioralState, setBehavioralState] =
     useState<BehavioralState | null>(null);
   const [behaviorCheckpoints, setBehaviorCheckpoints] = useState<
@@ -449,6 +459,9 @@ const OverlayApp: React.FC = () => {
   );
   const [mirrorCorrectionCount, setMirrorCorrectionCount] = useState(0);
   const [pitchMode, setPitchMode] = useState(false);
+  const [demoPresentationMode, setDemoPresentationMode] = useState(true);
+  const [contextReadActive, setContextReadActive] = useState(false);
+  const [memorySearchActive, setMemorySearchActive] = useState(false);
   const [lastTTSProvider, setLastTTSProvider] = useState<
     "elevenlabs" | "openai" | "macos" | null
   >(null);
@@ -465,10 +478,15 @@ const OverlayApp: React.FC = () => {
   const isInputFocusedRef = useRef(false);
 
   const modeRef = useRef(mode);
+  const demoPresentationRef = useRef(demoPresentationMode);
 
   useEffect(() => {
     modeRef.current = mode;
   }, [mode]);
+
+  useEffect(() => {
+    demoPresentationRef.current = demoPresentationMode;
+  }, [demoPresentationMode]);
 
   const setInteractivity = (interactive: boolean) => {
     // Only go click-through if mouse is out AND input is not focused
@@ -488,8 +506,9 @@ const OverlayApp: React.FC = () => {
 
   const speakIfUltra = (text: string, moment: string) => {
     const currentMode = modeRef.current;
-    console.log("[MODE] current mode", { mode: currentMode, moment });
-    if (currentMode === "ultra") {
+    const demoMode = demoPresentationRef.current;
+    console.log("[MODE] current mode", { mode: currentMode, moment, demoMode });
+    if (currentMode === "ultra" || demoMode) {
       setUltraState("speaking");
       const timeout = setTimeout(() => {
         console.warn("[TTS] speak timeout");
@@ -704,10 +723,76 @@ const OverlayApp: React.FC = () => {
     return { x: 50, y: 50 };
   };
 
+  const clearLiveGhost = (immediate = true) => {
+    if (liveGhostTimeoutRef.current) {
+      window.clearTimeout(liveGhostTimeoutRef.current);
+      liveGhostTimeoutRef.current = null;
+    }
+    if (liveGhostLeaveTimerRef.current) {
+      window.clearTimeout(liveGhostLeaveTimerRef.current);
+      liveGhostLeaveTimerRef.current = null;
+    }
+    if (immediate) {
+      setLiveGhostLeaving(false);
+      setLiveGhostStep(null);
+    }
+  };
+
+  const scheduleLiveGhostDismiss = () => {
+    if (liveGhostTimeoutRef.current) {
+      window.clearTimeout(liveGhostTimeoutRef.current);
+    }
+    liveGhostTimeoutRef.current = window.setTimeout(() => {
+      liveGhostTimeoutRef.current = null;
+      setLiveGhostLeaving(true);
+      liveGhostLeaveTimerRef.current = window.setTimeout(() => {
+        setLiveGhostStep(null);
+        setLiveGhostLeaving(false);
+        liveGhostLeaveTimerRef.current = null;
+      }, 200);
+    }, 6000);
+  };
+
+  const applyLiveTargetFromResult = async (result: any) => {
+    if (result?.liveTargetUnresolved) {
+      const label = String(result.liveTargetUnresolved);
+      console.warn("[LIVE_GHOST] unresolved target", { label });
+      setErrorMessage(
+        `Couldn't highlight "${label}" — that control isn't visible in the current app window.`,
+      );
+      return;
+    }
+    if (!result?.liveTarget) return;
+    const resolved = await api.resolveLiveTarget(
+      result.liveTarget.targetLabel,
+      result.liveTarget.action,
+    );
+    if (!resolved) {
+      console.warn("[LIVE_GHOST] resolve failed", {
+        targetLabel: result.liveTarget.targetLabel,
+      });
+      setErrorMessage(
+        `Couldn't highlight "${result.liveTarget.targetLabel}" on screen.`,
+      );
+      return;
+    }
+    setErrorMessage("");
+    setLiveGhostLeaving(false);
+    setLiveGhostStep({
+      ...resolved,
+      instruction: result.liveTarget.instruction,
+      action: result.liveTarget.action,
+      viewportX: resolved.viewportX,
+      viewportY: resolved.viewportY,
+    });
+    scheduleLiveGhostDismiss();
+  };
+
   const handleUltraSpokenInput = async (text: string) => {
     cancelGhostListen();
-    if (mode !== "ultra") return;
+    if (mode !== "ultra" && !demoPresentationMode) return;
 
+    clearLiveGhost();
     setUltraState("thinking");
     console.log("[ULTRA] user said", { text });
 
@@ -717,58 +802,7 @@ const OverlayApp: React.FC = () => {
       setErrorMessage("Tutor is taking too long to respond. Try again.");
     }, 20_000);
 
-    try {
-      const result = await api.ultraConverse({
-        message: text,
-        mode,
-        currentGoal: intent,
-        currentStep,
-        screenState,
-        sessionHistory: ultraSessionHistory,
-      });
-      clearTimeout(timeout);
-
-      console.log("[ULTRA] tutor reply", result);
-      setUltraSessionHistory((prev) => [
-        ...prev,
-        { role: "user", content: text },
-        { role: "assistant", content: result.reply },
-      ]);
-
-      if (result.shouldSpeak) {
-        console.log("[TTS] speak called");
-        speakIfUltra(result.reply, "tutor reply");
-      } else {
-        setUltraState("waitingForUser");
-      }
-
-      if (
-        result.shouldStartWalkthrough &&
-        !currentStep &&
-        replayState === "idle" &&
-        lastNodeId
-      ) {
-        void replaySavedWorkflow("walkthrough");
-      }
-    } catch (error) {
-      clearTimeout(timeout);
-      console.error("[ULTRA] error", error);
-      setUltraState("error");
-      setTimeout(() => setUltraState("waitingForUser"), 3000);
-    }
-  };
-
-  // Conversational ghost: any typed input becomes a chat turn with Claude.
-  // Memory service is consulted in parallel (capped at 2.5s) so past-session
-  // knowledge flavors the reply without blocking it.
-  const handleChatInput = async (text: string) => {
-    setUltraState("thinking");
-
-    const timeout = setTimeout(() => {
-      setUltraState("waitingForUser");
-      setErrorMessage("Specter is taking too long to respond. Try again.");
-    }, 20_000);
-
+    setMemorySearchActive(true);
     const memoryPromise: Promise<string | null> = Promise.race([
       api
         .ghostwikiQuery(text)
@@ -783,6 +817,84 @@ const OverlayApp: React.FC = () => {
 
     try {
       const memoryContext = await memoryPromise;
+      setMemorySearchActive(false);
+      const result = await api.ultraConverse({
+        message: text,
+        mode,
+        currentGoal: intent,
+        currentStep,
+        screenState,
+        sessionHistory: ultraSessionHistory,
+        memoryContext,
+      });
+      clearTimeout(timeout);
+
+      console.log("[ULTRA] tutor reply", result);
+      setUltraSessionHistory((prev) => [
+        ...prev,
+        { role: "user", content: text },
+        { role: "assistant", content: result.reply },
+      ]);
+
+      if (result.shouldSpeak || demoPresentationMode) {
+        console.log("[TTS] speak called");
+        speakIfUltra(result.reply, "tutor reply");
+      } else {
+        setUltraState("waitingForUser");
+      }
+
+      if (
+        result.shouldStartWalkthrough &&
+        !currentStep &&
+        replayState === "idle" &&
+        lastNodeId
+      ) {
+        void replaySavedWorkflow("walkthrough");
+      } else if (
+        result.intent === "start_walkthrough" ||
+        result.shouldStartWalkthrough
+      ) {
+        await startRealAppTest(text);
+      }
+
+      await applyLiveTargetFromResult(result);
+    } catch (error) {
+      clearTimeout(timeout);
+      setMemorySearchActive(false);
+      console.error("[ULTRA] error", error);
+      setUltraState("error");
+      setTimeout(() => setUltraState("waitingForUser"), 3000);
+    }
+  };
+
+  // Conversational ghost: any typed input becomes a chat turn with Claude.
+  // Memory service is consulted in parallel (capped at 2.5s) so past-session
+  // knowledge flavors the reply without blocking it.
+  const handleChatInput = async (text: string) => {
+    clearLiveGhost();
+    setUltraState("thinking");
+
+    const timeout = setTimeout(() => {
+      setUltraState("waitingForUser");
+      setErrorMessage("Specter is taking too long to respond. Try again.");
+    }, 20_000);
+
+    setMemorySearchActive(true);
+    const memoryPromise: Promise<string | null> = Promise.race([
+      api
+        .ghostwikiQuery(text)
+        .then((res: any) =>
+          res?.ok && typeof res.answer === "string" && res.answer.trim()
+            ? String(res.answer).slice(0, 600)
+            : null,
+        )
+        .catch(() => null),
+      new Promise<null>((resolve) => setTimeout(() => resolve(null), 2500)),
+    ]);
+
+    try {
+      const memoryContext = await memoryPromise;
+      setMemorySearchActive(false);
       const result = await api.ultraConverse({
         message: text,
         mode,
@@ -802,6 +914,8 @@ const OverlayApp: React.FC = () => {
 
       if (modeRef.current === "ultra" && result.shouldSpeak) {
         speakIfUltra(result.reply, "chat reply");
+      } else if (demoPresentationRef.current) {
+        speakIfUltra(result.reply, "demo chat reply");
       } else {
         setUltraState("waitingForUser");
       }
@@ -812,8 +926,11 @@ const OverlayApp: React.FC = () => {
       ) {
         await startRealAppTest(text);
       }
+
+      await applyLiveTargetFromResult(result);
     } catch (error) {
       clearTimeout(timeout);
+      setMemorySearchActive(false);
       console.error("[CHAT] converse error", error);
       setUltraState("error");
       setTimeout(() => setUltraState("waitingForUser"), 3000);
@@ -1113,6 +1230,7 @@ const OverlayApp: React.FC = () => {
 
     void (async () => {
       setUltraState("thinking");
+      setContextReadActive(true);
       try {
         const predictionRes = await api.getProactivePrediction();
         if (cancelled) return;
@@ -1129,20 +1247,19 @@ const OverlayApp: React.FC = () => {
           });
         }
 
-        let shouldSpeak = false;
-        setUltraSessionHistory((prev) => {
-          if (!predictionRes?.prediction || prev.length > 0) return prev;
-          shouldSpeak = true;
-          return [
-            {
-              role: "assistant",
-              content: predictionRes.prediction,
-              proactive: true,
-            },
-          ];
-        });
-        if (shouldSpeak && modeRef.current === "ultra") {
-          speakIfUltra(predictionRes.prediction, "proactive summon");
+        const prediction = predictionRes?.prediction?.trim();
+        if (prediction) {
+          setUltraSessionHistory((prev) => {
+            if (prev.length > 0) return prev;
+            return demoPresentationRef.current
+              ? prev
+              : [{ role: "assistant", content: prediction, proactive: true }];
+          });
+          if (modeRef.current === "ultra" || demoPresentationRef.current) {
+            speakIfUltra(prediction, "proactive summon");
+          } else {
+            setUltraState("waitingForUser");
+          }
         } else {
           setUltraState("waitingForUser");
         }
@@ -1150,6 +1267,8 @@ const OverlayApp: React.FC = () => {
         console.error("[PROACTIVE] summon prediction failed", error);
         setScreenState({ app: "Unknown", coordinates: [] });
         setUltraState("waitingForUser");
+      } finally {
+        if (!cancelled) setContextReadActive(false);
       }
     })();
 
@@ -1291,6 +1410,61 @@ const OverlayApp: React.FC = () => {
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [realAppTargets, replayState]);
+
+  useEffect(() => {
+    const isGhostActionReplay =
+      replayState === "running" &&
+      currentStep &&
+      (replayMode === "walkthrough" || replayMode === "auto");
+    const replayActive =
+      replayState === "running" || mirrorStatus === "running";
+    const isLiveGhost = !replayActive && Boolean(liveGhostStep);
+    const guideStep = isGhostActionReplay
+      ? currentStep
+      : isLiveGhost
+        ? liveGhostStep
+        : null;
+    const stepX = guideStep?.viewportX ?? guideStep?.x;
+    const stepY = guideStep?.viewportY ?? guideStep?.y;
+    const shouldDelayGuide = isGhostActionReplay || isLiveGhost;
+
+    if (guideReadyTimerRef.current) {
+      window.clearTimeout(guideReadyTimerRef.current);
+      guideReadyTimerRef.current = null;
+    }
+
+    if (!shouldDelayGuide || stepX == null || stepY == null) {
+      setGuideReady(!shouldDelayGuide);
+      return;
+    }
+
+    setGuideReady(false);
+    guideReadyTimerRef.current = window.setTimeout(() => {
+      setGuideReady(true);
+      guideReadyTimerRef.current = null;
+    }, 550);
+
+    return () => {
+      if (guideReadyTimerRef.current) {
+        window.clearTimeout(guideReadyTimerRef.current);
+        guideReadyTimerRef.current = null;
+      }
+    };
+  }, [
+    currentStep?.viewportX,
+    currentStep?.x,
+    currentStep?.viewportY,
+    currentStep?.y,
+    liveGhostStep?.viewportX,
+    liveGhostStep?.x,
+    liveGhostStep?.viewportY,
+    liveGhostStep?.y,
+    replayState,
+    replayMode,
+    currentStep,
+    liveGhostStep,
+    mirrorStatus,
+  ]);
 
   // Listen for walkthrough step events (clears loading once first step fires)
   useEffect(() => {
@@ -2275,6 +2449,52 @@ const OverlayApp: React.FC = () => {
         transform: "translateX(-50%)",
       };
 
+  const reasoningLines = useMemo(
+    () =>
+      buildReasoningLines({
+        visible: isVisible || isReplayRunning || isLoading,
+        screenApp: screenState?.app,
+        screenWindowTitle: screenState?.windowTitle,
+        screenSearchHint: screenState?.searchHint,
+        screenTyped: screenState?.recentTypedText,
+        isLoading,
+        loadingMessage,
+        agentStatusMessage,
+        manualConfirmMessage,
+        realAppNotice,
+        ultraState,
+        replayRunning: replayState === "running",
+        currentStepInstruction:
+          currentStep?.instruction || currentStep?.targetLabel || null,
+        mirrorRunning: mirrorStatus === "running",
+        contextReadActive,
+        memorySearchActive,
+      }),
+    [
+      isVisible,
+      isReplayRunning,
+      isLoading,
+      screenState?.app,
+      screenState?.windowTitle,
+      screenState?.searchHint,
+      screenState?.recentTypedText,
+      loadingMessage,
+      agentStatusMessage,
+      manualConfirmMessage,
+      realAppNotice,
+      ultraState,
+      replayState,
+      currentStep?.instruction,
+      currentStep?.targetLabel,
+      mirrorStatus,
+      contextReadActive,
+      memorySearchActive,
+    ],
+  );
+
+  const showHudShell =
+    !demoPresentationMode || showWorkflowCard || showDebugTools;
+
   useEffect(() => {
     if (!realAppTargets || isManualTargetPicking || isReplayRunning) return;
     displayedRealAppTargets.forEach((target, index) => {
@@ -2342,17 +2562,47 @@ const OverlayApp: React.FC = () => {
           const targetPreviewActive = Boolean(
             showWorkflowCard && selectedRealAppTarget && !isReplayRunning,
           );
+          const isGhostActionReplay = Boolean(
+            isReplayRunning &&
+            currentStep &&
+            (replayMode === "walkthrough" || replayMode === "auto"),
+          );
+          const isLiveGhostActive = Boolean(!isReplayRunning && liveGhostStep);
+          const guideStep = isGhostActionReplay
+            ? currentStep
+            : isLiveGhostActive
+              ? liveGhostStep
+              : currentStep;
           return (
             <>
-              <GhostCursor
-                mood={specMood}
-                isVisible={
-                  (isVisible || isReplayRunning) && !targetPreviewActive
-                }
-                step={currentStep}
-                isSpeaking={isSpeaking}
-              />
-              <WalkthroughGuide step={currentStep} />
+              {isGhostActionReplay ? (
+                <GhostActionPlayer
+                  step={currentStep}
+                  isActive={isReplayRunning}
+                />
+              ) : isLiveGhostActive ? (
+                <div
+                  className={`ghost-live-pop${liveGhostLeaving ? " is-leaving" : ""}`}
+                >
+                  <GhostActionPlayer step={liveGhostStep} isActive={true} />
+                </div>
+              ) : (
+                <GhostCursor
+                  mood={specMood}
+                  isVisible={
+                    (isVisible || isReplayRunning) && !targetPreviewActive
+                  }
+                  step={currentStep}
+                  isSpeaking={isSpeaking}
+                />
+              )}
+              {isGhostActionReplay || isLiveGhostActive ? (
+                guideReady ? (
+                  <WalkthroughGuide step={guideStep} />
+                ) : null
+              ) : (
+                <WalkthroughGuide step={currentStep} />
+              )}
               <TargetPreviewGhost
                 target={
                   selectedRealAppTarget
@@ -2380,8 +2630,9 @@ const OverlayApp: React.FC = () => {
               state={displayedBehavior || undefined}
               enabled={isVisible || isReplayRunning || isLoading}
               checkpointLabel={activeCheckpoint?.label}
-              compact={!showDebugTools}
+              compact={!showDebugTools && !demoPresentationMode}
               pitchMode={pitchMode}
+              reasoningLines={demoPresentationMode ? reasoningLines : []}
             />
           )}
 
@@ -2587,7 +2838,7 @@ const OverlayApp: React.FC = () => {
           </div>
         )}
 
-        {isLoading && (
+        {isLoading && !demoPresentationMode && (
           <div
             style={{
               position: "fixed",
@@ -2710,7 +2961,7 @@ const OverlayApp: React.FC = () => {
           </div>
         )}
 
-        {isVisible && !isReplayRunning && (
+        {isVisible && !isReplayRunning && showHudShell && (
           <>
             <div
               ref={hudRef}
@@ -2956,7 +3207,7 @@ const OverlayApp: React.FC = () => {
                 </div>
               )}
 
-              {!showWorkflowCard && (
+              {!showWorkflowCard && !demoPresentationMode && (
                 <div
                   style={{
                     display: "flex",
@@ -2996,7 +3247,7 @@ const OverlayApp: React.FC = () => {
                 </div>
               )}
 
-              {!showWorkflowCard && (
+              {!showWorkflowCard && !demoPresentationMode && (
                 <div
                   onMouseEnter={() => setInteractivity(true)}
                   onMouseLeave={() => setInteractivity(false)}
@@ -3715,6 +3966,23 @@ const OverlayApp: React.FC = () => {
             </div>
           </>
         )}
+
+        {isVisible &&
+          !isReplayRunning &&
+          demoPresentationMode &&
+          !showWorkflowCard && (
+            <VoiceMicButton
+              disabled={isLoading}
+              onSpokenInput={handleUltraSpokenInput}
+              onTranscriptionStart={() => setUltraState("transcribing")}
+              onTranscriptionEnd={() => {
+                if (ultraState === "transcribing")
+                  setUltraState("waitingForUser");
+              }}
+              onMouseEnter={() => setInteractivity(true)}
+              onMouseLeave={() => setInteractivity(false)}
+            />
+          )}
       </div>
     </>
   );

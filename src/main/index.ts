@@ -119,6 +119,10 @@ import {
 } from "./context/contextTracker";
 import { buildProactivePrediction } from "./context/proactivePrediction";
 import {
+  listVisibleAxLabels,
+  resolveLiveTarget,
+} from "./automation/liveTargetResolver";
+import {
   startAmbientAudioListener,
   stopAmbientAudioListener,
 } from "./context/ambientAudio";
@@ -1358,8 +1362,52 @@ app.whenReady().then(async () => {
 
   ipcMain.handle("ultra:converse", async (_event, payload) => {
     safeLog("[ULTRA_IPC] ultra:converse received");
-    return ultraConverse(payload);
+    const visibleAxLabels = await listVisibleAxLabels(25);
+    const result = await ultraConverse({ ...payload, visibleAxLabels });
+
+    if (result.liveTarget) {
+      const resolved = await resolveLiveTarget(
+        result.liveTarget.targetLabel,
+        result.liveTarget.action,
+      );
+      if (!resolved) {
+        safeWarn("[ULTRA_IPC] liveTarget not resolvable after converse", {
+          targetLabel: result.liveTarget.targetLabel,
+          visibleAxLabels: visibleAxLabels.slice(0, 8),
+        });
+        return {
+          ...result,
+          liveTargetUnresolved: result.liveTarget.targetLabel,
+          liveTarget: undefined,
+        };
+      }
+    }
+
+    return result;
   });
+
+  ipcMain.handle(
+    "live:resolveTarget",
+    async (event, payload: { targetLabel?: string; action?: string }) => {
+      if (!validateSender(event, overlayWindow))
+        throw new Error("Unauthorized sender");
+      const targetLabel =
+        typeof payload?.targetLabel === "string"
+          ? payload.targetLabel.trim()
+          : "";
+      const action = payload?.action;
+      if (
+        !targetLabel ||
+        (action !== "click" &&
+          action !== "type" &&
+          action !== "scroll" &&
+          action !== "wait")
+      ) {
+        return null;
+      }
+      return resolveLiveTarget(targetLabel, action);
+    },
+  );
 
   ipcMain.handle("context:get", async () => ({
     ok: true,
@@ -1878,11 +1926,24 @@ app.whenReady().then(async () => {
     try {
       const res = await fetch(`http://127.0.0.1:${port}/health`);
       const data = await res.json();
+      const configuredWikiRoot =
+        process.env.GHOSTWIKI_WIKI_ROOT || "./demo-workflows/event-recap/wiki";
+      const warnings: string[] = [];
+      if (
+        typeof data.wiki_root === "string" &&
+        data.wiki_root !== configuredWikiRoot
+      ) {
+        warnings.push(
+          `Sidecar wiki_root (${data.wiki_root}) differs from app config (${configuredWikiRoot})`,
+        );
+      }
       return {
         active: data.status === "ok",
         mode: data.cognee_enabled ? "cognee" : "fallback",
         cogneeEnabled: data.cognee_enabled,
-        warnings: [],
+        wikiRoot: data.wiki_root || configuredWikiRoot,
+        configuredWikiRoot,
+        warnings,
       };
     } catch (e: any) {
       return {

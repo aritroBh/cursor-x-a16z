@@ -22,6 +22,14 @@ import { isProhibitedAutonomousLabel } from "../clinical/prohibitedActions";
 
 const DEFAULT_WAIT_STEP_MS = 800;
 
+// Clinical keyword gate built for the UCSF EHR vertical. On a general-purpose
+// tutor it can silently skip steps whose labels happen to match clinical verbs
+// (e.g. "Sign Note"). Enabled by default for safety; set
+// CLINICAL_SAFETY_FILTER=false in .env to disable for non-clinical demos.
+function clinicalSafetyFilterEnabled(): boolean {
+  return process.env.CLINICAL_SAFETY_FILTER !== "false";
+}
+
 function clinicalSafetyHaystack(step: Step): string {
   return [
     step.id ?? "",
@@ -53,7 +61,10 @@ export async function replayAutoExecute(steps: Step[]): Promise<void> {
     for (let index = 0; index < steps.length; index++) {
       if (!isActive(controller)) break;
       const step = steps[index];
-      if (isProhibitedAutonomousLabel(clinicalSafetyHaystack(step))) {
+      if (
+        clinicalSafetyFilterEnabled() &&
+        isProhibitedAutonomousLabel(clinicalSafetyHaystack(step))
+      ) {
         safeWarn(
           "[AUTO_REAL_MOUSE] CLINICAL SAFETY: refusing to autonomously execute step matching prohibited action list. Use walkthrough mode for clinician confirmation.",
           {

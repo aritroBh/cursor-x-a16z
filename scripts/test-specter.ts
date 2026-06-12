@@ -1405,6 +1405,96 @@ async function main() {
     "ultraConverse provides fallback replies",
   );
 
+  printHeader("Live Ghost / AX Resolver");
+
+  const liveResolverBody = readFile(
+    "src/main/automation/liveTargetResolver.ts",
+  );
+  const ghostActionPlayerBody = readFile(
+    "src/renderer/overlay/GhostActionPlayer.tsx",
+  );
+  const useGhostTravelBody = readFile("src/renderer/overlay/useGhostTravel.ts");
+
+  check(
+    fileExists("src/main/automation/liveTargetResolver.ts"),
+    "liveTargetResolver module exists",
+  );
+  check(
+    liveResolverBody.includes("export async function listVisibleAxLabels"),
+    "liveTargetResolver exports listVisibleAxLabels",
+  );
+  check(
+    liveResolverBody.includes("export function isLabelResolvableInVisibleSet"),
+    "liveTargetResolver exports isLabelResolvableInVisibleSet",
+  );
+  check(
+    liveResolverBody.includes("AX_DUMP_TIMEOUT_MS = 800"),
+    "liveTargetResolver uses 800ms AX dump timeout",
+  );
+  check(
+    readFile("resources/native/ax-dump.swift").includes(
+      "AXManualAccessibility",
+    ),
+    "ax-dump.swift forces Electron/Chromium full AX tree",
+  );
+  check(
+    mainIndex.includes('"live:resolveTarget"'),
+    "index.ts registers live:resolveTarget IPC",
+  );
+  check(
+    mainIndex.includes("listVisibleAxLabels") &&
+      mainIndex.includes("liveTargetUnresolved"),
+    "ultra:converse enriches AX labels and strips unresolvable liveTarget",
+  );
+  check(
+    preloadBody.includes('"live:resolveTarget"') ||
+      preloadBody.includes("'live:resolveTarget'"),
+    "preload invokes live:resolveTarget",
+  );
+  check(
+    plannerBody.includes("visibleAxLabels") &&
+      plannerBody.includes("liveTargetUnresolved"),
+    "planner constrains liveTarget to visible AX labels",
+  );
+  check(
+    plannerBody.includes("export function parseUltraLiveTarget"),
+    "planner exports parseUltraLiveTarget for validation",
+  );
+  check(
+    overlayAppBody.includes("applyLiveTargetFromResult") &&
+      overlayAppBody.includes("liveTargetUnresolved") &&
+      overlayAppBody.includes("[LIVE_GHOST]"),
+    "OverlayApp surfaces live ghost resolve failures to the user",
+  );
+  check(
+    ghostActionPlayerBody.includes("useGhostTravel") &&
+      ghostActionPlayerBody.includes("ghost-travel-trail"),
+    "GhostActionPlayer uses travel animation hook and trail",
+  );
+  check(
+    useGhostTravelBody.includes('phase === "travel"') &&
+      ghostActionPlayerBody.includes("loop: false"),
+    "live ghost uses single-shot useGhostTravel travel via GhostActionPlayer",
+  );
+  check(
+    readFile("src/main/memorySidecar.ts").includes("GHOSTWIKI_WIKI_ROOT"),
+    "memory sidecar passes GHOSTWIKI_WIKI_ROOT into Python env",
+  );
+  check(
+    mainIndex.includes("wikiRoot") && mainIndex.includes("configuredWikiRoot"),
+    "ghostwiki:health reports wiki root alignment",
+  );
+  check(
+    fileExists("scripts/test-live-target-resolver-runtime.ts"),
+    "runtime AX resolver probe script exists",
+  );
+  const replayAutoBody = readFile("src/main/session/replayAuto.ts");
+  check(
+    replayAutoBody.includes("CLINICAL_SAFETY_FILTER") &&
+      readFile(".env.example").includes("CLINICAL_SAFETY_FILTER"),
+    "clinical safety gate is env-flagged and documented",
+  );
+
   printHeader("AI Backend Fallback Safety");
 
   check(
@@ -1697,6 +1787,26 @@ async function main() {
     }
   } catch (err) {
     report("fail", "AutomationGate tests failed: " + err);
+  }
+
+  try {
+    const { spawnSync } = await import("child_process");
+    const unitProbe = spawnSync(
+      "npx",
+      ["ts-node", "--transpile-only", "scripts/test-live-ghost-unit.ts"],
+      { cwd: root, encoding: "utf-8", timeout: 30_000 },
+    );
+    const unitOutput = `${unitProbe.stdout || ""}${unitProbe.stderr || ""}`;
+    check(
+      unitProbe.status === 0 &&
+        unitOutput.includes("All live-ghost unit tests passed"),
+      "live ghost parser/resolver unit tests pass",
+    );
+    if (unitProbe.status !== 0) {
+      console.log(unitOutput.trim());
+    }
+  } catch (err) {
+    report("fail", "Live ghost parser/resolver unit tests failed: " + err);
   }
 
   try {

@@ -3,6 +3,7 @@ import {
   createAnthropicClient,
   getAnthropicModel,
 } from "./config";
+import { isLabelResolvableInVisibleSet } from "../automation/liveTargetResolver";
 import { safeLog, safeWarn, safeError } from "../logger";
 import type { BehavioralState } from "../session/types";
 import { normalizeBehavioralState } from "../behavioral/model";
@@ -522,6 +523,14 @@ export interface UltraConversePayload {
   screenState?: any;
   sessionHistory?: any[];
   memoryContext?: string;
+  /** Accessibility labels from frontmost app; constrains liveTarget grounding. */
+  visibleAxLabels?: string[];
+}
+
+export interface UltraConverseLiveTarget {
+  targetLabel: string;
+  action: "click" | "type" | "scroll" | "wait";
+  instruction?: string;
 }
 
 export interface UltraConverseResult {
@@ -530,6 +539,35 @@ export interface UltraConverseResult {
   suggestedPrompt?: string;
   shouldSpeak?: boolean;
   shouldStartWalkthrough?: boolean;
+  liveTarget?: UltraConverseLiveTarget;
+  /** Set when model pointed at a label not present in visibleAxLabels / AX tree. */
+  liveTargetUnresolved?: string;
+}
+
+const LIVE_TARGET_ACTIONS = new Set(["click", "type", "scroll", "wait"]);
+
+export function parseUltraLiveTarget(
+  raw: unknown,
+): UltraConverseLiveTarget | undefined {
+  if (!raw || typeof raw !== "object") return undefined;
+  const obj = raw as Record<string, unknown>;
+  const targetLabel =
+    typeof obj.targetLabel === "string" ? obj.targetLabel.trim() : "";
+  const action = obj.action;
+  if (
+    !targetLabel ||
+    typeof action !== "string" ||
+    !LIVE_TARGET_ACTIONS.has(action)
+  ) {
+    return undefined;
+  }
+  const instruction =
+    typeof obj.instruction === "string" ? obj.instruction.trim() : undefined;
+  return {
+    targetLabel,
+    action: action as UltraConverseLiveTarget["action"],
+    ...(instruction ? { instruction } : {}),
+  };
 }
 
 function fallbackUltraReply(message: string): UltraConverseResult {

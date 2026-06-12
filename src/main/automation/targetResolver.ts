@@ -9,7 +9,7 @@ export interface ResolvedTarget {
 }
 
 export function resolveTarget(
-  step: any,
+  _step: any,
   context: {
     hasDOM?: boolean;
     domSelector?: string;

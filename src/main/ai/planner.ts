@@ -3,10 +3,16 @@ import {
   createAnthropicClient,
   getAnthropicModel,
 } from "./config";
-import { isLabelResolvableInVisibleSet } from "../automation/liveTargetResolver";
 import { safeLog, safeWarn, safeError } from "../logger";
 import type { BehavioralState } from "../session/types";
 import { normalizeBehavioralState } from "../behavioral/model";
+import type {
+  ContractStep,
+  PlannerOutput,
+  SerializedTree,
+  ActionType,
+  SkillProfile,
+} from "../../shared/partA-contract";
 
 const CLAUDE_MODEL = getAnthropicModel();
 const STEP_ACTIONS = ["click", "type", "scroll", "wait"];
@@ -516,14 +522,6 @@ export interface UltraConversePayload {
   screenState?: any;
   sessionHistory?: any[];
   memoryContext?: string;
-  /** Accessibility labels from frontmost app; constrains liveTarget grounding. */
-  visibleAxLabels?: string[];
-}
-
-export interface UltraConverseLiveTarget {
-  targetLabel: string;
-  action: "click" | "type" | "scroll" | "wait";
-  instruction?: string;
 }
 
 export interface UltraConverseResult {
@@ -532,35 +530,6 @@ export interface UltraConverseResult {
   suggestedPrompt?: string;
   shouldSpeak?: boolean;
   shouldStartWalkthrough?: boolean;
-  liveTarget?: UltraConverseLiveTarget;
-  /** Set when model pointed at a label not present in visibleAxLabels / AX tree. */
-  liveTargetUnresolved?: string;
-}
-
-const LIVE_TARGET_ACTIONS = new Set(["click", "type", "scroll", "wait"]);
-
-export function parseUltraLiveTarget(
-  raw: unknown,
-): UltraConverseLiveTarget | undefined {
-  if (!raw || typeof raw !== "object") return undefined;
-  const obj = raw as Record<string, unknown>;
-  const targetLabel =
-    typeof obj.targetLabel === "string" ? obj.targetLabel.trim() : "";
-  const action = obj.action;
-  if (
-    !targetLabel ||
-    typeof action !== "string" ||
-    !LIVE_TARGET_ACTIONS.has(action)
-  ) {
-    return undefined;
-  }
-  const instruction =
-    typeof obj.instruction === "string" ? obj.instruction.trim() : undefined;
-  return {
-    targetLabel,
-    action: action as UltraConverseLiveTarget["action"],
-    ...(instruction ? { instruction } : {}),
-  };
 }
 
 function fallbackUltraReply(message: string): UltraConverseResult {
@@ -693,5 +662,271 @@ export async function ultraConverse(
   } catch (error: any) {
     safeError("[ULTRA] Anthropic converse failed", error);
     return fallbackUltraReply(message);
+  }
+}
+
+export function resolveStep(
+  output: PlannerOutput,
+  tree: SerializedTree,
+  stepId: number,
+): ContractStep {
+  const el =
+    output.element_id != null
+      ? tree.elements.find((e) => e.id === output.element_id)
+      : undefined;
+
+  return {
+    stepId,
+    say: output.say,
+    target: el
+      ? {
+          elementId: el.id,
+          role: el.role,
+          label: el.label,
+          bbox: el.bbox,
+          screenScale: tree.screenScale,
+        }
+      : null,
+    actionType: output.action_type,
+    status: output.goal_complete ? "goal_done" : "active",
+    correction: null,
+    goalComplete: output.goal_complete,
+  };
+}
+
+const PROFICIENCY_LADDER: SkillProfile["proficiency"][] = [
+  "beginner",
+  "beginner+",
+  "intermediate",
+  "advanced",
+];
+
+/** Heuristic profile update when no LLM is available (or as the fallback). */
+function mergeProfileHeuristic(
+  goal: string,
+  completedSays: string[],
+  corrections: number,
+  prior: SkillProfile | null,
+): SkillProfile {
+  const base: SkillProfile = prior ?? {
+    proficiency: "beginner",
+    knows: [],
+    struggledWith: [],
+  };
+  const learned = goal.trim();
+  const knows = Array.from(new Set([...base.knows, learned])).filter(Boolean);
+  // Nudge proficiency up one rung on a clean run, no change if they struggled.
+  const idx = PROFICIENCY_LADDER.indexOf(base.proficiency);
+  const proficiency =
+    corrections === 0 && idx >= 0 && idx < PROFICIENCY_LADDER.length - 1
+      ? PROFICIENCY_LADDER[idx + 1]
+      : base.proficiency;
+  const struggledWith =
+    corrections > 0
+      ? Array.from(new Set([...base.struggledWith, learned]))
+      : base.struggledWith.filter((s) => s !== learned);
+  return {
+    proficiency,
+    knows,
+    struggledWith,
+    notes: `Completed "${learned}" in ${completedSays.length} steps with ${corrections} correction(s).`,
+  };
+}
+
+/**
+ * Summarize a finished session into an updated SkillProfile (Part A / A5).
+ * One Claude call; falls back to a heuristic merge when no client is configured.
+ */
+export async function summarizeSession(
+  goal: string,
+  completedSays: string[],
+  corrections: number,
+  prior: SkillProfile | null,
+): Promise<SkillProfile> {
+  const fallback = mergeProfileHeuristic(goal, completedSays, corrections, prior);
+  const client = createAnthropicClient();
+  if (!client) return fallback;
+
+  try {
+    const message = await client.messages.create({
+      model: CLAUDE_MODEL,
+      max_tokens: 300,
+      system:
+        "You maintain a learner's per-app skill profile. Given the goal they just completed, the steps taken, " +
+        "how many corrections they needed, and their prior profile, return an UPDATED profile as strict JSON: " +
+        '{ "proficiency": "beginner|beginner+|intermediate|advanced", "knows": string[], "struggledWith": string[], "notes": string }. ' +
+        "Add the completed skill to knows. Put topics that needed corrections in struggledWith. Be concise.",
+      messages: [
+        {
+          role: "user",
+          content: JSON.stringify(
+            { goal, steps: completedSays, corrections, priorProfile: prior },
+            null,
+            2,
+          ),
+        },
+      ],
+    });
+    const rawText = message.content
+      .flatMap((part) =>
+        part.type === "text" && "text" in part && typeof part.text === "string"
+          ? [part.text]
+          : [],
+      )
+      .join("\n");
+    const parsed = extractJson(rawText);
+    return {
+      proficiency: PROFICIENCY_LADDER.includes(parsed?.proficiency)
+        ? parsed.proficiency
+        : fallback.proficiency,
+      knows: Array.isArray(parsed?.knows)
+        ? parsed.knows.filter((k: any) => typeof k === "string")
+        : fallback.knows,
+      struggledWith: Array.isArray(parsed?.struggledWith)
+        ? parsed.struggledWith.filter((k: any) => typeof k === "string")
+        : fallback.struggledWith,
+      notes: typeof parsed?.notes === "string" ? parsed.notes : fallback.notes,
+    };
+  } catch (error: any) {
+    safeWarn(
+      "[PLANNER] session summary failed; using heuristic",
+      classifyAnthropicError(error),
+    );
+    return fallback;
+  }
+}
+
+/**
+ * One cheap Claude call to write a friendly correction after a wrong action
+ * (Part A / A4). Falls back to a safe line when no client is configured.
+ */
+export async function writeCorrection(
+  goal: string,
+  expected: { say: string; label: string },
+  observedLabel: string,
+): Promise<string> {
+  const fallback = `Almost — that wasn't quite it. ${expected.say}`;
+  const client = createAnthropicClient();
+  if (!client) return fallback;
+
+  try {
+    const message = await client.messages.create({
+      model: CLAUDE_MODEL,
+      max_tokens: 120,
+      system:
+        "You are a patient software tutor. The learner just interacted with the wrong thing. " +
+        "Write ONE short, encouraging sentence that gently notes the miss and points them to the right target. " +
+        "No preamble, no quotes — just the sentence.",
+      messages: [
+        {
+          role: "user",
+          content: [
+            `GOAL: ${goal}`,
+            `THEY SHOULD: ${expected.say} (target: "${expected.label}")`,
+            `THEY INTERACTED WITH: "${observedLabel}"`,
+            "Write the correction:",
+          ].join("\n"),
+        },
+      ],
+    });
+
+    const text = message.content
+      .flatMap((part) =>
+        part.type === "text" && "text" in part && typeof part.text === "string"
+          ? [part.text]
+          : [],
+      )
+      .join(" ")
+      .trim();
+
+    return text || fallback;
+  } catch (error: any) {
+    safeWarn(
+      "[PLANNER] correction call failed; using fallback",
+      classifyAnthropicError(error),
+    );
+    return fallback;
+  }
+}
+
+/**
+ * Plan the SINGLE next step toward `goal`, grounded on the current tree.
+ * Returns a ContractStep ready for the overlay. Falls back to a safe step when
+ * no API key is configured so the demo never hard-stops.
+ */
+export async function planNextStep(
+  goal: string,
+  tree: SerializedTree,
+  completed: ContractStep[],
+  profileSummary: string,
+  stepId: number,
+): Promise<ContractStep> {
+  const client = createAnthropicClient();
+
+  if (!client) {
+    safeWarn("[PLANNER] No Anthropic client; single-step fallback");
+    const first = tree.elements[0];
+    return resolveStep(
+      {
+        say: "Let's start with the first thing on screen.",
+        element_id: first ? first.id : null,
+        action_type: "click",
+        goal_complete: false,
+      },
+      tree,
+      stepId,
+    );
+  }
+
+  try {
+    const message = await client.messages.create({
+      model: CLAUDE_MODEL,
+      max_tokens: 512,
+      system: SINGLE_STEP_SYSTEM_PROMPT,
+      messages: [
+        {
+          role: "user",
+          content: [
+            `GOAL: ${goal}`,
+            profileSummary ? `USER PROFILE: ${profileSummary}` : "",
+            completed.length
+              ? `STEPS DONE: ${completed.map((s) => s.say).join(" | ")}`
+              : "STEPS DONE: (none yet)",
+            "",
+            "SCREEN:",
+            compactTreeText(tree),
+          ]
+            .filter(Boolean)
+            .join("\n"),
+        },
+      ],
+    });
+
+    const rawText = message.content
+      .flatMap((part) =>
+        part.type === "text" && "text" in part && typeof part.text === "string"
+          ? [part.text]
+          : [],
+      )
+      .join("\n");
+
+    safeLog("[PLANNER] Single-step raw:", rawText);
+    return resolveStep(normalizePlannerOutput(extractJson(rawText)), tree, stepId);
+  } catch (error: any) {
+    safeError(
+      "[AI_BACKEND] Single-step planner unavailable; using fallback",
+      classifyAnthropicError(error),
+    );
+    const first = tree.elements[0];
+    return resolveStep(
+      {
+        say: "Let's keep going with the next step.",
+        element_id: first ? first.id : null,
+        action_type: "click",
+        goal_complete: false,
+      },
+      tree,
+      stepId,
+    );
   }
 }

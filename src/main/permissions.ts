@@ -154,3 +154,22 @@ export function isPermissionError(err: unknown): boolean {
   }
   return false;
 }
+
+type PermissionGrant = "granted" | "denied" | "not-determined";
+
+function toGrant(status: string): PermissionGrant {
+  if (status === "authorized") return "granted";
+  if (status === "denied" || status === "restricted") return "denied";
+  return "not-determined";
+}
+
+/** Returns the current AX + screen permission status for the overlay onboarding. */
+export function getPermissionStatus(): {
+  accessibility: PermissionGrant;
+  screen: PermissionGrant;
+} {
+  return {
+    accessibility: toGrant(getAuthStatus("accessibility")),
+    screen: toGrant(getAuthStatus("screen")),
+  };
+}

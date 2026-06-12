@@ -18,6 +18,8 @@ import {
   persistContextSnapshot,
 } from "./contextStorage";
 import { getRecentTypedText } from "./typedContextBuffer";
+import { axEventWatcher } from "./axEventWatcher";
+import type { SerializedTree } from "../../shared/partA-contract";
 
 export interface ActivityHint {
   actionType: string;
@@ -46,9 +48,8 @@ export interface ContextSnapshot {
   typingBurstCount: number;
 }
 
-const POLL_INTERVAL_MS = 3_000;
 const HISTORY_MAX = 40;
-const PERSIST_EVERY_N_POLLS = 3;
+const FALLBACK_POLL_INTERVAL_MS = 15_000;
 
 const BROWSER_BUNDLES = new Set([
   "com.google.Chrome",
@@ -60,7 +61,7 @@ const BROWSER_BUNDLES = new Set([
   "com.operasoftware.Opera",
 ]);
 
-let pollTimer: NodeJS.Timeout | null = null;
+let fallbackPollTimer: NodeJS.Timeout | null = null;
 let pollInflight = false;
 let pollCount = 0;
 let history: ContextSnapshot[] = [];
@@ -69,6 +70,8 @@ let lastVoiceTranscript: string | null = null;
 let lastVoiceAt = 0;
 let lastBundleId: string | null = null;
 let appSwitches: AppSwitchEvent[] = [];
+let currentWatchBundleId: string | null = null;
+let treeChangedSubscribed = false;
 
 function emptySnapshot(): ContextSnapshot {
   return {
@@ -181,9 +184,83 @@ function recordAppSwitch(
 
   lastBundleId = bundleId;
   safeLog("[CONTEXT] app switch", { appName, bundleId });
+
+  // Restart AX watcher for the new app
+  if (
+    bundleId &&
+    isExternalApp({ bundleId, name: appName, pid: 0 } as FrontmostApp)
+  ) {
+    startWatcherForApp(bundleId);
+  }
 }
 
-async function pollContext(reason = "interval"): Promise<ContextSnapshot> {
+async function buildSnapshotFromTree(
+  tree: SerializedTree,
+  reason: string,
+): Promise<ContextSnapshot> {
+  const bundleId = tree.app; // tree.app is the app name from dump
+  const appName = tree.app;
+
+  // Extract window title and URL from the tree
+  const windowEl = tree.elements.find(
+    (el) => el.role === "AXWindow" || el.role === "AXDocument",
+  );
+  const windowTitle = windowEl?.label?.trim() || tree.window || null;
+
+  // Find URL-like elements
+  const urlEl = tree.elements.find((el) => {
+    const value = el.value?.trim() || "";
+    return /^https?:\/\//i.test(value);
+  });
+  const pageUrl = urlEl?.value?.trim() || null;
+
+  // For browsers, also probe the URL
+  let finalPageUrl = pageUrl;
+  if (bundleId && BROWSER_BUNDLES.has(bundleId)) {
+    const probedUrl = await probeBrowserUrl(bundleId);
+    if (probedUrl) finalPageUrl = probedUrl;
+  }
+
+  const clipboardText = pollClipboard();
+
+  const snapshot: ContextSnapshot = {
+    capturedAt: Date.now(),
+    bundleId,
+    appName,
+    windowTitle,
+    pageUrl: finalPageUrl,
+    searchHint: extractSearchHint(windowTitle, finalPageUrl),
+    recentTypedText: getRecentTypedText(),
+    recentClipboard: clipboardText || getRecentClipboardText(),
+    lastVoiceTranscript:
+      lastVoiceAt > Date.now() - 300_000 ? lastVoiceTranscript : null,
+    recentActivity: getRecentActivityHints(12),
+    recentAppSwitches: [...appSwitches].slice(-8),
+    typingBurstCount: getTypingBurstCount(60_000),
+  };
+
+  latestSnapshot = snapshot;
+  history = [...history, snapshot].slice(-HISTORY_MAX);
+
+  if (pollCount % 3 === 0) {
+    persistContextSnapshot(snapshot);
+  }
+
+  safeLog("[CONTEXT] snapshot", {
+    reason,
+    appName,
+    windowTitle: windowTitle?.slice(0, 80) || null,
+    pageUrl: finalPageUrl?.slice(0, 80) || null,
+    searchHint: snapshot.searchHint,
+    typed: snapshot.recentTypedText?.slice(0, 40) || null,
+    typingBurstCount: snapshot.typingBurstCount,
+  });
+  return snapshot;
+}
+
+async function pollContextFallback(
+  reason = "fallback",
+): Promise<ContextSnapshot> {
   if (pollInflight) {
     return latestSnapshot || emptySnapshot();
   }
@@ -249,11 +326,11 @@ async function pollContext(reason = "interval"): Promise<ContextSnapshot> {
     latestSnapshot = snapshot;
     history = [...history, snapshot].slice(-HISTORY_MAX);
 
-    if (pollCount % PERSIST_EVERY_N_POLLS === 0) {
+    if (pollCount % 3 === 0) {
       persistContextSnapshot(snapshot);
     }
 
-    safeLog("[CONTEXT] snapshot", {
+    safeLog("[CONTEXT] fallback snapshot", {
       reason,
       appName,
       windowTitle: windowTitle?.slice(0, 80) || null,
@@ -264,7 +341,7 @@ async function pollContext(reason = "interval"): Promise<ContextSnapshot> {
     });
     return snapshot;
   } catch (error) {
-    safeWarn("[CONTEXT] poll failed", {
+    safeWarn("[CONTEXT] fallback poll failed", {
       reason,
       error: error instanceof Error ? error.message : String(error),
     });
@@ -274,24 +351,65 @@ async function pollContext(reason = "interval"): Promise<ContextSnapshot> {
   }
 }
 
+function startWatcherForApp(bundleId: string): void {
+  if (currentWatchBundleId === bundleId) return;
+  if (currentWatchBundleId) {
+    axEventWatcher.stop();
+  }
+  currentWatchBundleId = bundleId;
+  axEventWatcher.start(bundleId);
+
+  // Subscribe to tree changes exactly once — startWatcherForApp runs on every
+  // app switch, so re-subscribing here would leak listeners and fire the
+  // snapshot builder N times per event.
+  if (!treeChangedSubscribed) {
+    treeChangedSubscribed = true;
+    axEventWatcher.on("treeChanged", async (tree: SerializedTree) => {
+      await buildSnapshotFromTree(tree, "ax-event");
+    });
+  }
+
+  safeLog("[CONTEXT] started AX watcher", { bundleId });
+}
+
 export function startContextTracking(): void {
-  if (pollTimer) return;
+  if (fallbackPollTimer) return;
   history = loadPersistedContextHistory().slice(-HISTORY_MAX);
   if (history.length > 0) {
     latestSnapshot = history[history.length - 1];
     lastBundleId = latestSnapshot.bundleId;
   }
-  void pollContext("startup");
-  pollTimer = setInterval(() => {
-    void pollContext("interval");
-  }, POLL_INTERVAL_MS);
-  safeLog("[CONTEXT] tracking started", { intervalMs: POLL_INTERVAL_MS });
+
+  // Initial snapshot via fallback
+  void pollContextFallback("startup");
+
+  // Start fallback poll for browsers / when AX watcher isn't available
+  fallbackPollTimer = setInterval(() => {
+    void pollContextFallback("fallback-interval");
+  }, FALLBACK_POLL_INTERVAL_MS);
+
+  // Also start AX watcher for the current foreground app
+  void (async () => {
+    const frontmost = await getFrontmostApp();
+    if (frontmost && isExternalApp(frontmost)) {
+      const bundleId = frontmost.bundleId || frontmost.name || "";
+      if (bundleId) startWatcherForApp(bundleId);
+    }
+  })();
+
+  safeLog("[CONTEXT] tracking started (event-driven + fallback)", {
+    fallbackIntervalMs: FALLBACK_POLL_INTERVAL_MS,
+  });
 }
 
 export function stopContextTracking(): void {
-  if (pollTimer) {
-    clearInterval(pollTimer);
-    pollTimer = null;
+  if (fallbackPollTimer) {
+    clearInterval(fallbackPollTimer);
+    fallbackPollTimer = null;
+  }
+  if (currentWatchBundleId) {
+    axEventWatcher.stop();
+    currentWatchBundleId = null;
   }
   if (latestSnapshot) {
     persistContextSnapshot(latestSnapshot);
@@ -301,7 +419,7 @@ export function stopContextTracking(): void {
 export async function refreshContextNow(
   reason = "manual",
 ): Promise<ContextSnapshot> {
-  return pollContext(reason);
+  return pollContextFallback(reason);
 }
 
 export function getLatestContextSnapshot(): ContextSnapshot {

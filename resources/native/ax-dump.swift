@@ -14,6 +14,10 @@ import ApplicationServices
 let args = CommandLine.arguments
 let target: String
 
+// Module-level state for click detection
+var g_clickTap: CFMachPort?
+var g_clickRunLoopSource: CFRunLoopSource?
+
 func findApp(_ identifier: String) -> NSRunningApplication? {
     if let app = NSRunningApplication.runningApplications(withBundleIdentifier: identifier).first {
         return app
@@ -35,6 +39,110 @@ func jsonString(_ value: String?) -> String {
         .replacingOccurrences(of: "\r", with: "\\r")
         .replacingOccurrences(of: "\t", with: "\\t")
     return "\"\(escaped)\""
+}
+
+// Module-level state for --watch mode (global so @convention(c) callbacks can reach it).
+var g_watchPid: pid_t = 0
+
+// Emits a single-line JSON event to stdout so the Node process can read it.
+func emitWatchEvent(_ name: String) {
+    let line = "{\"event\":\"\(jsonString(name) != "null" ? name : "unknown")\",\"pid\":\(g_watchPid)}\n"
+    FileHandle.standardOutput.write(line.data(using: .utf8)!)
+}
+
+// --watch <bundle-id|app-name>  (or --watch alone = frontmost app)
+// Registers an AXObserver on the target app and streams JSON events to stdout
+// whenever AX notifications fire. The Node side re-dumps the tree on each event.
+if args.count >= 2 && args[1] == "--watch" {
+    let watchTarget: String
+    let watchApp: NSRunningApplication
+    if args.count >= 3 {
+        watchTarget = args[2]
+        guard let resolved = findApp(watchTarget) else {
+            FileHandle.standardError.write("not-found:\(watchTarget)\n".data(using: .utf8)!)
+            exit(3)
+        }
+        watchApp = resolved
+    } else {
+        guard let frontmost = NSWorkspace.shared.frontmostApplication else {
+            FileHandle.standardError.write("no-frontmost-app\n".data(using: .utf8)!)
+            exit(4)
+        }
+        watchApp = frontmost
+        watchTarget = frontmost.bundleIdentifier ?? frontmost.localizedName ?? "unknown"
+    }
+
+    g_watchPid = watchApp.processIdentifier
+    let watchAxApp = AXUIElementCreateApplication(g_watchPid)
+
+    var observer: AXObserver?
+    let observerCallback: AXObserverCallback = { _, _, notification, _ in
+        emitWatchEvent(notification as String)
+    }
+
+    guard AXObserverCreate(g_watchPid, observerCallback, &observer) == .success,
+          let obs = observer else {
+        FileHandle.standardError.write("observer-create-failed\n".data(using: .utf8)!)
+        exit(5)
+    }
+
+    let notifications: [String] = [
+        kAXFocusedUIElementChangedNotification as String,
+        kAXValueChangedNotification as String,
+        kAXWindowCreatedNotification as String,
+        kAXTitleChangedNotification as String,
+        kAXUIElementDestroyedNotification as String,
+        kAXSelectedChildrenChangedNotification as String,
+    ]
+    for note in notifications {
+        AXObserverAddNotification(obs, watchAxApp, note as CFString, nil)
+    }
+
+    CFRunLoopAddSource(CFRunLoopGetCurrent(), AXObserverGetRunLoopSource(obs), .defaultMode)
+
+    // Also start global click detection via CGEvent tap (requires Input Monitoring permission)
+    startClickTap(pid: g_watchPid)
+
+    // Emit a ready marker so the Node side knows the watcher is up.
+    emitWatchEvent("watch_ready")
+    CFRunLoopRun()
+    exit(0)
+}
+
+// MARK: - Click Detection via CGEvent Tap
+
+func startClickTap(pid: pid_t) {
+    let eventMask = (1 << CGEventType.leftMouseDown.rawValue) | (1 << CGEventType.rightMouseDown.rawValue)
+    guard let tap = CGEvent.tapCreate(
+        tap: .cgSessionEventTap,
+        place: .headInsertEventTap,
+        options: .defaultTap,
+        eventsOfInterest: CGEventMask(eventMask),
+        callback: { _, type, event, _ in
+            let location = event.location
+            let clickEvent = "{\"event\":\"click\",\"x\":\(location.x),\"y\":\(location.y),\"pid\":\(g_watchPid),\"button\":\(type == .leftMouseDown ? "\"left\"" : "\"right\"")}\n"
+            FileHandle.standardOutput.write(clickEvent.data(using: .utf8)!)
+            return Unmanaged.passRetained(event)
+        },
+        userInfo: nil
+    ) else {
+        FileHandle.standardError.write("click-tap-create-failed\n".data(using: .utf8)!)
+        return
+    }
+    g_clickTap = tap
+    let runLoopSource = CFMachPortCreateRunLoopSource(kCFAllocatorDefault, tap, 0)
+    g_clickRunLoopSource = runLoopSource
+    CFRunLoopAddSource(CFRunLoopGetCurrent(), runLoopSource, .defaultMode)
+    CGEvent.tapEnable(tap: tap, enable: true)
+}
+
+func stopClickTap() {
+    if let tap = g_clickTap {
+        CGEvent.tapEnable(tap: tap, enable: false)
+        CFRunLoopRemoveSource(CFRunLoopGetCurrent(), g_clickRunLoopSource, .defaultMode)
+        g_clickTap = nil
+        g_clickRunLoopSource = nil
+    }
 }
 
 // `--frontmost-only` is a fast probe used by the main process to capture the

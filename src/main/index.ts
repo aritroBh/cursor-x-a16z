@@ -13,7 +13,12 @@ import { join } from "path";
 import { electronApp, optimizer, is } from "@electron-toolkit/utils";
 import { uIOhook, UiohookKey } from "uiohook-napi";
 
-import { checkPermissions, isPermissionError } from "./permissions";
+import {
+  checkPermissions,
+  isPermissionError,
+  getPermissionStatus,
+} from "./permissions";
+import { axEventWatcher } from "./context/axEventWatcher";
 import { registerDashboardIpc, showDashboardWindow } from "./dashboard";
 import { captureScreenBase64 } from "./capture";
 import { clickRealMouse, executeRealMouseSteps, moveRealMouse } from "./cursor";
@@ -31,6 +36,14 @@ import {
   fallbackScreenTargets,
 } from "./ai/screener";
 import { planSteps, converse, ultraConverse } from "./ai/planner";
+import {
+  startSession,
+  getCurrentStep,
+  setBrainEventEmitter,
+} from "./session/tutorSession";
+import { startVerification } from "./session/verificationLoop";
+import { seedDemoProfile, getProfile } from "./session/skillProfileStore";
+import { getPeekabooStatus } from "./automation/peekabooAdapter";
 import { speak, stopSpeaking } from "./ai/tts";
 import { transcribe } from "./ai/whisper";
 import { checkAIHealth } from "./ai/health";
@@ -1421,6 +1434,33 @@ app.whenReady().then(async () => {
   }));
 
   ipcMain.handle("proactive:predict", async () => buildProactivePrediction());
+  // Part-A contract channels ─────────────────────────────────────────────────
+  ipcMain.handle("permissions:get", () => getPermissionStatus());
+  ipcMain.handle("debug:tree", () => {
+    const tree = axEventWatcher.getLatestTree();
+    if (!tree)
+      return { ok: false, error: "no tree yet — start a session first" };
+    return { ok: true, tree };
+  });
+  setBrainEventEmitter((event) => sendOverlayEvent("spec:event", event));
+  startVerification();
+  ipcMain.handle("session:start", async (_event, req) =>
+    startSession(req ?? { goal: "" }),
+  );
+  ipcMain.handle("step:current", () => {
+    const step = getCurrentStep();
+    if (!step) return { ok: false, error: "no current step yet" };
+    return { ok: true, step };
+  });
+  ipcMain.handle("profile:get", (_event, app: string) => ({
+    ok: true,
+    profile: getProfile(app),
+  }));
+  ipcMain.handle("profile:seed-demo", (_event, app?: string) => {
+    seedDemoProfile(app ?? "Gmail");
+    return { ok: true };
+  });
+
 
   ipcMain.handle("agent:compileNoteHtml", async (event, input) => {
     if (!validateSender(event, overlayWindow))

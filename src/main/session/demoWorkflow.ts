@@ -1,5 +1,8 @@
 import { BrowserWindow, screen } from "electron";
-import { normalizePracticeWindowTargetToViewportPercent } from "../screenCoordinates";
+import {
+  normalizePracticeWindowTargetToViewportPercent,
+  type ViewportPercentTarget,
+} from "../screenCoordinates";
 import type { Step } from "./types";
 
 export const CONTROLLED_DEMO_NODE_ID = "Specter Controlled Demo";
@@ -17,20 +20,7 @@ const DEMO_TARGETS = {
 function contentTargetPercent(
   window: BrowserWindow | null,
   target: { x: number; y: number },
-): {
-  x: number;
-  y: number;
-  viewportX: number;
-  viewportY: number;
-  coordinateFrame: "viewport";
-  sourceFrame: "practice-window";
-  rawTarget: {
-    x: number;
-    y: number;
-    coordinateFrame: "practice-window";
-  };
-  captureMeta: Step["captureMeta"];
-} {
+): ViewportPercentTarget {
   const contentBounds =
     window && !window.isDestroyed() ? window.getContentBounds() : null;
   const fallbackBounds = screen.getPrimaryDisplay().bounds;

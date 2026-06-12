@@ -10,7 +10,7 @@ interface InputBarProps {
   onBlur?: () => void;
   onRecordingOverlayMouseEnter?: () => void;
   onRecordingOverlayMouseLeave?: () => void;
-  mode?: "silent" | "ultra";
+  mode?: string;
   onUltraSpokenInput?: (text: string) => void;
   onTranscriptionStart?: () => void;
   onTranscriptionEnd?: () => void;
@@ -43,6 +43,34 @@ const MicrophoneIcon = () => (
       strokeLinecap="round"
       strokeLinejoin="round"
       strokeWidth="1.8"
+    />
+  </svg>
+);
+
+const MicrophoneMutedIcon = () => (
+  <svg viewBox="0 0 24 24" aria-hidden="true">
+    <path
+      d="M12 14.5a3.5 3.5 0 0 0 3.5-3.5V6.5a3.5 3.5 0 0 0-7 0V11a3.5 3.5 0 0 0 3.5 3.5Z"
+      fill="none"
+      stroke="currentColor"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      strokeWidth="1.8"
+    />
+    <path
+      d="M5.75 10.5v.75a6.25 6.25 0 0 0 12.5 0v-.75M12 17.5v3M9 20.5h6"
+      fill="none"
+      stroke="currentColor"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      strokeWidth="1.8"
+    />
+    <path
+      d="M4.5 3.5l15 17"
+      fill="none"
+      stroke="currentColor"
+      strokeLinecap="round"
+      strokeWidth="2"
     />
   </svg>
 );
@@ -289,22 +317,40 @@ export const InputBar: React.FC<InputBarProps> = ({
           <button
             type="button"
             className={`input-bar-icon-button input-bar-mic-button ${
-              micState === "recording" ? "is-recording" : ""
+              micState === "recording"
+                ? "is-live"
+                : micState === "transcribing"
+                  ? "is-transcribing"
+                  : "is-muted"
             }`}
-            disabled={disabled || micState !== "idle"}
-            onClick={startRecording}
+            disabled={disabled || micState === "transcribing"}
+            onClick={() => {
+              if (micState === "recording") {
+                void handleConfirm();
+              } else if (micState === "idle") {
+                void startRecording();
+              }
+            }}
             aria-label={
               micState === "recording"
-                ? "Recording in progress"
-                : "Record voice input"
+                ? "Microphone live — click to stop and transcribe"
+                : micState === "transcribing"
+                  ? "Transcribing..."
+                  : "Microphone muted — click to start listening"
             }
             title={
               micState === "recording"
-                ? "Recording in progress"
-                : "Record voice input"
+                ? "Mic live — click to stop"
+                : micState === "transcribing"
+                  ? "Transcribing..."
+                  : "Mic muted — click to talk"
             }
           >
-            <MicrophoneIcon />
+            {micState === "recording" || micState === "transcribing" ? (
+              <MicrophoneIcon />
+            ) : (
+              <MicrophoneMutedIcon />
+            )}
           </button>
           {onNewChat && (
             <button

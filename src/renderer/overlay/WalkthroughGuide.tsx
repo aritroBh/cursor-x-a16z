@@ -28,7 +28,7 @@ export const WalkthroughGuide: React.FC<WalkthroughGuideProps> = ({ step }) => {
     return () => window.removeEventListener("resize", update);
   }, []);
 
-  if (!step || step.type === "idle" || step.action === "wait") return null;
+  if (!step || step.type === "idle") return null;
 
   const x = clampPercent(step.viewportX ?? step.x ?? 50);
   const y = clampPercent(step.viewportY ?? step.y ?? 50);
@@ -36,12 +36,13 @@ export const WalkthroughGuide: React.FC<WalkthroughGuideProps> = ({ step }) => {
   const bubbleAbove = y > 72;
   const hasHint = Boolean(step.instruction || step.targetLabel);
   const isLocked = step.ghostLocked === true;
+  const isWait = step.action === "wait";
   const pixelX = Math.round((x / 100) * dims.width);
   const pixelY = Math.round((y / 100) * dims.height);
 
   return (
     <div
-      className={`walkthrough-guide-container ${isLocked ? "is-locked" : ""}`}
+      className={`walkthrough-guide-container ${isLocked ? "is-locked" : ""} ${isWait ? "is-wait" : ""}`}
       style={{
         transform: `translate3d(${pixelX}px, ${pixelY}px, 0)`,
       }}

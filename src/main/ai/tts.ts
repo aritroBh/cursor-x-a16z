@@ -8,8 +8,8 @@ import { safeLog, safeWarn, safeError } from "../logger";
 import OpenAI from "openai";
 
 const ELEVENLABS_API_URL = "https://api.elevenlabs.io/v1/text-to-speech";
-const RACHEL_VOICE_ID = "21m00Tcm4TlvDq8ikWAM";
-const DEFAULT_MODEL_ID = "eleven_turbo_v2_5";
+const BRIAN_VOICE_ID = "nPczCjzI2devNBz1zQrb";
+const DEFAULT_MODEL_ID = "eleven_flash_v2_5";
 const PROVIDER_TIMEOUT_MS = 20_000;
 
 let activePlayback: ChildProcess | null = null;
@@ -222,7 +222,7 @@ export async function speak(text: string): Promise<SpeakResult> {
   const runId = speechRunId;
   const elevenlabsKey = process.env.ELEVENLABS_API_KEY;
   const openaiKey = process.env.OPENAI_API_KEY;
-  const voiceId = process.env.ELEVENLABS_VOICE_ID || RACHEL_VOICE_ID;
+  const voiceId = process.env.ELEVENLABS_VOICE_ID || BRIAN_VOICE_ID;
   const modelId = process.env.ELEVENLABS_MODEL_ID || DEFAULT_MODEL_ID;
 
   const failures: { elevenlabs?: string; openai?: string } = {};

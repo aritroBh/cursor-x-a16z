@@ -512,6 +512,7 @@ const OverlayApp: React.FC = () => {
       setUltraState("speaking");
       const timeout = setTimeout(() => {
         console.warn("[TTS] speak timeout");
+        cancelGhostListen();
         setUltraState("waitingForUser");
       }, 20_000);
 
@@ -544,7 +545,6 @@ const OverlayApp: React.FC = () => {
             const { MicRecorder } = await import("../overlay/MicRecorder");
             const recorder = new MicRecorder();
 
-            const SPEECH_THRESHOLD = 18;
             const SILENCE_CONFIRM_MS = 1200;
             const MAX_LISTEN_MS = 7000;
             const startedAt = Date.now();
@@ -567,11 +567,17 @@ const OverlayApp: React.FC = () => {
                   return;
                 }
                 const levels = recorder.getAudioLevels();
-                if (levels) {
-                  const avg =
-                    levels.reduce((s: number, v: number) => s + v, 0) /
-                    levels.length;
-                  if (avg > SPEECH_THRESHOLD) {
+                if (levels && levels.length > 0) {
+                  // Use peak value rather than average — much more reliable for speech detection.
+                  // Frequency bins during speech will have several bins with high energy (200+),
+                  // while ambient noise stays mostly under 60 across all bins.
+                  let peak = 0;
+                  for (let i = 0; i < levels.length; i++) {
+                    if (levels[i] > peak) peak = levels[i];
+                  }
+                  // Peak > 80 reliably indicates speech on most microphones in most environments.
+                  // Much more robust than averaging which gets pulled down by silent bins.
+                  if (peak > 80) {
                     speechDetected = true;
                     silenceStartAt = null;
                   } else if (speechDetected) {

@@ -121,15 +121,9 @@ export function useGhostTravel(
     return () => {
       timers.forEach((id) => window.clearTimeout(id));
     };
-  }, [
-    loop,
-    enabled,
-    target?.x,
-    target?.y,
-    travelMs,
-    options?.start?.x,
-    options?.start?.y,
-  ]);
+  // NOTE: options.start intentionally NOT in deps — it seeds lastPosRef once.
+  // Including it restarts mid-flight travel on every parent re-render.
+  }, [loop, enabled, target?.x, target?.y, travelMs]);
 
   const percentX = loop
     ? phase === "enter" || phase === "reset"

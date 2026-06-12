@@ -11,6 +11,7 @@ import type {
   PlannerOutput,
   SerializedTree,
   ActionType,
+  SkillProfile,
 } from "../../shared/partA-contract";
 
 const CLAUDE_MODEL = getAnthropicModel();
@@ -723,6 +724,108 @@ export function resolveStep(
     correction: null,
     goalComplete: output.goal_complete,
   };
+}
+
+const PROFICIENCY_LADDER: SkillProfile["proficiency"][] = [
+  "beginner",
+  "beginner+",
+  "intermediate",
+  "advanced",
+];
+
+/** Heuristic profile update when no LLM is available (or as the fallback). */
+function mergeProfileHeuristic(
+  goal: string,
+  completedSays: string[],
+  corrections: number,
+  prior: SkillProfile | null,
+): SkillProfile {
+  const base: SkillProfile = prior ?? {
+    proficiency: "beginner",
+    knows: [],
+    struggledWith: [],
+  };
+  const learned = goal.trim();
+  const knows = Array.from(new Set([...base.knows, learned])).filter(Boolean);
+  // Nudge proficiency up one rung on a clean run, no change if they struggled.
+  const idx = PROFICIENCY_LADDER.indexOf(base.proficiency);
+  const proficiency =
+    corrections === 0 && idx >= 0 && idx < PROFICIENCY_LADDER.length - 1
+      ? PROFICIENCY_LADDER[idx + 1]
+      : base.proficiency;
+  const struggledWith =
+    corrections > 0
+      ? Array.from(new Set([...base.struggledWith, learned]))
+      : base.struggledWith.filter((s) => s !== learned);
+  return {
+    proficiency,
+    knows,
+    struggledWith,
+    notes: `Completed "${learned}" in ${completedSays.length} steps with ${corrections} correction(s).`,
+  };
+}
+
+/**
+ * Summarize a finished session into an updated SkillProfile (Part A / A5).
+ * One Claude call; falls back to a heuristic merge when no client is configured.
+ */
+export async function summarizeSession(
+  goal: string,
+  completedSays: string[],
+  corrections: number,
+  prior: SkillProfile | null,
+): Promise<SkillProfile> {
+  const fallback = mergeProfileHeuristic(goal, completedSays, corrections, prior);
+  const client = createAnthropicClient();
+  if (!client) return fallback;
+
+  try {
+    const message = await client.messages.create({
+      model: CLAUDE_MODEL,
+      max_tokens: 300,
+      system:
+        "You maintain a learner's per-app skill profile. Given the goal they just completed, the steps taken, " +
+        "how many corrections they needed, and their prior profile, return an UPDATED profile as strict JSON: " +
+        '{ "proficiency": "beginner|beginner+|intermediate|advanced", "knows": string[], "struggledWith": string[], "notes": string }. ' +
+        "Add the completed skill to knows. Put topics that needed corrections in struggledWith. Be concise.",
+      messages: [
+        {
+          role: "user",
+          content: JSON.stringify(
+            { goal, steps: completedSays, corrections, priorProfile: prior },
+            null,
+            2,
+          ),
+        },
+      ],
+    });
+    const rawText = message.content
+      .flatMap((part) =>
+        part.type === "text" && "text" in part && typeof part.text === "string"
+          ? [part.text]
+          : [],
+      )
+      .join("\n");
+    const parsed = extractJson(rawText);
+    return {
+      proficiency: PROFICIENCY_LADDER.includes(parsed?.proficiency)
+        ? parsed.proficiency
+        : fallback.proficiency,
+      knows: Array.isArray(parsed?.knows)
+        ? parsed.knows.filter((k: any) => typeof k === "string")
+        : fallback.knows,
+      struggledWith: Array.isArray(parsed?.struggledWith)
+        ? parsed.struggledWith.filter((k: any) => typeof k === "string")
+        : fallback.struggledWith,
+      notes: typeof parsed?.notes === "string" ? parsed.notes : fallback.notes,
+    };
+  } catch (error: any) {
+    safeWarn(
+      "[PLANNER] session summary failed; using heuristic",
+      classifyAnthropicError(error),
+    );
+    return fallback;
+  }
 }
 
 /**

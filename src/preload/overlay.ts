@@ -228,6 +228,8 @@ const api = {
   getCurrentStep: () => ipcRenderer.invoke("step:current"),
   getPermissionStatus: () => ipcRenderer.invoke("permissions:get"),
   getDebugTree: () => ipcRenderer.invoke("debug:tree"),
+  getSkillProfile: (app: string) => ipcRenderer.invoke("profile:get", app),
+  seedDemoProfile: (app?: string) => ipcRenderer.invoke("profile:seed-demo", app),
   // thinking | step_advanced | step_corrected | goal_complete
   onSpecEvent: (callback: (event: any) => void) =>
     onIpc("spec:event", callback),

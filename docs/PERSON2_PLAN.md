@@ -45,12 +45,26 @@ We keep `planSteps` for the existing walkthrough/demo paths; `planNextStep` is a
 - [ ] Debounce: only evaluate on focus-change or a 2s typing pause (reuse `behavioral/tracker.ts` signals).
 - [ ] Timeout: ~20s with no relevant event → re-speak the current step (gentle nudge).
 
-### M4 — Memory: skill profile + session summary (A5)
-- [ ] Add `SkillProfile` persistence next to `session/storage.ts` (extend `LearningGraph` or a sibling file).
-- [ ] On `session:start`: load the app's profile, build a 2–3 sentence summary, inject into `planNextStep`.
-- [ ] On `goal_complete`: one Claude call summarizes the run → update `knows` / `struggled_with`. Emit
-      `goal_complete` with a `SessionSummary`.
-- [ ] Seed a fake prior session so the "Welcome back!" demo works on a single live run.
+### M4 — Memory: skill profile + session summary (A5) ✅ done
+- [x] `SkillProfile` persistence in `session/skillProfileStore.ts` (JSON under Application Support,
+      `SPECTER_PROFILE_PATH`-overridable for tests).
+- [x] On `session:start`: load the app's profile, inject `profileSummary()` into `planNextStep`, and do the
+      "Welcome back!" greeting when there's prior history.
+- [x] On `goal_complete`: `summarizeSession()` (one Claude call + heuristic fallback) updates `knows` /
+      `struggledWith` / `proficiency`. Emits `goal_complete` with `learned` populated.
+- [x] `profile:seed-demo` IPC + `seedDemoProfile()` for the single-run memory demo.
+- [x] Test: `npm run test:skillProfile`.
+
+---
+
+## Status: M1–M4 complete ✅
+
+All four milestones are built and tested against canned data (no API key / Accessibility needed):
+`npm run test:planNextStep && npm run test:tutorSession && npm run test:verificationLoop && npm run test:skillProfile`
+
+Remaining integration work is shared with Person 1 + Group B: feed real AX events through the verifier
+(ideally with an `elementId` in the watcher payload — see M3 note), and tune the planner prompt against the
+live Gmail-attachment scenario.
 
 ## Files you'll touch
 - `src/main/ai/planner.ts` — add `planNextStep`, `resolveStep` (M1), correction call (M3).

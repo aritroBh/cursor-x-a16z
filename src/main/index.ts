@@ -42,6 +42,7 @@ import {
   setBrainEventEmitter,
 } from "./session/tutorSession";
 import { startVerification } from "./session/verificationLoop";
+import { seedDemoProfile, getProfile } from "./session/skillProfileStore";
 import { speak, stopSpeaking } from "./ai/tts";
 import { transcribe } from "./ai/whisper";
 import { checkAIHealth } from "./ai/health";
@@ -1417,6 +1418,19 @@ app.whenReady().then(async () => {
     const step = getCurrentStep();
     if (!step) return { ok: false, error: "no current step yet" };
     return { ok: true, step };
+  });
+
+  // profile:get — the per-app skill profile (powers greetings / debugging).
+  ipcMain.handle("profile:get", (_event, app: string) => ({
+    ok: true,
+    profile: getProfile(app),
+  }));
+
+  // profile:seed-demo — seed a fake prior session so the "Welcome back!" memory
+  // moment works on a single live demo run.
+  ipcMain.handle("profile:seed-demo", (_event, app?: string) => {
+    seedDemoProfile(app ?? "Gmail");
+    return { ok: true };
   });
 
   ipcMain.handle("agent:compileNoteHtml", async (event, input) => {

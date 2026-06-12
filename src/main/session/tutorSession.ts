@@ -12,9 +12,14 @@
  * M3 (verification) calls advanceStep()/correctStep(); M4 (memory) fills
  * profileSummary on start and the SessionSummary on goal_complete.
  */
-import { planNextStep } from "../ai/planner";
+import { planNextStep, summarizeSession } from "../ai/planner";
 import { axEventWatcher } from "../context/axEventWatcher";
 import { safeLog, safeWarn } from "../logger";
+import {
+  getProfile,
+  profileSummary,
+  setProfile,
+} from "./skillProfileStore";
 import {
   MOCK_TREE,
   type BrainEvent,
@@ -28,6 +33,10 @@ interface TutorSessionState {
   sessionId: string;
   goal: string;
   appHint?: string;
+  /** key used for the per-app skill profile. */
+  appKey: string;
+  /** profile summary injected into every planNextStep call. */
+  profileSummaryText: string;
   completed: ContractStep[];
   current: ContractStep | null;
   stepCounter: number;
@@ -62,20 +71,27 @@ export async function startSession(
       ? req.goal.trim()
       : "get something done";
   const sessionId = makeSessionId();
+  const appKey = req?.appHint?.trim() || "Specter";
+  const prior = getProfile(appKey);
   session = {
     sessionId,
     goal,
     appHint: req?.appHint,
+    appKey,
+    profileSummaryText: profileSummary(appKey),
     completed: [],
     current: null,
     stepCounter: 0,
     corrections: 0,
   };
-  safeLog("[TUTOR] session start", { sessionId, goal });
+  safeLog("[TUTOR] session start", { sessionId, goal, appKey });
 
-  // TODO(M4): replace with the skill-profile memory callback line.
+  // The "Welcome back!" memory moment when we have prior history for this app.
   const where = req?.appHint ? ` in ${req.appHint}` : "";
-  const greeting = `Great — let's work on "${goal}"${where}. I'll guide you one step at a time.`;
+  const greeting =
+    prior && prior.knows.length
+      ? `Welcome back! You've already got ${prior.knows.join(" and ")} down, so let's focus on "${goal}".`
+      : `Great — let's work on "${goal}"${where}. I'll guide you one step at a time.`;
 
   // Plan the first step without blocking the greeting; thinking → step_advanced
   // events drive the overlay.
@@ -91,29 +107,45 @@ async function planNext(): Promise<void> {
 
   const tree = currentTree();
   const stepId = ++session.stepCounter;
-  // TODO(M4): pass the per-app skill-profile summary instead of "".
   const step = await planNextStep(
     session.goal,
     tree,
     session.completed,
-    "",
+    session.profileSummaryText,
     stepId,
   );
   session.current = step;
 
   if (step.goalComplete) {
-    emit({
-      type: "goal_complete",
-      summary: {
-        goal: session.goal,
-        app: tree.app,
-        learned: [],
-        corrections: session.corrections,
-      },
-    });
+    await finalizeGoal();
   } else {
     emit({ type: "step_advanced", step });
   }
+}
+
+/** Goal reached: summarize the run, update the skill profile, celebrate. */
+async function finalizeGoal(): Promise<void> {
+  if (!session) return;
+  const prior = getProfile(session.appKey);
+  const completedSays = session.completed.map((s) => s.say);
+  const updated = await summarizeSession(
+    session.goal,
+    completedSays,
+    session.corrections,
+    prior,
+  );
+  setProfile(session.appKey, updated);
+  safeLog("[TUTOR] goal complete; profile updated", { app: session.appKey });
+
+  emit({
+    type: "goal_complete",
+    summary: {
+      goal: session.goal,
+      app: session.appKey,
+      learned: updated.knows,
+      corrections: session.corrections,
+    },
+  });
 }
 
 /** Latest cached step for step:current polling. */
